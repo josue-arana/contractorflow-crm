@@ -11,16 +11,16 @@ import {
   DollarSign,
   FileText,
   Home,
-  Mail,
-  MapPin,
   Menu,
   MessageSquare,
-  Phone,
   Plus,
+  Save,
   Search,
+  Send,
   Settings,
-  User,
+  Trash2,
   Users,
+  Wrench,
   X,
   Zap,
 } from 'lucide-react'
@@ -36,10 +36,9 @@ function App() {
   const [leads, setLeads] = useState(initialLeads)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
-  const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
-  const [selectedLeadId, setSelectedLeadId] = useState(null)
+  const [currentView, setCurrentView] = useState({ name: 'dashboard' })
 
-  const selectedLead = leads.find((lead) => lead.id === selectedLeadId)
+  const selectedLead = currentView.leadId ? leads.find((lead) => lead.id === currentView.leadId) : null
 
   const metrics = useMemo(() => {
     const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
@@ -63,51 +62,60 @@ function App() {
     )
   }
 
+  function updateEstimate(leadId, estimate) {
+    setLeads((current) =>
+      current.map((lead) =>
+        lead.id === leadId ? { ...lead, estimate, value: getEstimateTotal(estimate.lineItems) } : lead,
+      ),
+    )
+  }
+
+  function renderContent() {
+    if (currentView.name === 'project' && selectedLead) {
+      return (
+        <ProjectDetailPage
+          lead={selectedLead}
+          onBack={() => setCurrentView({ name: 'dashboard' })}
+          onOpenEstimate={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
+        />
+      )
+    }
+
+    if (currentView.name === 'estimate' && selectedLead) {
+      return (
+        <EstimateBuilderPage
+          lead={selectedLead}
+          onBack={() => setCurrentView({ name: 'project', leadId: selectedLead.id })}
+          onSaveEstimate={(estimate) => updateEstimate(selectedLead.id, estimate)}
+        />
+      )
+    }
+
+    return (
+      <DashboardPage
+        leads={leads}
+        metrics={metrics}
+        draggedLeadId={draggedLeadId}
+        setDraggedLeadId={setDraggedLeadId}
+        moveLead={moveLead}
+        onLeadClick={(lead) => setCurrentView({ name: 'project', leadId: lead.id })}
+      />
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <div className="lg:pl-72">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
-
-        <main className="px-4 py-6 sm:px-6 lg:px-8">
-          {selectedLead ? (
-            <ProjectDetailPage
-              lead={selectedLead}
-              statuses={pipelineStatuses}
-              moveLead={moveLead}
-              onBack={() => setSelectedLeadId(null)}
-            />
-          ) : (
-            <DashboardPage
-              leads={leads}
-              metrics={metrics}
-              statuses={pipelineStatuses}
-              draggedLeadId={draggedLeadId}
-              setDraggedLeadId={setDraggedLeadId}
-              selectedMobileStage={selectedMobileStage}
-              setSelectedMobileStage={setSelectedMobileStage}
-              moveLead={moveLead}
-              onOpenLead={setSelectedLeadId}
-            />
-          )}
-        </main>
+        <main className="px-4 py-6 sm:px-6 lg:px-8">{renderContent()}</main>
       </div>
     </div>
   )
 }
 
-function DashboardPage({
-  leads,
-  metrics,
-  statuses,
-  draggedLeadId,
-  setDraggedLeadId,
-  selectedMobileStage,
-  setSelectedMobileStage,
-  moveLead,
-  onOpenLead,
-}) {
+function DashboardPage({ leads, metrics, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
   return (
     <>
       <section className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
@@ -131,13 +139,11 @@ function DashboardPage({
 
       <PipelineBoard
         leads={leads}
-        statuses={statuses}
+        statuses={pipelineStatuses}
         draggedLeadId={draggedLeadId}
         setDraggedLeadId={setDraggedLeadId}
         moveLead={moveLead}
-        selectedMobileStage={selectedMobileStage}
-        setSelectedMobileStage={setSelectedMobileStage}
-        onOpenLead={onOpenLead}
+        onLeadClick={onLeadClick}
       />
     </>
   )
@@ -242,67 +248,19 @@ function MetricCard({ label, value, helper, icon: Icon }) {
   )
 }
 
-function SelectField({ className = '', containerClassName = '', children, ...props }) {
-  return (
-    <div className={`relative ${containerClassName}`.trim()}>
-      <select
-        {...props}
-        className={`w-full appearance-none rounded-2xl border border-slate-200 px-4 py-3 pr-12 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 ${className}`.trim()}
-      >
-        {children}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-    </div>
-  )
-}
-
-function StatusBadge({ status }) {
-  const classes = {
-    'New Lead': 'bg-blue-50 text-blue-700 ring-blue-100',
-    Contacted: 'bg-violet-50 text-violet-700 ring-violet-100',
-    'Estimate Sent': 'bg-amber-50 text-amber-700 ring-amber-100',
-    Won: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
-  }
-
-  return (
-    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1 ${classes[status] || 'bg-slate-100 text-slate-700 ring-slate-200'}`}>
-      {status}
-    </span>
-  )
-}
-
-function PipelineBoard({
-  leads,
-  statuses,
-  draggedLeadId,
-  setDraggedLeadId,
-  moveLead,
-  selectedMobileStage,
-  setSelectedMobileStage,
-  onOpenLead,
-}) {
-  const selectedStageLeads = leads.filter((lead) => lead.status === selectedMobileStage)
+function PipelineBoard({ leads, statuses, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
+  const [mobileStage, setMobileStage] = useState(statuses[0])
+  const mobileLeads = leads.filter((lead) => lead.status === mobileStage)
 
   return (
     <section>
       <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-950">Lead Pipeline</h2>
-          <p className="hidden text-sm text-slate-500 lg:block">Drag cards between stages as prospects move forward. Click a card to open the project workspace.</p>
-          <p className="text-sm text-slate-500 lg:hidden">Choose a stage, then tap a card to open the project workspace.</p>
+          <p className="hidden text-sm text-slate-500 lg:block">Drag cards between stages as prospects move forward.</p>
+          <p className="text-sm text-slate-500 lg:hidden">Choose a stage and update lead status from each card.</p>
         </div>
         <p className="text-sm font-medium text-slate-500">{leads.length} active opportunities</p>
-      </div>
-
-      <div className="lg:hidden">
-        <MobilePipeline
-          leads={selectedStageLeads}
-          statuses={statuses}
-          selectedStage={selectedMobileStage}
-          setSelectedStage={setSelectedMobileStage}
-          moveLead={moveLead}
-          onOpenLead={onOpenLead}
-        />
       </div>
 
       <div className="hidden gap-4 overflow-x-auto pb-4 lg:grid lg:grid-cols-4">
@@ -314,67 +272,45 @@ function PipelineBoard({
             draggedLeadId={draggedLeadId}
             setDraggedLeadId={setDraggedLeadId}
             moveLead={moveLead}
-            onOpenLead={onOpenLead}
+            onLeadClick={onLeadClick}
           />
         ))}
+      </div>
+
+      <div className="lg:hidden">
+        <div className="sticky top-[81px] z-20 mb-4 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
+          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Pipeline Stage</label>
+          <div className="relative">
+            <select
+              value={mobileStage}
+              onChange={(event) => setMobileStage(event.target.value)}
+              className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            >
+              {statuses.map((status) => {
+                const count = leads.filter((lead) => lead.status === status).length
+                return <option key={status} value={status}>{status} ({count})</option>
+              })}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {mobileLeads.map((lead) => (
+            <LeadCard key={lead.id} lead={lead} statuses={statuses} moveLead={moveLead} onLeadClick={onLeadClick} isMobile />
+          ))}
+          {mobileLeads.length === 0 && (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
+              No leads in this stage yet.
+            </div>
+          )}
+        </div>
       </div>
     </section>
   )
 }
 
-function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead, onOpenLead }) {
-  const selectedTotal = leads.reduce((sum, lead) => sum + lead.value, 0)
-
-  return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-      <label htmlFor="mobile-stage" className="mb-2 block text-sm font-semibold text-slate-700">
-        Pipeline stage
-      </label>
-      <SelectField
-        id="mobile-stage"
-        value={selectedStage}
-        onChange={(event) => setSelectedStage(event.target.value)}
-        className="bg-slate-50"
-        containerClassName="mb-4"
-      >
-        {statuses.map((status) => (
-          <option key={status} value={status}>
-            {status}
-          </option>
-        ))}
-      </SelectField>
-
-      <div className="mb-4 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-        <div>
-          <h3 className="font-bold text-slate-900">{selectedStage}</h3>
-          <p className="text-xs text-slate-500">{leads.length} leads · {currency.format(selectedTotal)}</p>
-        </div>
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
-      </div>
-
-      <div className="space-y-3">
-        {leads.map((lead) => (
-          <LeadCard
-            key={lead.id}
-            lead={lead}
-            statuses={statuses}
-            moveLead={moveLead}
-            onOpenLead={onOpenLead}
-            mobile
-          />
-        ))}
-
-        {leads.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-            No leads in this stage yet.
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onOpenLead }) {
+function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
   const total = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -396,7 +332,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
 
       <div className="space-y-3">
         {leads.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} onDragStart={() => setDraggedLeadId(lead.id)} onOpenLead={onOpenLead} />
+          <LeadCard key={lead.id} lead={lead} onDragStart={() => setDraggedLeadId(lead.id)} onLeadClick={onLeadClick} />
         ))}
         {leads.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-400">
@@ -408,7 +344,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
   )
 }
 
-function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, onOpenLead }) {
+function LeadCard({ lead, onDragStart, onLeadClick, statuses = pipelineStatuses, moveLead, isMobile = false }) {
   const priorityClasses = {
     High: 'bg-red-50 text-red-700 ring-red-100',
     Medium: 'bg-amber-50 text-amber-700 ring-amber-100',
@@ -417,10 +353,10 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
 
   return (
     <article
-      draggable={!mobile}
+      draggable={!isMobile}
       onDragStart={onDragStart}
-      onClick={() => onOpenLead?.(lead.id)}
-      className={`${mobile ? '' : 'cursor-grab active:cursor-grabbing'} rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}
+      onClick={() => onLeadClick?.(lead)}
+      className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md lg:cursor-grab lg:active:cursor-grabbing"
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
@@ -452,156 +388,488 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
         <p className="mt-1 text-sm font-medium text-slate-700">{lead.nextStep}</p>
       </div>
 
-      {mobile && (
+      {isMobile && (
         <div className="mt-4" onClick={(event) => event.stopPropagation()}>
-          <label htmlFor={`status-${lead.id}`} className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Change Status
-          </label>
-          <SelectField
-            id={`status-${lead.id}`}
-            value={lead.status}
-            onChange={(event) => moveLead(lead.id, event.target.value)}
-            className="bg-white"
-          >
-            {statuses.map((status) => (
-              <option key={status} value={status}>
-                {status}
-              </option>
-            ))}
-          </SelectField>
+          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Change Status</label>
+          <div className="relative">
+            <select
+              value={lead.status}
+              onChange={(event) => moveLead?.(lead.id, event.target.value)}
+              className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+            >
+              {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          </div>
         </div>
       )}
     </article>
   )
 }
 
-function ProjectDetailPage({ lead, statuses, moveLead, onBack }) {
-  const estimateTotal = lead.estimateItems.reduce((sum, item) => sum + item.amount, 0)
+function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
+  const [openSections, setOpenSections] = useState({
+    customer: true,
+    project: true,
+    timeline: false,
+    estimate: false,
+    photos: false,
+    actions: true,
+  })
+
+  function toggleSection(section) {
+    setOpenSections((current) => ({ ...current, [section]: !current[section] }))
+  }
 
   return (
     <div className="space-y-6">
-      <button
-        onClick={onBack}
-        className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to Pipeline
+      <button onClick={onBack} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+        <ArrowLeft className="h-4 w-4" /> Back to Dashboard
       </button>
 
-      <ProjectHeader lead={lead} statuses={statuses} moveLead={moveLead} />
-
-      <div className="hidden grid-cols-12 gap-6 lg:grid">
-        <div className="col-span-8 space-y-6">
-          <InfoSection title="Project Information" icon={BriefcaseBusiness}>
-            <ProjectInformation lead={lead} />
-          </InfoSection>
-          <InfoSection title="Activity Timeline" icon={CalendarDays}>
-            <ActivityTimeline items={lead.timelineItems} />
-          </InfoSection>
-          <InfoSection title="Estimate Preview" icon={FileText}>
-            <EstimatePreview lead={lead} estimateTotal={estimateTotal} />
-          </InfoSection>
-        </div>
-        <div className="col-span-4 space-y-6">
-          <InfoSection title="Customer Information" icon={User}>
-            <CustomerInformation lead={lead} />
-          </InfoSection>
-          <InfoSection title="Photos" icon={Camera}>
-            <PhotoGrid photos={lead.photos} />
-          </InfoSection>
-          <InfoSection title="Quick Actions" icon={Zap}>
-            <QuickActions lead={lead} />
-          </InfoSection>
-        </div>
-      </div>
-
-      <div className="space-y-4 lg:hidden">
-        <MobileAccordion title="Customer Information" icon={User} defaultOpen>
-          <CustomerInformation lead={lead} />
-        </MobileAccordion>
-        <MobileAccordion title="Project Information" icon={BriefcaseBusiness} defaultOpen>
-          <ProjectInformation lead={lead} />
-        </MobileAccordion>
-        <MobileAccordion title="Activity Timeline" icon={CalendarDays}>
-          <ActivityTimeline items={lead.timelineItems} />
-        </MobileAccordion>
-        <MobileAccordion title="Estimate Preview" icon={FileText}>
-          <EstimatePreview lead={lead} estimateTotal={estimateTotal} />
-        </MobileAccordion>
-        <MobileAccordion title="Photos" icon={Camera}>
-          <PhotoGrid photos={lead.photos} />
-        </MobileAccordion>
-        <MobileAccordion title="Quick Actions" icon={Zap}>
-          <QuickActions lead={lead} />
-        </MobileAccordion>
-      </div>
-    </div>
-  )
-}
-
-function ProjectHeader({ lead, statuses, moveLead }) {
-  return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white sm:p-7">
-        <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-start">
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <StatusBadge status={lead.status} />
-              <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-blue-100 ring-1 ring-white/10">{lead.priority} Priority</span>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle}</h1>
-            <p className="mt-2 text-base font-medium text-slate-300">{lead.client}</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Project Workspace</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle}</h1>
+            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.location}</p>
           </div>
-
-          <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[420px]">
-            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Project Value</p>
-              <p className="mt-1 text-2xl font-bold">{currency.format(lead.value)}</p>
-            </div>
-            <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/10">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">Deposit Target</p>
-              <p className="mt-1 text-2xl font-bold">{currency.format(lead.deposit)}</p>
-            </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="rounded-full bg-blue-500 px-4 py-2 text-sm font-bold text-white">{lead.status}</span>
+            <span className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950">{currency.format(lead.value)}</span>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
-        <HeaderStat label="Location" value={lead.location} icon={MapPin} />
-        <HeaderStat label="Source" value={lead.source} icon={Users} />
-        <HeaderStat label="Timeline" value={lead.timeline} icon={CalendarDays} />
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Update Status</p>
-          <SelectField
-            value={lead.status}
-            onChange={(event) => moveLead(lead.id, event.target.value)}
-            className="bg-slate-50"
-          >
-            {statuses.map((status) => (
-              <option key={status} value={status}>{status}</option>
-            ))}
-          </SelectField>
+      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+        <div className="hidden space-y-6 lg:block">
+          <div className="grid gap-6 xl:grid-cols-2">
+            <CustomerInformation lead={lead} />
+            <ProjectInformation lead={lead} />
+          </div>
+          <ActivityTimeline lead={lead} />
+          <EstimatePreview lead={lead} onOpenEstimate={onOpenEstimate} />
+          <PhotosSection lead={lead} />
         </div>
-      </div>
-    </section>
-  )
-}
 
-function HeaderStat({ label, value, icon: Icon }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-        <Icon className="h-4 w-4" /> {label}
+        <div className="space-y-4 lg:hidden">
+          <AccordionCard title="Customer Information" open={openSections.customer} onToggle={() => toggleSection('customer')}>
+            <CustomerInformation lead={lead} plain />
+          </AccordionCard>
+          <AccordionCard title="Project Information" open={openSections.project} onToggle={() => toggleSection('project')}>
+            <ProjectInformation lead={lead} plain />
+          </AccordionCard>
+          <AccordionCard title="Activity Timeline" open={openSections.timeline} onToggle={() => toggleSection('timeline')}>
+            <ActivityTimeline lead={lead} plain />
+          </AccordionCard>
+          <AccordionCard title="Estimate Preview" open={openSections.estimate} onToggle={() => toggleSection('estimate')}>
+            <EstimatePreview lead={lead} onOpenEstimate={onOpenEstimate} plain />
+          </AccordionCard>
+          <AccordionCard title="Photos" open={openSections.photos} onToggle={() => toggleSection('photos')}>
+            <PhotosSection lead={lead} plain />
+          </AccordionCard>
+        </div>
+
+        <QuickActions lead={lead} onOpenEstimate={onOpenEstimate} />
       </div>
-      <p className="text-sm font-bold text-slate-900">{value}</p>
     </div>
   )
 }
 
-function InfoSection({ title, icon: Icon, children }) {
+function CustomerInformation({ lead, plain = false }) {
+  return (
+    <SectionShell title="Customer Information" icon={Users} plain={plain}>
+      <InfoRow label="Name" value={lead.customer.name} />
+      <InfoRow label="Phone" value={lead.customer.phone} />
+      <InfoRow label="Email" value={lead.customer.email} />
+      <InfoRow label="Address" value={lead.customer.address} />
+      <InfoRow label="Preferred Contact" value={lead.customer.preferredContact} />
+    </SectionShell>
+  )
+}
+
+function ProjectInformation({ lead, plain = false }) {
+  return (
+    <SectionShell title="Project Information" icon={Wrench} plain={plain}>
+      <InfoRow label="Project Type" value={lead.projectType} />
+      <InfoRow label="Project Value" value={currency.format(lead.value)} />
+      <InfoRow label="Lead Source" value={lead.source} />
+      <InfoRow label="Next Step" value={lead.nextStep} />
+      <div>
+        <p className="text-sm font-semibold text-slate-500">Description</p>
+        <p className="mt-1 text-sm leading-6 text-slate-800">{lead.description}</p>
+      </div>
+    </SectionShell>
+  )
+}
+
+function ActivityTimeline({ lead, plain = false }) {
+  return (
+    <SectionShell title="Activity Timeline" icon={CalendarDays} plain={plain}>
+      <div className="space-y-4">
+        {lead.timeline.map((item) => (
+          <div key={`${item.title}-${item.date}`} className="flex gap-3">
+            <div className="mt-1 h-3 w-3 rounded-full bg-blue-500 ring-4 ring-blue-100" />
+            <div>
+              <p className="font-semibold text-slate-900">{item.title}</p>
+              <p className="text-sm text-slate-500">{item.date}</p>
+              <p className="mt-1 text-sm leading-6 text-slate-700">{item.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </SectionShell>
+  )
+}
+
+function EstimatePreview({ lead, onOpenEstimate, plain = false }) {
+  const total = getEstimateTotal(lead.estimate.lineItems)
+
+  return (
+    <SectionShell title="Estimate Preview" icon={FileText} plain={plain}>
+      <div className="flex flex-col justify-between gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-sm text-slate-500">{lead.estimate.number}</p>
+          <p className="text-2xl font-bold text-slate-950">{currency.format(total)}</p>
+        </div>
+        <button onClick={onOpenEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+          Open Estimate Builder
+        </button>
+      </div>
+      <div className="mt-4 space-y-2">
+        {lead.estimate.scope.slice(0, 3).map((item) => (
+          <div key={item} className="flex gap-2 text-sm leading-6 text-slate-700">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </SectionShell>
+  )
+}
+
+function PhotosSection({ lead, plain = false }) {
+  return (
+    <SectionShell title="Photos" icon={Camera} plain={plain}>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {lead.photos.map((photo) => (
+          <div key={photo} className="flex h-28 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-semibold text-slate-500">
+            {photo}
+          </div>
+        ))}
+      </div>
+    </SectionShell>
+  )
+}
+
+function QuickActions({ lead, onOpenEstimate }) {
+  const actions = [
+    { label: 'Build Estimate', icon: FileText, onClick: onOpenEstimate, primary: true },
+    { label: 'Send Message', icon: MessageSquare },
+    { label: 'Schedule Visit', icon: CalendarDays },
+    { label: 'Upload Photos', icon: Camera },
+  ]
+
+  return (
+    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-28 xl:self-start">
+      <h2 className="text-lg font-bold text-slate-950">Quick Actions</h2>
+      <p className="mt-1 text-sm text-slate-500">Move {lead.customer.name.split(' ')[0]} from lead to signed job.</p>
+      <div className="mt-5 space-y-3">
+        {actions.map((action) => {
+          const Icon = action.icon
+          return (
+            <button
+              key={action.label}
+              onClick={action.onClick}
+              className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${action.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+            >
+              <Icon className="h-4 w-4" />
+              {action.label}
+            </button>
+          )
+        })}
+      </div>
+    </aside>
+  )
+}
+
+function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
+  const [scopeItems, setScopeItems] = useState(lead.estimate.scope)
+  const [lineItems, setLineItems] = useState(lead.estimate.lineItems)
+  const [materialsIncluded, setMaterialsIncluded] = useState(lead.estimate.materialsIncluded)
+  const [paymentTerms, setPaymentTerms] = useState(lead.estimate.paymentTerms)
+  const total = getEstimateTotal(lineItems)
+
+  function updateLineItem(id, field, value) {
+    setLineItems((current) => current.map((item) => {
+      if (item.id !== id) return item
+      const numericFields = ['quantity', 'unitPrice']
+      return { ...item, [field]: numericFields.includes(field) ? Number(value) : value }
+    }))
+  }
+
+  function addLineItem() {
+    setLineItems((current) => [
+      ...current,
+      {
+        id: `li-${Date.now()}`,
+        description: 'New scope item',
+        category: 'Labor',
+        quantity: 1,
+        unit: 'lot',
+        unitPrice: 0,
+      },
+    ])
+  }
+
+  function removeLineItem(id) {
+    setLineItems((current) => current.filter((item) => item.id !== id))
+  }
+
+  function updateScopeItem(index, value) {
+    setScopeItems((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))
+  }
+
+  function addScopeItem() {
+    setScopeItems((current) => [...current, 'Add a detailed scope item for this project.'])
+  }
+
+  function removeScopeItem(index) {
+    setScopeItems((current) => current.filter((_, currentIndex) => currentIndex !== index))
+  }
+
+  function saveEstimate() {
+    onSaveEstimate({
+      ...lead.estimate,
+      scope: scopeItems,
+      lineItems,
+      materialsIncluded,
+      paymentTerms,
+    })
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <button onClick={onBack} className="inline-flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+          <ArrowLeft className="h-4 w-4" /> Back to Project
+        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button onClick={saveEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <Save className="h-4 w-4" /> Save Estimate
+          </button>
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <FileText className="h-4 w-4" /> Preview Estimate
+          </button>
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+            <Send className="h-4 w-4" /> Convert to Contract
+          </button>
+        </div>
+      </div>
+
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
+        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Estimate Builder</p>
+        <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle}</h1>
+            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.estimate.number}</p>
+          </div>
+          <div className="rounded-2xl bg-white px-5 py-4 text-slate-950">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live Total</p>
+            <p className="text-3xl font-black">{currency.format(total)}</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 2xl:grid-cols-[1fr_420px]">
+        <div className="space-y-6">
+          <SectionShell title="Scope of Work Builder" icon={ClipboardList}>
+            <div className="space-y-3">
+              {scopeItems.map((item, index) => (
+                <div key={`${item}-${index}`} className="flex gap-2">
+                  <textarea
+                    value={item}
+                    onChange={(event) => updateScopeItem(index, event.target.value)}
+                    className="min-h-20 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                  />
+                  <button onClick={() => removeScopeItem(index)} className="h-fit rounded-2xl border border-slate-200 bg-white p-3 text-slate-500 hover:bg-red-50 hover:text-red-600">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button onClick={addScopeItem} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              <Plus className="h-4 w-4" /> Add Scope Item
+            </button>
+          </SectionShell>
+
+          <SectionShell title="Editable Line Items" icon={DollarSign}>
+            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Description</th>
+                    <th className="px-4 py-3">Category</th>
+                    <th className="px-4 py-3">Qty</th>
+                    <th className="px-4 py-3">Unit</th>
+                    <th className="px-4 py-3">Unit Price</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {lineItems.map((item) => (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3"><Input value={item.description} onChange={(value) => updateLineItem(item.id, 'description', value)} /></td>
+                      <td className="px-4 py-3"><Input value={item.category} onChange={(value) => updateLineItem(item.id, 'category', value)} /></td>
+                      <td className="px-4 py-3"><Input type="number" value={item.quantity} onChange={(value) => updateLineItem(item.id, 'quantity', value)} /></td>
+                      <td className="px-4 py-3"><Input value={item.unit} onChange={(value) => updateLineItem(item.id, 'unit', value)} /></td>
+                      <td className="px-4 py-3"><Input type="number" value={item.unitPrice} onChange={(value) => updateLineItem(item.id, 'unitPrice', value)} /></td>
+                      <td className="px-4 py-3 text-right font-bold text-slate-900">{currency.format(item.quantity * item.unitPrice)}</td>
+                      <td className="px-4 py-3"><button onClick={() => removeLineItem(item.id)} className="rounded-xl p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="space-y-4 lg:hidden">
+              {lineItems.map((item) => (
+                <div key={item.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <p className="font-bold text-slate-950">{item.description}</p>
+                    <button onClick={() => removeLineItem(item.id)} className="rounded-xl p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                  <div className="space-y-3">
+                    <MobileField label="Description"><Input value={item.description} onChange={(value) => updateLineItem(item.id, 'description', value)} /></MobileField>
+                    <MobileField label="Category"><Input value={item.category} onChange={(value) => updateLineItem(item.id, 'category', value)} /></MobileField>
+                    <div className="grid grid-cols-2 gap-3">
+                      <MobileField label="Quantity"><Input type="number" value={item.quantity} onChange={(value) => updateLineItem(item.id, 'quantity', value)} /></MobileField>
+                      <MobileField label="Unit"><Input value={item.unit} onChange={(value) => updateLineItem(item.id, 'unit', value)} /></MobileField>
+                    </div>
+                    <MobileField label="Unit Price"><Input type="number" value={item.unitPrice} onChange={(value) => updateLineItem(item.id, 'unitPrice', value)} /></MobileField>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between rounded-2xl bg-white px-4 py-3">
+                    <span className="text-sm font-semibold text-slate-500">Line Total</span>
+                    <span className="text-lg font-black text-slate-950">{currency.format(item.quantity * item.unitPrice)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={addLineItem} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+              <Plus className="h-4 w-4" /> Add Line Item
+            </button>
+          </SectionShell>
+
+          <SectionShell title="Materials and Payment Terms" icon={FileText}>
+            <div className="flex flex-col gap-4 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-slate-950">Materials Included</p>
+                <p className="text-sm text-slate-500">Turn this off for labor-only proposals.</p>
+              </div>
+              <button
+                onClick={() => setMaterialsIncluded((current) => !current)}
+                className={`relative h-8 w-14 rounded-full transition ${materialsIncluded ? 'bg-blue-600' : 'bg-slate-300'}`}
+              >
+                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${materialsIncluded ? 'left-7' : 'left-1'}`} />
+              </button>
+            </div>
+            <div className="mt-4">
+              <label className="mb-2 block text-sm font-bold text-slate-700">Payment Terms</label>
+              <textarea
+                value={paymentTerms}
+                onChange={(event) => setPaymentTerms(event.target.value)}
+                className="min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
+          </SectionShell>
+        </div>
+
+        <EstimateLivePreview
+          lead={lead}
+          scopeItems={scopeItems}
+          lineItems={lineItems}
+          materialsIncluded={materialsIncluded}
+          paymentTerms={paymentTerms}
+          total={total}
+        />
+      </div>
+    </div>
+  )
+}
+
+function EstimateLivePreview({ lead, scopeItems, lineItems, materialsIncluded, paymentTerms, total }) {
+  return (
+    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm 2xl:sticky 2xl:top-28 2xl:self-start">
+      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">Estimate Preview</p>
+          <h2 className="mt-2 text-2xl font-black text-slate-950">{lead.estimate.number}</h2>
+          <p className="text-sm text-slate-500">Prepared for {lead.customer.name}</p>
+        </div>
+        <div className="rounded-2xl bg-slate-950 px-4 py-3 text-right text-white">
+          <p className="text-xs text-slate-300">Total</p>
+          <p className="text-xl font-black">{currency.format(total)}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-5">
+        <div>
+          <h3 className="font-bold text-slate-950">Scope of Work</h3>
+          <ul className="mt-3 space-y-2">
+            {scopeItems.map((item, index) => (
+              <li key={`${item}-${index}`} className="flex gap-2 text-sm leading-6 text-slate-700">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="font-bold text-slate-950">Line Items</h3>
+          <div className="mt-3 space-y-3">
+            {lineItems.map((item) => (
+              <div key={item.id} className="rounded-2xl bg-slate-50 p-3">
+                <div className="flex justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-800">{item.description}</p>
+                  <p className="text-sm font-bold text-slate-950">{currency.format(item.quantity * item.unitPrice)}</p>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{item.quantity} {item.unit} × {currency.format(item.unitPrice)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
+          <p className="font-bold">Materials: {materialsIncluded ? 'Included' : 'Labor only'}</p>
+          <p className="mt-2 leading-6">{paymentTerms}</p>
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function AccordionCard({ title, open, onToggle, children }) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <button onClick={onToggle} className="flex w-full items-center justify-between gap-4 p-5 text-left">
+        <span className="font-bold text-slate-950">{title}</span>
+        <ChevronDown className={`h-5 w-5 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="border-t border-slate-100 p-5 pt-4">{children}</div>}
+    </div>
+  )
+}
+
+function SectionShell({ title, icon: Icon, children, plain = false }) {
+  if (plain) return <div>{children}</div>
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-center gap-3">
-        <div className="rounded-2xl bg-blue-50 p-2.5 text-blue-600">
+      <div className="mb-5 flex items-center gap-3">
+        <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
           <Icon className="h-5 w-5" />
         </div>
         <h2 className="text-lg font-bold text-slate-950">{title}</h2>
@@ -611,178 +879,37 @@ function InfoSection({ title, icon: Icon, children }) {
   )
 }
 
-function MobileAccordion({ title, icon: Icon, children, defaultOpen = false }) {
-  const [open, setOpen] = useState(defaultOpen)
-
+function InfoRow({ label, value }) {
   return (
-    <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <button
-        onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center justify-between gap-4 p-5 text-left"
-      >
-        <span className="flex items-center gap-3">
-          <span className="rounded-2xl bg-blue-50 p-2.5 text-blue-600">
-            <Icon className="h-5 w-5" />
-          </span>
-          <span className="font-bold text-slate-950">{title}</span>
-        </span>
-        <ChevronDown className={`h-5 w-5 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="border-t border-slate-100 p-5 pt-4">{children}</div>}
-    </section>
-  )
-}
-
-function CustomerInformation({ lead }) {
-  return (
-    <div className="space-y-3">
-      <ContactRow icon={User} label="Customer" value={lead.client} />
-      <ContactRow icon={Phone} label="Phone" value={lead.phone} />
-      <ContactRow icon={Mail} label="Email" value={lead.email} />
-      <ContactRow icon={MapPin} label="Address" value={lead.address} />
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Preferred Contact</p>
-        <p className="mt-1 text-sm font-semibold text-slate-800">{lead.preferredContact}</p>
-      </div>
+    <div className="mb-4 last:mb-0">
+      <p className="text-sm font-semibold text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-medium leading-6 text-slate-900">{value}</p>
     </div>
   )
 }
 
-function ContactRow({ icon: Icon, label, value }) {
+function Input({ value, onChange, type = 'text' }) {
   return (
-    <div className="flex gap-3 rounded-2xl border border-slate-100 p-3">
-      <div className="mt-0.5 rounded-xl bg-slate-50 p-2 text-slate-500">
-        <Icon className="h-4 w-4" />
-      </div>
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="mt-1 text-sm font-semibold text-slate-800">{value}</p>
-      </div>
-    </div>
+    <input
+      type={type}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+    />
   )
 }
 
-function ProjectInformation({ lead }) {
+function MobileField({ label, children }) {
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Scope Summary</p>
-        <p className="mt-2 text-sm leading-6 text-slate-700">{lead.projectScope}</p>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <DetailTile label="Project Type" value={lead.projectType} />
-        <DetailTile label="Next Step" value={lead.nextStep} />
-        <DetailTile label="Estimate #" value={lead.estimateNumber} />
-      </div>
-    </div>
+    <label className="block">
+      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-400">{label}</span>
+      {children}
+    </label>
   )
 }
 
-function DetailTile({ label, value }) {
-  return (
-    <div className="rounded-2xl border border-slate-100 p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-bold text-slate-900">{value}</p>
-    </div>
-  )
-}
-
-function ActivityTimeline({ items }) {
-  return (
-    <div className="space-y-4">
-      {items.map((item, index) => (
-        <div key={`${item.title}-${item.time}`} className="flex gap-4">
-          <div className="flex flex-col items-center">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 ring-8 ring-white">
-              <CheckCircle2 className="h-4 w-4" />
-            </span>
-            {index !== items.length - 1 && <span className="mt-1 h-full w-px bg-slate-200" />}
-          </div>
-          <div className="pb-3">
-            <p className="font-bold text-slate-900">{item.title}</p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">{item.detail}</p>
-            <p className="mt-1 text-xs font-semibold text-slate-400">{item.time}</p>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EstimatePreview({ lead, estimateTotal }) {
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col justify-between gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{lead.estimateNumber}</p>
-          <p className="mt-1 font-bold text-slate-900">Estimate dated {lead.estimateDate}</p>
-        </div>
-        <p className="text-2xl font-bold text-slate-950">{currency.format(estimateTotal)}</p>
-      </div>
-
-      <div className="overflow-hidden rounded-2xl border border-slate-100">
-        {lead.estimateItems.map((item) => (
-          <div key={item.label} className="flex items-center justify-between gap-4 border-b border-slate-100 px-4 py-3 last:border-b-0">
-            <p className="text-sm font-medium text-slate-700">{item.label}</p>
-            <p className="text-sm font-bold text-slate-900">{currency.format(item.amount)}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function PhotoGrid({ photos }) {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {photos.map((photo, index) => (
-        <div key={photo} className="aspect-square rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 to-slate-200 p-3">
-          <div className="flex h-full flex-col justify-between">
-            <Camera className="h-5 w-5 text-slate-400" />
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">Photo {index + 1}</p>
-              <p className="mt-1 text-sm font-bold text-slate-700">{photo}</p>
-            </div>
-          </div>
-        </div>
-      ))}
-      <button className="aspect-square rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3 text-sm font-bold text-slate-500 hover:bg-slate-100">
-        <Plus className="mx-auto mb-2 h-5 w-5" /> Add Photo
-      </button>
-    </div>
-  )
-}
-
-function QuickActions({ lead }) {
-  const actions = [
-    { label: 'Call Customer', icon: Phone },
-    { label: 'Send Message', icon: MessageSquare },
-    { label: 'Create Estimate PDF', icon: FileText },
-    { label: 'Schedule Walkthrough', icon: CalendarDays },
-  ]
-
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-      {actions.map((action) => {
-        const Icon = action.icon
-        return (
-          <button key={action.label} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-bold text-slate-800 transition hover:border-blue-200 hover:bg-blue-50">
-            <span className="flex items-center gap-3">
-              <span className="rounded-xl bg-slate-100 p-2 text-slate-600">
-                <Icon className="h-4 w-4" />
-              </span>
-              {action.label}
-            </span>
-            <ChevronDown className="h-4 w-4 -rotate-90 text-slate-400" />
-          </button>
-        )
-      })}
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recommended Next Action</p>
-        <p className="mt-1 text-sm font-bold text-slate-900">{lead.nextStep}</p>
-      </div>
-    </div>
-  )
+function getEstimateTotal(lineItems) {
+  return lineItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0)
 }
 
 export default App
