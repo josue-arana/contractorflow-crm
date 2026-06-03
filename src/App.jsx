@@ -70,6 +70,11 @@ function App() {
     )
   }
 
+  function convertEstimateToContract(leadId, estimate) {
+    updateEstimate(leadId, estimate)
+    setCurrentView({ name: 'contract', leadId })
+  }
+
   function renderContent() {
     if (currentView.name === 'project' && selectedLead) {
       return (
@@ -87,6 +92,17 @@ function App() {
           lead={selectedLead}
           onBack={() => setCurrentView({ name: 'project', leadId: selectedLead.id })}
           onSaveEstimate={(estimate) => updateEstimate(selectedLead.id, estimate)}
+          onConvertToContract={(estimate) => convertEstimateToContract(selectedLead.id, estimate)}
+        />
+      )
+    }
+
+    if (currentView.name === 'contract' && selectedLead) {
+      return (
+        <ContractPreviewPage
+          lead={selectedLead}
+          onBack={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
+          onEditEstimate={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
         />
       )
     }
@@ -593,7 +609,7 @@ function QuickActions({ lead, onOpenEstimate }) {
   )
 }
 
-function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
+function EstimateBuilderPage({ lead, onBack, onSaveEstimate, onConvertToContract }) {
   const [scopeItems, setScopeItems] = useState(lead.estimate.scope)
   const [lineItems, setLineItems] = useState(lead.estimate.lineItems)
   const [materialsIncluded, setMaterialsIncluded] = useState(lead.estimate.materialsIncluded)
@@ -638,14 +654,22 @@ function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
     setScopeItems((current) => current.filter((_, currentIndex) => currentIndex !== index))
   }
 
-  function saveEstimate() {
-    onSaveEstimate({
+  function getCurrentEstimate() {
+    return {
       ...lead.estimate,
       scope: scopeItems,
       lineItems,
       materialsIncluded,
       paymentTerms,
-    })
+    }
+  }
+
+  function saveEstimate() {
+    onSaveEstimate(getCurrentEstimate())
+  }
+
+  function convertToContract() {
+    onConvertToContract?.(getCurrentEstimate())
   }
 
   return (
@@ -661,7 +685,7 @@ function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
           <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
             <FileText className="h-4 w-4" /> Preview Estimate
           </button>
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+          <button onClick={convertToContract} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
             <Send className="h-4 w-4" /> Convert to Contract
           </button>
         </div>
@@ -848,6 +872,217 @@ function EstimateLivePreview({ lead, scopeItems, lineItems, materialsIncluded, p
         </div>
       </div>
     </aside>
+  )
+}
+
+
+function ContractPreviewPage({ lead, onBack, onEditEstimate }) {
+  const [contractStatus, setContractStatus] = useState('Draft')
+  const estimate = lead.estimate
+  const total = getEstimateTotal(estimate.lineItems)
+  const materialsLabel = estimate.materialsIncluded ? 'Materials are included in the total contract price unless specifically excluded in writing.' : 'This contract is labor-only. Materials must be supplied by the client unless added by written change order.'
+
+  const contractSections = [
+    {
+      title: 'Project Scope',
+      content: (
+        <ul className="space-y-2">
+          {estimate.scope.map((item, index) => (
+            <li key={`${item}-${index}`} className="flex gap-2 text-sm leading-6 text-slate-700">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      ),
+    },
+    {
+      title: 'Payment Terms',
+      content: <p className="text-sm leading-6 text-slate-700">{estimate.paymentTerms}</p>,
+    },
+    {
+      title: 'Materials',
+      content: <p className="text-sm leading-6 text-slate-700">{materialsLabel}</p>,
+    },
+    {
+      title: 'Timeline',
+      content: <p className="text-sm leading-6 text-slate-700">Work will be scheduled after deposit/payment approval and final material selections. Estimated project duration will be confirmed before start based on crew availability, material lead times, inspections, and weather when applicable.</p>,
+    },
+    {
+      title: 'Change Orders',
+      content: <p className="text-sm leading-6 text-slate-700">Any work outside the approved scope must be documented as a change order and approved by the client before additional work begins. Change orders may affect project cost and completion timeline.</p>,
+    },
+    {
+      title: 'Client Responsibilities',
+      content: <p className="text-sm leading-6 text-slate-700">Client is responsible for providing reasonable access to the work area, clearing personal belongings, approving selections in a timely manner, and notifying ContractorFlow CRM of known site conditions that may affect the work.</p>,
+    },
+    {
+      title: 'Warranty Disclaimer',
+      content: <p className="text-sm leading-6 text-slate-700">Contractor workmanship is covered for one year from substantial completion. Manufacturer warranties apply separately to materials and fixtures. Warranty does not cover damage caused by misuse, normal wear, moisture intrusion from unrelated building conditions, or work performed by others.</p>,
+    },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <button onClick={onBack} className="inline-flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+          <ArrowLeft className="h-4 w-4" /> Back to Estimate
+        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <Save className="h-4 w-4" /> Save Contract
+          </button>
+          <button onClick={onEditEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <FileText className="h-4 w-4" /> Edit Contract
+          </button>
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
+            <FileText className="h-4 w-4" /> Preview PDF
+          </button>
+          <button onClick={() => setContractStatus('Signed')} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+            <CheckCircle2 className="h-4 w-4" /> Mark as Signed
+          </button>
+        </div>
+      </div>
+
+      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
+        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Contract Preview</p>
+        <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Contractor Agreement</h1>
+            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.projectTitle}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className={`rounded-full px-4 py-2 text-sm font-bold ${contractStatus === 'Signed' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>{contractStatus}</span>
+            <span className="rounded-2xl bg-white px-5 py-4 text-right text-slate-950">
+              <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">Contract Total</span>
+              <span className="block text-2xl font-black">{currency.format(total)}</span>
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 2xl:grid-cols-[1fr_380px]">
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="border-b border-slate-200 pb-6">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">ContractorFlow CRM</p>
+                <h2 className="mt-2 text-2xl font-black text-slate-950">Home Improvement Agreement</h2>
+                <p className="mt-2 text-sm text-slate-500">Generated from {estimate.number}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                <p className="font-bold text-slate-950">Prepared For</p>
+                <p className="mt-1 text-slate-700">{lead.customer.name}</p>
+                <p className="text-slate-700">{lead.customer.address}</p>
+                <p className="text-slate-700">{lead.customer.phone}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            <ContractSummary label="Customer" value={lead.customer.name} />
+            <ContractSummary label="Project" value={lead.projectTitle} />
+            <ContractSummary label="Total Amount" value={currency.format(total)} />
+          </div>
+
+          <div className="mt-8 space-y-6">
+            {contractSections.map((section) => (
+              <ContractSection key={section.title} title={section.title}>{section.content}</ContractSection>
+            ))}
+
+            <ContractSection title="Line Items">
+              <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Description</th>
+                      <th className="px-4 py-3">Category</th>
+                      <th className="px-4 py-3">Qty</th>
+                      <th className="px-4 py-3 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {estimate.lineItems.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-4 py-3 font-semibold text-slate-900">{item.description}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.category}</td>
+                        <td className="px-4 py-3 text-slate-600">{item.quantity} {item.unit}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-950">{currency.format(item.quantity * item.unitPrice)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-3 lg:hidden">
+                {estimate.lineItems.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex justify-between gap-3">
+                      <p className="font-bold text-slate-950">{item.description}</p>
+                      <p className="font-black text-slate-950">{currency.format(item.quantity * item.unitPrice)}</p>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-500">{item.category} · {item.quantity} {item.unit} × {currency.format(item.unitPrice)}</p>
+                  </div>
+                ))}
+              </div>
+            </ContractSection>
+
+            <ContractSection title="Signature Lines">
+              <div className="grid gap-5 md:grid-cols-2">
+                <SignatureLine label="Client Signature" name={lead.customer.name} />
+                <SignatureLine label="Contractor Signature" name="ContractorFlow CRM Representative" />
+              </div>
+            </ContractSection>
+          </div>
+        </section>
+
+        <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm 2xl:sticky 2xl:top-28 2xl:self-start">
+          <h2 className="text-lg font-bold text-slate-950">Contract Snapshot</h2>
+          <p className="mt-1 text-sm text-slate-500">Review the agreement before sending for signature.</p>
+          <div className="mt-5 space-y-3">
+            <InfoRow label="Customer" value={lead.customer.name} />
+            <InfoRow label="Address" value={lead.customer.address} />
+            <InfoRow label="Project" value={lead.projectTitle} />
+            <InfoRow label="Materials" value={estimate.materialsIncluded ? 'Included' : 'Labor only'} />
+            <InfoRow label="Contract Status" value={contractStatus} />
+          </div>
+          <div className="mt-5 rounded-2xl bg-blue-50 p-4 text-blue-950">
+            <p className="text-sm font-bold">Total Contract Amount</p>
+            <p className="mt-1 text-3xl font-black">{currency.format(total)}</p>
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+function ContractSummary({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-2 font-bold text-slate-950">{value}</p>
+    </div>
+  )
+}
+
+function ContractSection({ title, children }) {
+  return (
+    <section>
+      <h3 className="mb-3 text-lg font-black text-slate-950">{title}</h3>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">{children}</div>
+    </section>
+  )
+}
+
+function SignatureLine({ label, name }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-sm font-bold text-slate-950">{label}</p>
+      <div className="mt-12 border-t border-slate-400 pt-3">
+        <p className="text-sm font-semibold text-slate-700">{name}</p>
+        <p className="mt-1 text-xs text-slate-500">Signature / Date</p>
+      </div>
+    </div>
   )
 }
 
