@@ -1,30 +1,6 @@
 import { useMemo, useState } from 'react'
-import {
-  ArrowLeft,
-  Bell,
-  BriefcaseBusiness,
-  CalendarDays,
-  Camera,
-  CheckCircle2,
-  ChevronDown,
-  ClipboardList,
-  DollarSign,
-  FileText,
-  Home,
-  Menu,
-  MessageSquare,
-  Plus,
-  Save,
-  Search,
-  Send,
-  Settings,
-  Trash2,
-  Users,
-  Wrench,
-  X,
-  Zap,
-} from 'lucide-react'
-import { initialLeads, pipelineStatuses, projectStatuses } from './data/mockLeads'
+import { ArrowLeft, Bell, BriefcaseBusiness, CalendarDays, Camera, CheckCircle2, ChevronDown, ClipboardList, DollarSign, ExternalLink, FileText, Home, Menu, Search, Settings, Share2, Users, X, Zap } from 'lucide-react'
+import { initialLeads, pipelineStatuses } from './data/mockLeads'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -36,9 +12,11 @@ function App() {
   const [leads, setLeads] = useState(initialLeads)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
-  const [currentView, setCurrentView] = useState({ name: 'dashboard' })
+  const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
+  const [currentView, setCurrentView] = useState('dashboard')
+  const [selectedLeadId, setSelectedLeadId] = useState(initialLeads[0].id)
 
-  const selectedLead = currentView.leadId ? leads.find((lead) => lead.id === currentView.leadId) : null
+  const selectedLead = leads.find((lead) => lead.id === selectedLeadId) || leads[0]
 
   const metrics = useMemo(() => {
     const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
@@ -62,76 +40,16 @@ function App() {
     )
   }
 
-  function updateEstimate(leadId, estimate) {
-    setLeads((current) =>
-      current.map((lead) =>
-        lead.id === leadId ? { ...lead, estimate, value: getEstimateTotal(estimate.lineItems) } : lead,
-      ),
-    )
+  function openProject(leadId) {
+    setSelectedLeadId(leadId)
+    setCurrentView('project')
+    setSidebarOpen(false)
   }
 
-  function updateProjectStatus(leadId, projectStatus) {
-    setLeads((current) =>
-      current.map((lead) =>
-        lead.id === leadId ? { ...lead, projectStatus } : lead,
-      ),
-    )
-  }
-
-  function recordPayment(leadId, payment) {
-    setLeads((current) =>
-      current.map((lead) => {
-        if (lead.id !== leadId) return lead
-
-        const updatedPayments = [
-          ...(lead.payments || []),
-          {
-            id: `pay-${Date.now()}`,
-            ...payment,
-            amount: Number(payment.amount || 0),
-          },
-        ]
-        const summary = getPaymentSummary({ ...lead, payments: updatedPayments })
-        const projectStatus = summary.remainingBalance <= 0 ? 'Paid' : lead.projectStatus
-
-        return { ...lead, payments: updatedPayments, projectStatus }
-      }),
-    )
-  }
-
-  function renderContent() {
-    if (currentView.name === 'project' && selectedLead) {
-      return (
-        <ProjectDetailPage
-          lead={selectedLead}
-          onBack={() => setCurrentView({ name: 'dashboard' })}
-          onOpenEstimate={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
-          onRecordPayment={(payment) => recordPayment(selectedLead.id, payment)}
-          onUpdateProjectStatus={(status) => updateProjectStatus(selectedLead.id, status)}
-        />
-      )
-    }
-
-    if (currentView.name === 'estimate' && selectedLead) {
-      return (
-        <EstimateBuilderPage
-          lead={selectedLead}
-          onBack={() => setCurrentView({ name: 'project', leadId: selectedLead.id })}
-          onSaveEstimate={(estimate) => updateEstimate(selectedLead.id, estimate)}
-        />
-      )
-    }
-
-    return (
-      <DashboardPage
-        leads={leads}
-        metrics={metrics}
-        draggedLeadId={draggedLeadId}
-        setDraggedLeadId={setDraggedLeadId}
-        moveLead={moveLead}
-        onLeadClick={(lead) => setCurrentView({ name: 'project', leadId: lead.id })}
-      />
-    )
+  function openPortal(leadId) {
+    setSelectedLeadId(leadId)
+    setCurrentView('portal')
+    setSidebarOpen(false)
   }
 
   return (
@@ -140,43 +58,59 @@ function App() {
 
       <div className="lg:pl-72">
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{renderContent()}</main>
+
+        <main className="px-4 py-6 sm:px-6 lg:px-8">
+          {currentView === 'dashboard' && (
+            <>
+              <section className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
+                <div>
+                  <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">ContractorFlow CRM</p>
+                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Lead Pipeline Dashboard</h1>
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+                    Track remodeling, deck, roofing, and painting opportunities from first call to signed job.
+                  </p>
+                </div>
+                <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
+                  <Zap className="h-4 w-4" /> Add Lead
+                </button>
+              </section>
+
+              <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {metrics.map((metric) => (
+                  <MetricCard key={metric.label} {...metric} />
+                ))}
+              </section>
+
+              <PipelineBoard
+                leads={leads}
+                statuses={pipelineStatuses}
+                draggedLeadId={draggedLeadId}
+                setDraggedLeadId={setDraggedLeadId}
+                moveLead={moveLead}
+                selectedMobileStage={selectedMobileStage}
+                setSelectedMobileStage={setSelectedMobileStage}
+                onLeadClick={openProject}
+              />
+            </>
+          )}
+
+          {currentView === 'project' && (
+            <ProjectDetailPage
+              lead={selectedLead}
+              onBack={() => setCurrentView('dashboard')}
+              onOpenPortal={() => openPortal(selectedLead.id)}
+            />
+          )}
+
+          {currentView === 'portal' && (
+            <CustomerPortalPage
+              lead={selectedLead}
+              onBack={() => setCurrentView('project')}
+            />
+          )}
+        </main>
       </div>
     </div>
-  )
-}
-
-function DashboardPage({ leads, metrics, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
-  return (
-    <>
-      <section className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">ContractorFlow CRM</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Lead Pipeline Dashboard</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
-            Track remodeling, deck, roofing, and painting opportunities from first call to signed job.
-          </p>
-        </div>
-        <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <Zap className="h-4 w-4" /> Add Lead
-        </button>
-      </section>
-
-      <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <MetricCard key={metric.label} {...metric} />
-        ))}
-      </section>
-
-      <PipelineBoard
-        leads={leads}
-        statuses={pipelineStatuses}
-        draggedLeadId={draggedLeadId}
-        setDraggedLeadId={setDraggedLeadId}
-        moveLead={moveLead}
-        onLeadClick={onLeadClick}
-      />
-    </>
   )
 }
 
@@ -279,9 +213,31 @@ function MetricCard({ label, value, helper, icon: Icon }) {
   )
 }
 
-function PipelineBoard({ leads, statuses, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
-  const [mobileStage, setMobileStage] = useState(statuses[0])
-  const mobileLeads = leads.filter((lead) => lead.status === mobileStage)
+function SelectField({ className = '', containerClassName = '', children, ...props }) {
+  return (
+    <div className={`relative ${containerClassName}`.trim()}>
+      <select
+        {...props}
+        className={`w-full appearance-none rounded-2xl border border-slate-200 px-4 py-3 pr-12 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 ${className}`.trim()}
+      >
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+    </div>
+  )
+}
+
+function PipelineBoard({
+  leads,
+  statuses,
+  draggedLeadId,
+  setDraggedLeadId,
+  moveLead,
+  onLeadClick,
+  selectedMobileStage,
+  setSelectedMobileStage,
+}) {
+  const selectedStageLeads = leads.filter((lead) => lead.status === selectedMobileStage)
 
   return (
     <section>
@@ -289,9 +245,19 @@ function PipelineBoard({ leads, statuses, draggedLeadId, setDraggedLeadId, moveL
         <div>
           <h2 className="text-xl font-bold text-slate-950">Lead Pipeline</h2>
           <p className="hidden text-sm text-slate-500 lg:block">Drag cards between stages as prospects move forward.</p>
-          <p className="text-sm text-slate-500 lg:hidden">Choose a stage and update lead status from each card.</p>
+          <p className="text-sm text-slate-500 lg:hidden">Choose a stage, then update each lead using the status control.</p>
         </div>
         <p className="text-sm font-medium text-slate-500">{leads.length} active opportunities</p>
+      </div>
+
+      <div className="lg:hidden">
+        <MobilePipeline
+          leads={selectedStageLeads}
+          statuses={statuses}
+          selectedStage={selectedMobileStage}
+          setSelectedStage={setSelectedMobileStage}
+          moveLead={moveLead}
+        />
       </div>
 
       <div className="hidden gap-4 overflow-x-auto pb-4 lg:grid lg:grid-cols-4">
@@ -307,41 +273,62 @@ function PipelineBoard({ leads, statuses, draggedLeadId, setDraggedLeadId, moveL
           />
         ))}
       </div>
-
-      <div className="lg:hidden">
-        <div className="sticky top-[81px] z-20 mb-4 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
-          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Pipeline Stage</label>
-          <div className="relative">
-            <select
-              value={mobileStage}
-              onChange={(event) => setMobileStage(event.target.value)}
-              className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-            >
-              {statuses.map((status) => {
-                const count = leads.filter((lead) => lead.status === status).length
-                return <option key={status} value={status}>{status} ({count})</option>
-              })}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {mobileLeads.map((lead) => (
-            <LeadCard key={lead.id} lead={lead} statuses={statuses} moveLead={moveLead} onLeadClick={onLeadClick} isMobile />
-          ))}
-          {mobileLeads.length === 0 && (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
-              No leads in this stage yet.
-            </div>
-          )}
-        </div>
-      </div>
     </section>
   )
 }
 
-function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
+function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead }) {
+  const selectedTotal = leads.reduce((sum, lead) => sum + lead.value, 0)
+
+  return (
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <label htmlFor="mobile-stage" className="mb-2 block text-sm font-semibold text-slate-700">
+        Pipeline stage
+      </label>
+      <SelectField
+        id="mobile-stage"
+        value={selectedStage}
+        onChange={(event) => setSelectedStage(event.target.value)}
+        className="bg-slate-50"
+        containerClassName="mb-4"
+      >
+        {statuses.map((status) => (
+          <option key={status} value={status}>
+            {status}
+          </option>
+        ))}
+      </SelectField>
+
+      <div className="mb-4 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+        <div>
+          <h3 className="font-bold text-slate-900">{selectedStage}</h3>
+          <p className="text-xs text-slate-500">{leads.length} leads · {currency.format(selectedTotal)}</p>
+        </div>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
+      </div>
+
+      <div className="space-y-3">
+        {leads.map((lead) => (
+          <LeadCard
+            key={lead.id}
+            lead={lead}
+            statuses={statuses}
+            moveLead={moveLead}
+            mobile
+          />
+        ))}
+
+        {leads.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+            No leads in this stage yet.
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead }) {
   const total = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -363,7 +350,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
 
       <div className="space-y-3">
         {leads.map((lead) => (
-          <LeadCard key={lead.id} lead={lead} onDragStart={() => setDraggedLeadId(lead.id)} onLeadClick={onLeadClick} />
+          <LeadCard key={lead.id} lead={lead} onDragStart={() => setDraggedLeadId(lead.id)} onClick={() => onLeadClick(lead.id)} />
         ))}
         {leads.length === 0 && (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-400">
@@ -375,7 +362,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
   )
 }
 
-function LeadCard({ lead, onDragStart, onLeadClick, statuses = pipelineStatuses, moveLead, isMobile = false }) {
+function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, onClick }) {
   const priorityClasses = {
     High: 'bg-red-50 text-red-700 ring-red-100',
     Medium: 'bg-amber-50 text-amber-700 ring-amber-100',
@@ -384,10 +371,10 @@ function LeadCard({ lead, onDragStart, onLeadClick, statuses = pipelineStatuses,
 
   return (
     <article
-      draggable={!isMobile}
+      draggable={!mobile}
       onDragStart={onDragStart}
-      onClick={() => onLeadClick?.(lead)}
-      className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md lg:cursor-grab lg:active:cursor-grabbing"
+      onClick={onClick}
+      className={`${mobile ? '' : 'cursor-grab active:cursor-grabbing'} rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
@@ -419,769 +406,284 @@ function LeadCard({ lead, onDragStart, onLeadClick, statuses = pipelineStatuses,
         <p className="mt-1 text-sm font-medium text-slate-700">{lead.nextStep}</p>
       </div>
 
-      {isMobile && (
-        <div className="mt-4" onClick={(event) => event.stopPropagation()}>
-          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Change Status</label>
-          <div className="relative">
-            <select
-              value={lead.status}
-              onChange={(event) => moveLead?.(lead.id, event.target.value)}
-              className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-            >
-              {statuses.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          </div>
+      {mobile && (
+        <div className="mt-4">
+          <label htmlFor={`status-${lead.id}`} className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Change Status
+          </label>
+          <SelectField
+            id={`status-${lead.id}`}
+            value={lead.status}
+            onChange={(event) => moveLead(lead.id, event.target.value)}
+            className="bg-white"
+          >
+            {statuses.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </SelectField>
         </div>
       )}
     </article>
   )
 }
 
-function ProjectDetailPage({ lead, onBack, onOpenEstimate, onRecordPayment, onUpdateProjectStatus }) {
-  const [openSections, setOpenSections] = useState({
-    customer: true,
-    project: true,
-    payments: true,
-    timeline: false,
-    estimate: false,
-    photos: false,
-    actions: true,
-  })
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
 
-  function toggleSection(section) {
-    setOpenSections((current) => ({ ...current, [section]: !current[section] }))
-  }
+function ProjectDetailPage({ lead, onBack, onOpenPortal }) {
+  const portal = getPortalData(lead)
 
   return (
     <div className="space-y-6">
-      <button onClick={onBack} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-        <ArrowLeft className="h-4 w-4" /> Back to Dashboard
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
+        <ArrowLeft className="h-4 w-4" /> Back to dashboard
       </button>
 
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Project Workspace</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle}</h1>
-            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.location}</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">{lead.projectTitle || lead.projectType}</h1>
+            <p className="mt-2 text-slate-300">{lead.client} · {lead.location}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-blue-500 px-4 py-2 text-sm font-bold text-white">{lead.projectStatus || lead.status}</span>
-            <span className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950">{currency.format(lead.value)}</span>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <button onClick={onOpenPortal} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-blue-50">
+              <Share2 className="h-4 w-4" /> Open Customer Portal
+            </button>
+            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+              <p className="text-xs text-slate-300">Project Value</p>
+              <p className="text-2xl font-bold">{currency.format(lead.value)}</p>
+            </div>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-        <div className="hidden space-y-6 lg:block">
-          <div className="grid gap-6 xl:grid-cols-2">
-            <CustomerInformation lead={lead} />
-            <ProjectInformation lead={lead} />
+      <section className="grid gap-4 lg:grid-cols-3">
+        <InfoCard title="Customer Information">
+          <DetailRow label="Name" value={lead.client} />
+          <DetailRow label="Phone" value={lead.phone || '(410) 555-0198'} />
+          <DetailRow label="Email" value={lead.email || 'customer@example.com'} />
+          <DetailRow label="Address" value={lead.address || lead.location} />
+        </InfoCard>
+        <InfoCard title="Project Information">
+          <DetailRow label="Status" value={lead.projectStatus || lead.status} />
+          <DetailRow label="Start Date" value={portal.startDate} />
+          <DetailRow label="Target Completion" value={portal.estimatedCompletion} />
+          <DetailRow label="Next Step" value={lead.nextStep} />
+        </InfoCard>
+        <InfoCard title="Customer Portal">
+          <p className="text-sm leading-6 text-slate-600">Share this portal with the homeowner so they can view status, payments, timeline, photos, and documents.</p>
+          <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">{portal.shareUrl}</div>
+          <button onClick={onOpenPortal} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">
+            View Shared Portal <ExternalLink className="h-4 w-4" />
+          </button>
+        </InfoCard>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">Homeowner Portal Preview</h2>
+            <p className="text-sm text-slate-500">What the customer will see when they open the shared link.</p>
           </div>
-          <PaymentsSection
-            lead={lead}
-            onOpenPaymentModal={() => setPaymentModalOpen(true)}
-            onMarkProjectComplete={() => onUpdateProjectStatus('Completed')}
-          />
-          <ActivityTimeline lead={lead} />
-          <EstimatePreview lead={lead} onOpenEstimate={onOpenEstimate} />
-          <PhotosSection lead={lead} />
         </div>
-
-        <div className="space-y-4 lg:hidden">
-          <AccordionCard title="Customer Information" open={openSections.customer} onToggle={() => toggleSection('customer')}>
-            <CustomerInformation lead={lead} plain />
-          </AccordionCard>
-          <AccordionCard title="Project Information" open={openSections.project} onToggle={() => toggleSection('project')}>
-            <ProjectInformation lead={lead} plain />
-          </AccordionCard>
-          <AccordionCard title="Payments" open={openSections.payments} onToggle={() => toggleSection('payments')}>
-            <PaymentsSection
-              lead={lead}
-              onOpenPaymentModal={() => setPaymentModalOpen(true)}
-              onMarkProjectComplete={() => onUpdateProjectStatus('Completed')}
-              plain
-            />
-          </AccordionCard>
-          <AccordionCard title="Activity Timeline" open={openSections.timeline} onToggle={() => toggleSection('timeline')}>
-            <ActivityTimeline lead={lead} plain />
-          </AccordionCard>
-          <AccordionCard title="Estimate Preview" open={openSections.estimate} onToggle={() => toggleSection('estimate')}>
-            <EstimatePreview lead={lead} onOpenEstimate={onOpenEstimate} plain />
-          </AccordionCard>
-          <AccordionCard title="Photos" open={openSections.photos} onToggle={() => toggleSection('photos')}>
-            <PhotosSection lead={lead} plain />
-          </AccordionCard>
-        </div>
-
-        <QuickActions lead={lead} onOpenEstimate={onOpenEstimate} onUpdateProjectStatus={onUpdateProjectStatus} />
-      </div>
-
-      {paymentModalOpen && (
-        <RecordPaymentModal
-          lead={lead}
-          onClose={() => setPaymentModalOpen(false)}
-          onRecordPayment={(payment) => {
-            onRecordPayment(payment)
-            setPaymentModalOpen(false)
-          }}
-        />
-      )}
+        <PortalSummary lead={lead} portal={portal} />
+      </section>
     </div>
   )
 }
 
-function CustomerInformation({ lead, plain = false }) {
-  return (
-    <SectionShell title="Customer Information" icon={Users} plain={plain}>
-      <InfoRow label="Name" value={lead.customer.name} />
-      <InfoRow label="Phone" value={lead.customer.phone} />
-      <InfoRow label="Email" value={lead.customer.email} />
-      <InfoRow label="Address" value={lead.customer.address} />
-      <InfoRow label="Preferred Contact" value={lead.customer.preferredContact} />
-    </SectionShell>
-  )
-}
+function CustomerPortalPage({ lead, onBack }) {
+  const portal = getPortalData(lead)
 
-function ProjectInformation({ lead, plain = false }) {
   return (
-    <SectionShell title="Project Information" icon={Wrench} plain={plain}>
-      <InfoRow label="Project Type" value={lead.projectType} />
-      <InfoRow label="Project Value" value={currency.format(lead.value)} />
-      <InfoRow label="Project Status" value={lead.projectStatus || lead.status} />
-      <InfoRow label="Lead Source" value={lead.source} />
-      <InfoRow label="Next Step" value={lead.nextStep} />
-      <div>
-        <p className="text-sm font-semibold text-slate-500">Description</p>
-        <p className="mt-1 text-sm leading-6 text-slate-800">{lead.description}</p>
-      </div>
-    </SectionShell>
-  )
-}
+    <div className="mx-auto max-w-6xl space-y-6">
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
+        <ArrowLeft className="h-4 w-4" /> Back to project
+      </button>
 
-function ActivityTimeline({ lead, plain = false }) {
-  return (
-    <SectionShell title="Activity Timeline" icon={CalendarDays} plain={plain}>
-      <div className="space-y-4">
-        {lead.timeline.map((item) => (
-          <div key={`${item.title}-${item.date}`} className="flex gap-3">
-            <div className="mt-1 h-3 w-3 rounded-full bg-blue-500 ring-4 ring-blue-100" />
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white sm:p-8">
+          <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
             <div>
-              <p className="font-semibold text-slate-900">{item.title}</p>
-              <p className="text-sm text-slate-500">{item.date}</p>
-              <p className="mt-1 text-sm leading-6 text-slate-700">{item.detail}</p>
+              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Customer Portal</p>
+              <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle || lead.projectType}</h1>
+              <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
             </div>
+            <span className="w-fit rounded-full bg-blue-500/20 px-4 py-2 text-sm font-bold text-blue-100 ring-1 ring-blue-300/30">{lead.projectStatus || 'In Progress'}</span>
           </div>
-        ))}
-      </div>
-    </SectionShell>
+        </div>
+
+        <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
+          <PortalStat label="Contract Amount" value={currency.format(portal.contractAmount)} />
+          <PortalStat label="Paid To Date" value={currency.format(portal.amountPaid)} />
+          <PortalStat label="Outstanding Balance" value={currency.format(portal.outstandingBalance)} />
+          <PortalStat label="Payment Status" value={portal.paymentStatus} />
+        </div>
+      </section>
+
+      <PortalSummary lead={lead} portal={portal} full />
+    </div>
   )
 }
 
-function EstimatePreview({ lead, onOpenEstimate, plain = false }) {
-  const total = getEstimateTotal(lead.estimate.lineItems)
-
+function PortalSummary({ lead, portal, full = false }) {
   return (
-    <SectionShell title="Estimate Preview" icon={FileText} plain={plain}>
-      <div className="flex flex-col justify-between gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center">
-        <div>
-          <p className="text-sm text-slate-500">{lead.estimate.number}</p>
-          <p className="text-2xl font-bold text-slate-950">{currency.format(total)}</p>
-        </div>
-        <button onClick={onOpenEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
-          Open Estimate Builder
-        </button>
-      </div>
-      <div className="mt-4 space-y-2">
-        {lead.estimate.scope.slice(0, 3).map((item) => (
-          <div key={item} className="flex gap-2 text-sm leading-6 text-slate-700">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-            <span>{item}</span>
+    <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+      <div className="space-y-5">
+        <InfoCard title="Project Status">
+          <div className="mb-3 flex items-center justify-between text-sm font-semibold">
+            <span>{portal.percentComplete}% complete</span>
+            <span className="text-slate-500">Target: {portal.estimatedCompletion}</span>
           </div>
-        ))}
-      </div>
-    </SectionShell>
-  )
-}
-
-function PhotosSection({ lead, plain = false }) {
-  return (
-    <SectionShell title="Photos" icon={Camera} plain={plain}>
-      <div className="grid gap-3 sm:grid-cols-3">
-        {lead.photos.map((photo) => (
-          <div key={photo} className="flex h-28 items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-sm font-semibold text-slate-500">
-            {photo}
+          <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-blue-600" style={{ width: `${portal.percentComplete}%` }} />
           </div>
-        ))}
-      </div>
-    </SectionShell>
-  )
-}
+        </InfoCard>
 
-function QuickActions({ lead, onOpenEstimate, onUpdateProjectStatus }) {
-  const actions = [
-    { label: 'Build Estimate', icon: FileText, onClick: onOpenEstimate, primary: true },
-    { label: 'Send Message', icon: MessageSquare },
-    { label: 'Schedule Visit', icon: CalendarDays },
-    { label: 'Upload Photos', icon: Camera },
-  ]
-
-  return (
-    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-28 xl:self-start">
-      <h2 className="text-lg font-bold text-slate-950">Quick Actions</h2>
-      <p className="mt-1 text-sm text-slate-500">Move {lead.customer.name.split(' ')[0]} from lead to signed job.</p>
-      <div className="mt-5 rounded-2xl bg-slate-50 p-3">
-        <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Project Status</label>
-        <div className="relative">
-          <select
-            value={lead.projectStatus || lead.status}
-            onChange={(event) => onUpdateProjectStatus?.(event.target.value)}
-            className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-          >
-            {projectStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        </div>
-      </div>
-      <div className="mt-5 space-y-3">
-        {actions.map((action) => {
-          const Icon = action.icon
-          return (
-            <button
-              key={action.label}
-              onClick={action.onClick}
-              className={`flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${action.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
-            >
-              <Icon className="h-4 w-4" />
-              {action.label}
-            </button>
-          )
-        })}
-      </div>
-    </aside>
-  )
-}
-
-
-function PaymentsSection({ lead, onOpenPaymentModal, onMarkProjectComplete, plain = false }) {
-  const summary = getPaymentSummary(lead)
-
-  return (
-    <SectionShell title="Payments" icon={DollarSign} plain={plain}>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <PaymentStat label="Contract Amount" value={currency.format(summary.contractAmount)} />
-        <PaymentStat label="Deposit Required" value={currency.format(summary.depositRequired)} helper="50% of contract" />
-        <PaymentStat label="Deposit Paid" value={currency.format(summary.depositPaid)} />
-        <PaymentStat label="Remaining Balance" value={currency.format(summary.remainingBalance)} emphasis />
-      </div>
-
-      <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-500">Payment Status</p>
-          <p className="mt-1 text-lg font-black text-slate-950">{summary.paymentStatus}</p>
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button onClick={onOpenPaymentModal} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
-            <Plus className="h-4 w-4" /> Record Payment
-          </button>
-          <button onClick={onMarkProjectComplete} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
-            <CheckCircle2 className="h-4 w-4" /> Mark Project Complete
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-5">
-        <h3 className="mb-3 font-bold text-slate-950">Payment History</h3>
-        <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Method</th>
-                <th className="px-4 py-3">Notes</th>
-                <th className="px-4 py-3 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {(lead.payments || []).map((payment) => (
-                <tr key={payment.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{formatPaymentDate(payment.date)}</td>
-                  <td className="px-4 py-3 text-slate-700">{payment.type}</td>
-                  <td className="px-4 py-3 text-slate-700">{payment.method}</td>
-                  <td className="px-4 py-3 text-slate-500">{payment.notes || '—'}</td>
-                  <td className="px-4 py-3 text-right font-bold text-slate-950">{currency.format(payment.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="space-y-3 lg:hidden">
-          {(lead.payments || []).map((payment) => (
-            <div key={payment.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="font-bold text-slate-950">{payment.type}</p>
-                  <p className="text-sm text-slate-500">{formatPaymentDate(payment.date)} · {payment.method}</p>
+        <InfoCard title="Project Timeline">
+          <div className="space-y-4">
+            {portal.timeline.map((item) => (
+              <div key={item.title} className="flex gap-3">
+                <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${item.status === 'Complete' ? 'bg-emerald-50 text-emerald-600' : item.status === 'In Progress' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                  <CheckCircle2 className="h-4 w-4" />
                 </div>
-                <p className="font-black text-slate-950">{currency.format(payment.amount)}</p>
+                <div className="min-w-0 flex-1 rounded-2xl bg-slate-50 p-4">
+                  <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-center">
+                    <h3 className="font-bold text-slate-950">{item.title}</h3>
+                    <span className="text-xs font-semibold text-slate-500">{item.date}</span>
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{item.note}</p>
+                </div>
               </div>
-              {payment.notes && <p className="mt-3 text-sm leading-6 text-slate-600">{payment.notes}</p>}
-            </div>
-          ))}
-        </div>
-
-        {(lead.payments || []).length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
-            No payments recorded yet.
+            ))}
           </div>
+        </InfoCard>
+
+        <InfoCard title="Uploaded Photos">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {portal.photos.map((photo) => (
+              <div key={photo.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-200 to-slate-100 text-slate-500">
+                  <Camera className="h-8 w-8" />
+                </div>
+                <h3 className="font-bold text-slate-900">{photo.label}</h3>
+                <p className="mt-1 text-sm text-slate-500">{photo.description}</p>
+              </div>
+            ))}
+          </div>
+        </InfoCard>
+      </div>
+
+      <div className="space-y-5">
+        <InfoCard title="Payment Progress">
+          <DetailRow label="Deposit Required" value={currency.format(portal.depositRequired)} />
+          <DetailRow label="Deposit Paid" value={currency.format(Math.min(portal.amountPaid, portal.depositRequired))} />
+          <DetailRow label="Remaining Balance" value={currency.format(portal.outstandingBalance)} />
+          <DetailRow label="Status" value={portal.paymentStatus} />
+        </InfoCard>
+
+        <InfoCard title="Documents">
+          <div className="space-y-3">
+            {portal.documents.map((doc) => (
+              <div key={doc.name} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-xl bg-blue-50 p-2 text-blue-600"><FileText className="h-4 w-4" /></div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">{doc.name}</p>
+                    <p className="text-xs text-slate-500">{doc.type}</p>
+                  </div>
+                </div>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{doc.status}</span>
+              </div>
+            ))}
+          </div>
+        </InfoCard>
+
+        <InfoCard title="Estimate & Contract">
+          <DetailRow label="Estimate" value={`${portal.estimate.number} · ${currency.format(portal.estimate.total)}`} />
+          <p className="mb-4 text-sm leading-6 text-slate-600">{portal.estimate.summary}</p>
+          <DetailRow label="Contract" value={`${portal.contract.number} · ${portal.contract.status}`} />
+          <DetailRow label="Signed Date" value={portal.contract.signedDate} />
+        </InfoCard>
+
+        {full && (
+          <InfoCard title="Need Help?">
+            <p className="text-sm leading-6 text-slate-600">Questions about schedule, payments, selections, or change orders? Contact your contractor directly from your project workspace.</p>
+            <button className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">Message Contractor</button>
+          </InfoCard>
         )}
       </div>
-    </SectionShell>
-  )
-}
-
-function PaymentStat({ label, value, helper, emphasis = false }) {
-  return (
-    <div className={`rounded-2xl border p-4 ${emphasis ? 'border-blue-100 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-xl font-black text-slate-950">{value}</p>
-      {helper && <p className="mt-1 text-xs text-slate-500">{helper}</p>}
     </div>
   )
 }
 
-function RecordPaymentModal({ lead, onClose, onRecordPayment }) {
-  const summary = getPaymentSummary(lead)
-  const today = new Date().toISOString().slice(0, 10)
-  const suggestedAmount = summary.depositPaid < summary.depositRequired
-    ? summary.depositRequired - summary.depositPaid
-    : summary.remainingBalance
-  const [form, setForm] = useState({
-    amount: suggestedAmount,
-    method: 'Check',
-    date: today,
-    notes: '',
-    type: summary.depositPaid < summary.depositRequired ? 'Deposit' : 'Progress Payment',
-  })
-
-  function updateForm(field, value) {
-    setForm((current) => ({ ...current, [field]: value }))
-  }
-
-  function submitPayment(event) {
-    event.preventDefault()
-    onRecordPayment(form)
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 sm:items-center">
-      <form onSubmit={submitPayment} className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">Record Payment</p>
-            <h2 className="mt-2 text-2xl font-black text-slate-950">{lead.customer.name}</h2>
-            <p className="text-sm text-slate-500">Remaining balance: {currency.format(summary.remainingBalance)}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <MobileField label="Amount">
-            <Input type="number" value={form.amount} onChange={(value) => updateForm('amount', value)} />
-          </MobileField>
-          <MobileField label="Payment Date">
-            <Input type="date" value={form.date} onChange={(value) => updateForm('date', value)} />
-          </MobileField>
-          <MobileField label="Payment Type">
-            <SelectInput value={form.type} onChange={(value) => updateForm('type', value)} options={['Deposit', 'Progress Payment', 'Final Payment', 'Change Order']} />
-          </MobileField>
-          <MobileField label="Payment Method">
-            <SelectInput value={form.method} onChange={(value) => updateForm('method', value)} options={['Cash', 'Check', 'Credit Card', 'ACH', 'Zelle', 'Other']} />
-          </MobileField>
-        </div>
-
-        <div className="mt-4">
-          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Notes</label>
-          <textarea
-            value={form.notes}
-            onChange={(event) => updateForm('notes', event.target.value)}
-            placeholder="Example: Deposit collected after contract signing."
-            className="min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-          />
-        </div>
-
-        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
-          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">Save Payment</button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-function SelectInput({ value, onChange, options }) {
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2 pr-9 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-      >
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-    </div>
-  )
-}
-
-function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
-  const [scopeItems, setScopeItems] = useState(lead.estimate.scope)
-  const [lineItems, setLineItems] = useState(lead.estimate.lineItems)
-  const [materialsIncluded, setMaterialsIncluded] = useState(lead.estimate.materialsIncluded)
-  const [paymentTerms, setPaymentTerms] = useState(lead.estimate.paymentTerms)
-  const total = getEstimateTotal(lineItems)
-
-  function updateLineItem(id, field, value) {
-    setLineItems((current) => current.map((item) => {
-      if (item.id !== id) return item
-      const numericFields = ['quantity', 'unitPrice']
-      return { ...item, [field]: numericFields.includes(field) ? Number(value) : value }
-    }))
-  }
-
-  function addLineItem() {
-    setLineItems((current) => [
-      ...current,
-      {
-        id: `li-${Date.now()}`,
-        description: 'New scope item',
-        category: 'Labor',
-        quantity: 1,
-        unit: 'lot',
-        unitPrice: 0,
-      },
-    ])
-  }
-
-  function removeLineItem(id) {
-    setLineItems((current) => current.filter((item) => item.id !== id))
-  }
-
-  function updateScopeItem(index, value) {
-    setScopeItems((current) => current.map((item, currentIndex) => currentIndex === index ? value : item))
-  }
-
-  function addScopeItem() {
-    setScopeItems((current) => [...current, 'Add a detailed scope item for this project.'])
-  }
-
-  function removeScopeItem(index) {
-    setScopeItems((current) => current.filter((_, currentIndex) => currentIndex !== index))
-  }
-
-  function saveEstimate() {
-    onSaveEstimate({
-      ...lead.estimate,
-      scope: scopeItems,
-      lineItems,
-      materialsIncluded,
-      paymentTerms,
-    })
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-        <button onClick={onBack} className="inline-flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-          <ArrowLeft className="h-4 w-4" /> Back to Project
-        </button>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button onClick={saveEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-            <Save className="h-4 w-4" /> Save Estimate
-          </button>
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-            <FileText className="h-4 w-4" /> Preview Estimate
-          </button>
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
-            <Send className="h-4 w-4" /> Convert to Contract
-          </button>
-        </div>
-      </div>
-
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Estimate Builder</p>
-        <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle}</h1>
-            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.estimate.number}</p>
-          </div>
-          <div className="rounded-2xl bg-white px-5 py-4 text-slate-950">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Live Total</p>
-            <p className="text-3xl font-black">{currency.format(total)}</p>
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-6 2xl:grid-cols-[1fr_420px]">
-        <div className="space-y-6">
-          <SectionShell title="Scope of Work Builder" icon={ClipboardList}>
-            <div className="space-y-3">
-              {scopeItems.map((item, index) => (
-                <div key={`${item}-${index}`} className="flex gap-2">
-                  <textarea
-                    value={item}
-                    onChange={(event) => updateScopeItem(index, event.target.value)}
-                    className="min-h-20 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-                  />
-                  <button onClick={() => removeScopeItem(index)} className="h-fit rounded-2xl border border-slate-200 bg-white p-3 text-slate-500 hover:bg-red-50 hover:text-red-600">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button onClick={addScopeItem} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              <Plus className="h-4 w-4" /> Add Scope Item
-            </button>
-          </SectionShell>
-
-          <SectionShell title="Editable Line Items" icon={DollarSign}>
-            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Description</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Qty</th>
-                    <th className="px-4 py-3">Unit</th>
-                    <th className="px-4 py-3">Unit Price</th>
-                    <th className="px-4 py-3 text-right">Total</th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {lineItems.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-4 py-3"><Input value={item.description} onChange={(value) => updateLineItem(item.id, 'description', value)} /></td>
-                      <td className="px-4 py-3"><Input value={item.category} onChange={(value) => updateLineItem(item.id, 'category', value)} /></td>
-                      <td className="px-4 py-3"><Input type="number" value={item.quantity} onChange={(value) => updateLineItem(item.id, 'quantity', value)} /></td>
-                      <td className="px-4 py-3"><Input value={item.unit} onChange={(value) => updateLineItem(item.id, 'unit', value)} /></td>
-                      <td className="px-4 py-3"><Input type="number" value={item.unitPrice} onChange={(value) => updateLineItem(item.id, 'unitPrice', value)} /></td>
-                      <td className="px-4 py-3 text-right font-bold text-slate-900">{currency.format(item.quantity * item.unitPrice)}</td>
-                      <td className="px-4 py-3"><button onClick={() => removeLineItem(item.id)} className="rounded-xl p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="space-y-4 lg:hidden">
-              {lineItems.map((item) => (
-                <div key={item.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <p className="font-bold text-slate-950">{item.description}</p>
-                    <button onClick={() => removeLineItem(item.id)} className="rounded-xl p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
-                  </div>
-                  <div className="space-y-3">
-                    <MobileField label="Description"><Input value={item.description} onChange={(value) => updateLineItem(item.id, 'description', value)} /></MobileField>
-                    <MobileField label="Category"><Input value={item.category} onChange={(value) => updateLineItem(item.id, 'category', value)} /></MobileField>
-                    <div className="grid grid-cols-2 gap-3">
-                      <MobileField label="Quantity"><Input type="number" value={item.quantity} onChange={(value) => updateLineItem(item.id, 'quantity', value)} /></MobileField>
-                      <MobileField label="Unit"><Input value={item.unit} onChange={(value) => updateLineItem(item.id, 'unit', value)} /></MobileField>
-                    </div>
-                    <MobileField label="Unit Price"><Input type="number" value={item.unitPrice} onChange={(value) => updateLineItem(item.id, 'unitPrice', value)} /></MobileField>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between rounded-2xl bg-white px-4 py-3">
-                    <span className="text-sm font-semibold text-slate-500">Line Total</span>
-                    <span className="text-lg font-black text-slate-950">{currency.format(item.quantity * item.unitPrice)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button onClick={addLineItem} className="mt-4 inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
-              <Plus className="h-4 w-4" /> Add Line Item
-            </button>
-          </SectionShell>
-
-          <SectionShell title="Materials and Payment Terms" icon={FileText}>
-            <div className="flex flex-col gap-4 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-bold text-slate-950">Materials Included</p>
-                <p className="text-sm text-slate-500">Turn this off for labor-only proposals.</p>
-              </div>
-              <button
-                onClick={() => setMaterialsIncluded((current) => !current)}
-                className={`relative h-8 w-14 rounded-full transition ${materialsIncluded ? 'bg-blue-600' : 'bg-slate-300'}`}
-              >
-                <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${materialsIncluded ? 'left-7' : 'left-1'}`} />
-              </button>
-            </div>
-            <div className="mt-4">
-              <label className="mb-2 block text-sm font-bold text-slate-700">Payment Terms</label>
-              <textarea
-                value={paymentTerms}
-                onChange={(event) => setPaymentTerms(event.target.value)}
-                className="min-h-28 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-              />
-            </div>
-          </SectionShell>
-        </div>
-
-        <EstimateLivePreview
-          lead={lead}
-          scopeItems={scopeItems}
-          lineItems={lineItems}
-          materialsIncluded={materialsIncluded}
-          paymentTerms={paymentTerms}
-          total={total}
-        />
-      </div>
-    </div>
-  )
-}
-
-function EstimateLivePreview({ lead, scopeItems, lineItems, materialsIncluded, paymentTerms, total }) {
-  return (
-    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm 2xl:sticky 2xl:top-28 2xl:self-start">
-      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">Estimate Preview</p>
-          <h2 className="mt-2 text-2xl font-black text-slate-950">{lead.estimate.number}</h2>
-          <p className="text-sm text-slate-500">Prepared for {lead.customer.name}</p>
-        </div>
-        <div className="rounded-2xl bg-slate-950 px-4 py-3 text-right text-white">
-          <p className="text-xs text-slate-300">Total</p>
-          <p className="text-xl font-black">{currency.format(total)}</p>
-        </div>
-      </div>
-
-      <div className="mt-5 space-y-5">
-        <div>
-          <h3 className="font-bold text-slate-950">Scope of Work</h3>
-          <ul className="mt-3 space-y-2">
-            {scopeItems.map((item, index) => (
-              <li key={`${item}-${index}`} className="flex gap-2 text-sm leading-6 text-slate-700">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div>
-          <h3 className="font-bold text-slate-950">Line Items</h3>
-          <div className="mt-3 space-y-3">
-            {lineItems.map((item) => (
-              <div key={item.id} className="rounded-2xl bg-slate-50 p-3">
-                <div className="flex justify-between gap-3">
-                  <p className="text-sm font-semibold text-slate-800">{item.description}</p>
-                  <p className="text-sm font-bold text-slate-950">{currency.format(item.quantity * item.unitPrice)}</p>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">{item.quantity} {item.unit} × {currency.format(item.unitPrice)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
-          <p className="font-bold">Materials: {materialsIncluded ? 'Included' : 'Labor only'}</p>
-          <p className="mt-2 leading-6">{paymentTerms}</p>
-        </div>
-      </div>
-    </aside>
-  )
-}
-
-function AccordionCard({ title, open, onToggle, children }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <button onClick={onToggle} className="flex w-full items-center justify-between gap-4 p-5 text-left">
-        <span className="font-bold text-slate-950">{title}</span>
-        <ChevronDown className={`h-5 w-5 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="border-t border-slate-100 p-5 pt-4">{children}</div>}
-    </div>
-  )
-}
-
-function SectionShell({ title, icon: Icon, children, plain = false }) {
-  if (plain) return <div>{children}</div>
-
+function InfoCard({ title, children }) {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="mb-5 flex items-center gap-3">
-        <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
-          <Icon className="h-5 w-5" />
-        </div>
-        <h2 className="text-lg font-bold text-slate-950">{title}</h2>
-      </div>
+      <h2 className="mb-4 text-lg font-bold text-slate-950">{title}</h2>
       {children}
     </section>
   )
 }
 
-function InfoRow({ label, value }) {
+function DetailRow({ label, value }) {
   return (
-    <div className="mb-4 last:mb-0">
-      <p className="text-sm font-semibold text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-medium leading-6 text-slate-900">{value}</p>
+    <div className="mb-3 flex items-start justify-between gap-4 border-b border-slate-100 pb-3 last:mb-0 last:border-b-0 last:pb-0">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="text-right text-sm font-bold text-slate-900">{value}</span>
     </div>
   )
 }
 
-function Input({ value, onChange, type = 'text' }) {
+function PortalStat({ label, value }) {
   return (
-    <input
-      type={type}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-    />
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-bold text-slate-950">{value}</p>
+    </div>
   )
 }
 
-function MobileField({ label, children }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-400">{label}</span>
-      {children}
-    </label>
-  )
-}
-
-function getEstimateTotal(lineItems) {
-  return lineItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0)
-}
-
-function getPaymentSummary(lead) {
-  const contractAmount = getEstimateTotal(lead.estimate.lineItems) || lead.value
-  const payments = lead.payments || []
-  const paidTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-  const depositRequired = Math.round(contractAmount * 0.5)
-  const depositPaid = payments
-    .filter((payment) => payment.type === 'Deposit')
-    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
-  const remainingBalance = Math.max(contractAmount - paidTotal, 0)
-
-  let paymentStatus = 'Unpaid'
-  if (remainingBalance <= 0) paymentStatus = 'Paid in Full'
-  else if (paidTotal > 0 && depositPaid >= depositRequired) paymentStatus = 'Deposit Paid'
-  else if (paidTotal > 0) paymentStatus = 'Partially Paid'
-
-  return { contractAmount, paidTotal, depositRequired, depositPaid, remainingBalance, paymentStatus }
-}
-
-function formatPaymentDate(date) {
-  if (!date) return 'No date'
-  const parsed = new Date(`${date}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) return date
-  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+function getPortalData(lead) {
+  return lead.portal || {
+    shareUrl: `contractorflow.app/portal/${lead.id}`,
+    percentComplete: lead.status === 'Won' ? 35 : 10,
+    contractAmount: lead.value,
+    depositRequired: Math.round(lead.value * 0.5),
+    amountPaid: lead.status === 'Won' ? Math.round(lead.value * 0.5) : 0,
+    outstandingBalance: lead.status === 'Won' ? Math.round(lead.value * 0.5) : lead.value,
+    paymentStatus: lead.status === 'Won' ? 'Deposit Paid' : 'Not Paid',
+    startDate: 'To be scheduled',
+    estimatedCompletion: 'Pending contract approval',
+    timeline: [
+      { title: 'Contract Signed', date: 'Pending', status: 'Upcoming', note: 'Contract will appear here after customer approval.' },
+      { title: 'Deposit Received', date: 'Pending', status: 'Upcoming', note: 'Deposit invoice will be tracked once paid.' },
+      { title: 'Demolition Complete', date: 'Pending', status: 'Upcoming', note: 'Milestone will update when work begins.' },
+      { title: 'Installation', date: 'Pending', status: 'Upcoming', note: 'Installation milestone is not started yet.' },
+      { title: 'Final Walkthrough', date: 'Pending', status: 'Upcoming', note: 'Final walkthrough will be scheduled near completion.' },
+    ],
+    photos: [
+      { label: 'Before photos', description: 'Photos will be uploaded once the project starts.' },
+      { label: 'Progress photos', description: 'Crew updates will appear here.' },
+      { label: 'Final photos', description: 'Completed work photos will appear here.' },
+    ],
+    documents: [
+      { name: 'Estimate', type: 'PDF', status: 'Draft' },
+      { name: 'Contract', type: 'PDF', status: 'Pending' },
+      { name: 'Invoices', type: 'Invoice', status: 'Pending' },
+    ],
+    estimate: {
+      number: 'Draft',
+      total: lead.value,
+      summary: `${lead.projectType} estimate for ${lead.location}.`,
+    },
+    contract: {
+      number: 'Not generated',
+      signedDate: 'Pending',
+      status: 'Not Signed',
+    },
+  }
 }
 
 export default App
