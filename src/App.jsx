@@ -257,6 +257,7 @@ function PipelineBoard({
           selectedStage={selectedMobileStage}
           setSelectedStage={setSelectedMobileStage}
           moveLead={moveLead}
+          onLeadClick={onLeadClick}
         />
       </div>
 
@@ -277,7 +278,7 @@ function PipelineBoard({
   )
 }
 
-function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead }) {
+function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead, onLeadClick }) {
   const selectedTotal = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -315,6 +316,7 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
             statuses={statuses}
             moveLead={moveLead}
             mobile
+            onClick={() => onLeadClick(lead.id)}
           />
         ))}
 
@@ -328,7 +330,7 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
   )
 }
 
-function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead }) {
+function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick }) {
   const total = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -407,7 +409,7 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
       </div>
 
       {mobile && (
-        <div className="mt-4">
+        <div className="mt-4" onClick={(event) => event.stopPropagation()}>
           <label htmlFor={`status-${lead.id}`} className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-400">
             Change Status
           </label>
