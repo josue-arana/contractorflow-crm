@@ -5,6 +5,16 @@ export const pipelineStatuses = [
   'Won',
 ]
 
+export const projectStatuses = [
+  'Lead',
+  'Estimate Sent',
+  'Contract Sent',
+  'Signed',
+  'In Progress',
+  'Completed',
+  'Paid',
+]
+
 export const estimateTemplates = [
   'Basement Full Renovation',
   'Kitchen Remodeling',
@@ -30,6 +40,7 @@ export const initialLeads = [
     value: 18500,
     location: 'Owings Mills, MD',
     status: 'New Lead',
+    projectStatus: 'Lead',
     priority: 'High',
     source: 'Referral',
     nextStep: 'Schedule walkthrough',
@@ -56,6 +67,9 @@ export const initialLeads = [
         { id: 'li-6', description: 'Painting and finishing', category: 'Labor', quantity: 1, unit: 'lot', unitPrice: 1800 },
       ],
     },
+    payments: [
+      { id: 'pay-1', type: 'Deposit', amount: 5000, method: 'Check', date: '2026-06-01', notes: 'Partial deposit collected after walkthrough.' },
+    ],
     photos: ['Existing kitchen', 'Cabinet inspiration', 'Countertop sample'],
   },
   {
@@ -73,6 +87,7 @@ export const initialLeads = [
     value: 12400,
     location: 'Chestertown, MD',
     status: 'Contacted',
+    projectStatus: 'Lead',
     priority: 'Medium',
     source: 'Website',
     nextStep: 'Send rough budget range',
@@ -97,6 +112,7 @@ export const initialLeads = [
         { id: 'li-4', description: 'Stain and seal', category: 'Material + Labor', quantity: 260, unit: 'sq ft', unitPrice: 7 },
       ],
     },
+    payments: [],
     photos: ['Deck surface', 'Loose railing', 'Stair repair area'],
   },
   {
@@ -114,6 +130,7 @@ export const initialLeads = [
     value: 22000,
     location: 'Baltimore, MD',
     status: 'Estimate Sent',
+    projectStatus: 'Estimate Sent',
     priority: 'High',
     source: 'Google Business',
     nextStep: 'Follow up Friday',
@@ -138,6 +155,9 @@ export const initialLeads = [
         { id: 'li-4', description: 'Installation labor', category: 'Labor', quantity: 28, unit: 'squares', unitPrice: 310 },
       ],
     },
+    payments: [
+      { id: 'pay-1', type: 'Deposit', amount: 8800, method: 'ACH', date: '2026-05-31', notes: 'Deposit received to reserve crew schedule.' },
+    ],
     photos: ['Front roof slope', 'Rear roof slope', 'Flashing detail'],
   },
   {
@@ -155,6 +175,7 @@ export const initialLeads = [
     value: 6800,
     location: 'Columbia, MD',
     status: 'Won',
+    projectStatus: 'Signed',
     priority: 'Low',
     source: 'Repeat Client',
     nextStep: 'Collect deposit',
@@ -179,6 +200,10 @@ export const initialLeads = [
         { id: 'li-4', description: 'Trim painting', category: 'Labor', quantity: 1, unit: 'lot', unitPrice: 1550 },
       ],
     },
+    payments: [
+      { id: 'pay-1', type: 'Deposit', amount: 3400, method: 'Credit Card', date: '2026-05-31', notes: 'Deposit collected after proposal approval.' },
+      { id: 'pay-2', type: 'Progress Payment', amount: 1700, method: 'Zelle', date: '2026-06-02', notes: 'Progress payment after prep completion.' },
+    ],
     photos: ['Living room', 'Hallway trim', 'Bedroom walls'],
   },
   {
@@ -196,6 +221,7 @@ export const initialLeads = [
     value: 34500,
     location: 'Silver Spring, MD',
     status: 'New Lead',
+    projectStatus: 'Lead',
     priority: 'High',
     source: 'Instagram',
     nextStep: 'Confirm project scope',
@@ -220,6 +246,7 @@ export const initialLeads = [
         { id: 'li-5', description: 'Painting and trim package', category: 'Material + Labor', quantity: 1, unit: 'lot', unitPrice: 5200 },
       ],
     },
+    payments: [],
     photos: ['Unfinished basement', 'Utility wall', 'Flooring inspiration'],
   },
   {
@@ -237,6 +264,7 @@ export const initialLeads = [
     value: 9200,
     location: 'Towson, MD',
     status: 'Contacted',
+    projectStatus: 'Lead',
     priority: 'Medium',
     source: 'Yard Sign',
     nextStep: 'Visit property',
@@ -259,6 +287,7 @@ export const initialLeads = [
         { id: 'li-3', description: 'Exterior painting labor', category: 'Labor', quantity: 1, unit: 'lot', unitPrice: 5700 },
       ],
     },
+    payments: [],
     photos: ['Front elevation', 'Trim detail', 'Porch columns'],
   },
   {
@@ -276,6 +305,7 @@ export const initialLeads = [
     value: 15800,
     location: 'Laurel, MD',
     status: 'Estimate Sent',
+    projectStatus: 'Estimate Sent',
     priority: 'Medium',
     source: 'Referral',
     nextStep: 'Review tile allowance',
@@ -300,6 +330,7 @@ export const initialLeads = [
         { id: 'li-4', description: 'Flooring, paint, and final trim', category: 'Material + Labor', quantity: 1, unit: 'lot', unitPrice: 3900 },
       ],
     },
+    payments: [],
     photos: ['Existing vanity', 'Tub wall', 'Tile inspiration'],
   },
 ]

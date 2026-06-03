@@ -24,7 +24,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import { initialLeads, pipelineStatuses } from './data/mockLeads'
+import { initialLeads, pipelineStatuses, projectStatuses } from './data/mockLeads'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -70,9 +70,33 @@ function App() {
     )
   }
 
-  function convertEstimateToContract(leadId, estimate) {
-    updateEstimate(leadId, estimate)
-    setCurrentView({ name: 'contract', leadId })
+  function updateProjectStatus(leadId, projectStatus) {
+    setLeads((current) =>
+      current.map((lead) =>
+        lead.id === leadId ? { ...lead, projectStatus } : lead,
+      ),
+    )
+  }
+
+  function recordPayment(leadId, payment) {
+    setLeads((current) =>
+      current.map((lead) => {
+        if (lead.id !== leadId) return lead
+
+        const updatedPayments = [
+          ...(lead.payments || []),
+          {
+            id: `pay-${Date.now()}`,
+            ...payment,
+            amount: Number(payment.amount || 0),
+          },
+        ]
+        const summary = getPaymentSummary({ ...lead, payments: updatedPayments })
+        const projectStatus = summary.remainingBalance <= 0 ? 'Paid' : lead.projectStatus
+
+        return { ...lead, payments: updatedPayments, projectStatus }
+      }),
+    )
   }
 
   function renderContent() {
@@ -82,6 +106,8 @@ function App() {
           lead={selectedLead}
           onBack={() => setCurrentView({ name: 'dashboard' })}
           onOpenEstimate={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
+          onRecordPayment={(payment) => recordPayment(selectedLead.id, payment)}
+          onUpdateProjectStatus={(status) => updateProjectStatus(selectedLead.id, status)}
         />
       )
     }
@@ -92,17 +118,6 @@ function App() {
           lead={selectedLead}
           onBack={() => setCurrentView({ name: 'project', leadId: selectedLead.id })}
           onSaveEstimate={(estimate) => updateEstimate(selectedLead.id, estimate)}
-          onConvertToContract={(estimate) => convertEstimateToContract(selectedLead.id, estimate)}
-        />
-      )
-    }
-
-    if (currentView.name === 'contract' && selectedLead) {
-      return (
-        <ContractPreviewPage
-          lead={selectedLead}
-          onBack={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
-          onEditEstimate={() => setCurrentView({ name: 'estimate', leadId: selectedLead.id })}
         />
       )
     }
@@ -423,15 +438,17 @@ function LeadCard({ lead, onDragStart, onLeadClick, statuses = pipelineStatuses,
   )
 }
 
-function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
+function ProjectDetailPage({ lead, onBack, onOpenEstimate, onRecordPayment, onUpdateProjectStatus }) {
   const [openSections, setOpenSections] = useState({
     customer: true,
     project: true,
+    payments: true,
     timeline: false,
     estimate: false,
     photos: false,
     actions: true,
   })
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
 
   function toggleSection(section) {
     setOpenSections((current) => ({ ...current, [section]: !current[section] }))
@@ -451,7 +468,7 @@ function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
             <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.location}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full bg-blue-500 px-4 py-2 text-sm font-bold text-white">{lead.status}</span>
+            <span className="rounded-full bg-blue-500 px-4 py-2 text-sm font-bold text-white">{lead.projectStatus || lead.status}</span>
             <span className="rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950">{currency.format(lead.value)}</span>
           </div>
         </div>
@@ -463,6 +480,11 @@ function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
             <CustomerInformation lead={lead} />
             <ProjectInformation lead={lead} />
           </div>
+          <PaymentsSection
+            lead={lead}
+            onOpenPaymentModal={() => setPaymentModalOpen(true)}
+            onMarkProjectComplete={() => onUpdateProjectStatus('Completed')}
+          />
           <ActivityTimeline lead={lead} />
           <EstimatePreview lead={lead} onOpenEstimate={onOpenEstimate} />
           <PhotosSection lead={lead} />
@@ -475,6 +497,14 @@ function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
           <AccordionCard title="Project Information" open={openSections.project} onToggle={() => toggleSection('project')}>
             <ProjectInformation lead={lead} plain />
           </AccordionCard>
+          <AccordionCard title="Payments" open={openSections.payments} onToggle={() => toggleSection('payments')}>
+            <PaymentsSection
+              lead={lead}
+              onOpenPaymentModal={() => setPaymentModalOpen(true)}
+              onMarkProjectComplete={() => onUpdateProjectStatus('Completed')}
+              plain
+            />
+          </AccordionCard>
           <AccordionCard title="Activity Timeline" open={openSections.timeline} onToggle={() => toggleSection('timeline')}>
             <ActivityTimeline lead={lead} plain />
           </AccordionCard>
@@ -486,8 +516,19 @@ function ProjectDetailPage({ lead, onBack, onOpenEstimate }) {
           </AccordionCard>
         </div>
 
-        <QuickActions lead={lead} onOpenEstimate={onOpenEstimate} />
+        <QuickActions lead={lead} onOpenEstimate={onOpenEstimate} onUpdateProjectStatus={onUpdateProjectStatus} />
       </div>
+
+      {paymentModalOpen && (
+        <RecordPaymentModal
+          lead={lead}
+          onClose={() => setPaymentModalOpen(false)}
+          onRecordPayment={(payment) => {
+            onRecordPayment(payment)
+            setPaymentModalOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -509,6 +550,7 @@ function ProjectInformation({ lead, plain = false }) {
     <SectionShell title="Project Information" icon={Wrench} plain={plain}>
       <InfoRow label="Project Type" value={lead.projectType} />
       <InfoRow label="Project Value" value={currency.format(lead.value)} />
+      <InfoRow label="Project Status" value={lead.projectStatus || lead.status} />
       <InfoRow label="Lead Source" value={lead.source} />
       <InfoRow label="Next Step" value={lead.nextStep} />
       <div>
@@ -578,7 +620,7 @@ function PhotosSection({ lead, plain = false }) {
   )
 }
 
-function QuickActions({ lead, onOpenEstimate }) {
+function QuickActions({ lead, onOpenEstimate, onUpdateProjectStatus }) {
   const actions = [
     { label: 'Build Estimate', icon: FileText, onClick: onOpenEstimate, primary: true },
     { label: 'Send Message', icon: MessageSquare },
@@ -590,6 +632,19 @@ function QuickActions({ lead, onOpenEstimate }) {
     <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-28 xl:self-start">
       <h2 className="text-lg font-bold text-slate-950">Quick Actions</h2>
       <p className="mt-1 text-sm text-slate-500">Move {lead.customer.name.split(' ')[0]} from lead to signed job.</p>
+      <div className="mt-5 rounded-2xl bg-slate-50 p-3">
+        <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Project Status</label>
+        <div className="relative">
+          <select
+            value={lead.projectStatus || lead.status}
+            onChange={(event) => onUpdateProjectStatus?.(event.target.value)}
+            className="w-full appearance-none rounded-2xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm font-semibold text-slate-900 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+          >
+            {projectStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        </div>
+      </div>
       <div className="mt-5 space-y-3">
         {actions.map((action) => {
           const Icon = action.icon
@@ -609,7 +664,183 @@ function QuickActions({ lead, onOpenEstimate }) {
   )
 }
 
-function EstimateBuilderPage({ lead, onBack, onSaveEstimate, onConvertToContract }) {
+
+function PaymentsSection({ lead, onOpenPaymentModal, onMarkProjectComplete, plain = false }) {
+  const summary = getPaymentSummary(lead)
+
+  return (
+    <SectionShell title="Payments" icon={DollarSign} plain={plain}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <PaymentStat label="Contract Amount" value={currency.format(summary.contractAmount)} />
+        <PaymentStat label="Deposit Required" value={currency.format(summary.depositRequired)} helper="50% of contract" />
+        <PaymentStat label="Deposit Paid" value={currency.format(summary.depositPaid)} />
+        <PaymentStat label="Remaining Balance" value={currency.format(summary.remainingBalance)} emphasis />
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3 rounded-2xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-500">Payment Status</p>
+          <p className="mt-1 text-lg font-black text-slate-950">{summary.paymentStatus}</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button onClick={onOpenPaymentModal} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+            <Plus className="h-4 w-4" /> Record Payment
+          </button>
+          <button onClick={onMarkProjectComplete} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+            <CheckCircle2 className="h-4 w-4" /> Mark Project Complete
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <h3 className="mb-3 font-bold text-slate-950">Payment History</h3>
+        <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Method</th>
+                <th className="px-4 py-3">Notes</th>
+                <th className="px-4 py-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {(lead.payments || []).map((payment) => (
+                <tr key={payment.id}>
+                  <td className="px-4 py-3 font-medium text-slate-900">{formatPaymentDate(payment.date)}</td>
+                  <td className="px-4 py-3 text-slate-700">{payment.type}</td>
+                  <td className="px-4 py-3 text-slate-700">{payment.method}</td>
+                  <td className="px-4 py-3 text-slate-500">{payment.notes || '—'}</td>
+                  <td className="px-4 py-3 text-right font-bold text-slate-950">{currency.format(payment.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-3 lg:hidden">
+          {(lead.payments || []).map((payment) => (
+            <div key={payment.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold text-slate-950">{payment.type}</p>
+                  <p className="text-sm text-slate-500">{formatPaymentDate(payment.date)} · {payment.method}</p>
+                </div>
+                <p className="font-black text-slate-950">{currency.format(payment.amount)}</p>
+              </div>
+              {payment.notes && <p className="mt-3 text-sm leading-6 text-slate-600">{payment.notes}</p>}
+            </div>
+          ))}
+        </div>
+
+        {(lead.payments || []).length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+            No payments recorded yet.
+          </div>
+        )}
+      </div>
+    </SectionShell>
+  )
+}
+
+function PaymentStat({ label, value, helper, emphasis = false }) {
+  return (
+    <div className={`rounded-2xl border p-4 ${emphasis ? 'border-blue-100 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-2 text-xl font-black text-slate-950">{value}</p>
+      {helper && <p className="mt-1 text-xs text-slate-500">{helper}</p>}
+    </div>
+  )
+}
+
+function RecordPaymentModal({ lead, onClose, onRecordPayment }) {
+  const summary = getPaymentSummary(lead)
+  const today = new Date().toISOString().slice(0, 10)
+  const suggestedAmount = summary.depositPaid < summary.depositRequired
+    ? summary.depositRequired - summary.depositPaid
+    : summary.remainingBalance
+  const [form, setForm] = useState({
+    amount: suggestedAmount,
+    method: 'Check',
+    date: today,
+    notes: '',
+    type: summary.depositPaid < summary.depositRequired ? 'Deposit' : 'Progress Payment',
+  })
+
+  function updateForm(field, value) {
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+
+  function submitPayment(event) {
+    event.preventDefault()
+    onRecordPayment(form)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-4 sm:items-center">
+      <form onSubmit={submitPayment} className="w-full max-w-xl rounded-3xl bg-white p-5 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">Record Payment</p>
+            <h2 className="mt-2 text-2xl font-black text-slate-950">{lead.customer.name}</h2>
+            <p className="text-sm text-slate-500">Remaining balance: {currency.format(summary.remainingBalance)}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <MobileField label="Amount">
+            <Input type="number" value={form.amount} onChange={(value) => updateForm('amount', value)} />
+          </MobileField>
+          <MobileField label="Payment Date">
+            <Input type="date" value={form.date} onChange={(value) => updateForm('date', value)} />
+          </MobileField>
+          <MobileField label="Payment Type">
+            <SelectInput value={form.type} onChange={(value) => updateForm('type', value)} options={['Deposit', 'Progress Payment', 'Final Payment', 'Change Order']} />
+          </MobileField>
+          <MobileField label="Payment Method">
+            <SelectInput value={form.method} onChange={(value) => updateForm('method', value)} options={['Cash', 'Check', 'Credit Card', 'ACH', 'Zelle', 'Other']} />
+          </MobileField>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-2 block text-xs font-bold uppercase tracking-wide text-slate-400">Notes</label>
+          <textarea
+            value={form.notes}
+            onChange={(event) => updateForm('notes', event.target.value)}
+            placeholder="Example: Deposit collected after contract signing."
+            className="min-h-24 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+          />
+        </div>
+
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">Cancel</button>
+          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">Save Payment</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function SelectInput({ value, onChange, options }) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2 pr-9 text-sm outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+      >
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+    </div>
+  )
+}
+
+function EstimateBuilderPage({ lead, onBack, onSaveEstimate }) {
   const [scopeItems, setScopeItems] = useState(lead.estimate.scope)
   const [lineItems, setLineItems] = useState(lead.estimate.lineItems)
   const [materialsIncluded, setMaterialsIncluded] = useState(lead.estimate.materialsIncluded)
@@ -654,22 +885,14 @@ function EstimateBuilderPage({ lead, onBack, onSaveEstimate, onConvertToContract
     setScopeItems((current) => current.filter((_, currentIndex) => currentIndex !== index))
   }
 
-  function getCurrentEstimate() {
-    return {
+  function saveEstimate() {
+    onSaveEstimate({
       ...lead.estimate,
       scope: scopeItems,
       lineItems,
       materialsIncluded,
       paymentTerms,
-    }
-  }
-
-  function saveEstimate() {
-    onSaveEstimate(getCurrentEstimate())
-  }
-
-  function convertToContract() {
-    onConvertToContract?.(getCurrentEstimate())
+    })
   }
 
   return (
@@ -685,7 +908,7 @@ function EstimateBuilderPage({ lead, onBack, onSaveEstimate, onConvertToContract
           <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
             <FileText className="h-4 w-4" /> Preview Estimate
           </button>
-          <button onClick={convertToContract} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
+          <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
             <Send className="h-4 w-4" /> Convert to Contract
           </button>
         </div>
@@ -875,217 +1098,6 @@ function EstimateLivePreview({ lead, scopeItems, lineItems, materialsIncluded, p
   )
 }
 
-
-function ContractPreviewPage({ lead, onBack, onEditEstimate }) {
-  const [contractStatus, setContractStatus] = useState('Draft')
-  const estimate = lead.estimate
-  const total = getEstimateTotal(estimate.lineItems)
-  const materialsLabel = estimate.materialsIncluded ? 'Materials are included in the total contract price unless specifically excluded in writing.' : 'This contract is labor-only. Materials must be supplied by the client unless added by written change order.'
-
-  const contractSections = [
-    {
-      title: 'Project Scope',
-      content: (
-        <ul className="space-y-2">
-          {estimate.scope.map((item, index) => (
-            <li key={`${item}-${index}`} className="flex gap-2 text-sm leading-6 text-slate-700">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      ),
-    },
-    {
-      title: 'Payment Terms',
-      content: <p className="text-sm leading-6 text-slate-700">{estimate.paymentTerms}</p>,
-    },
-    {
-      title: 'Materials',
-      content: <p className="text-sm leading-6 text-slate-700">{materialsLabel}</p>,
-    },
-    {
-      title: 'Timeline',
-      content: <p className="text-sm leading-6 text-slate-700">Work will be scheduled after deposit/payment approval and final material selections. Estimated project duration will be confirmed before start based on crew availability, material lead times, inspections, and weather when applicable.</p>,
-    },
-    {
-      title: 'Change Orders',
-      content: <p className="text-sm leading-6 text-slate-700">Any work outside the approved scope must be documented as a change order and approved by the client before additional work begins. Change orders may affect project cost and completion timeline.</p>,
-    },
-    {
-      title: 'Client Responsibilities',
-      content: <p className="text-sm leading-6 text-slate-700">Client is responsible for providing reasonable access to the work area, clearing personal belongings, approving selections in a timely manner, and notifying ContractorFlow CRM of known site conditions that may affect the work.</p>,
-    },
-    {
-      title: 'Warranty Disclaimer',
-      content: <p className="text-sm leading-6 text-slate-700">Contractor workmanship is covered for one year from substantial completion. Manufacturer warranties apply separately to materials and fixtures. Warranty does not cover damage caused by misuse, normal wear, moisture intrusion from unrelated building conditions, or work performed by others.</p>,
-    },
-  ]
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-        <button onClick={onBack} className="inline-flex w-fit items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-          <ArrowLeft className="h-4 w-4" /> Back to Estimate
-        </button>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-            <Save className="h-4 w-4" /> Save Contract
-          </button>
-          <button onClick={onEditEstimate} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-            <FileText className="h-4 w-4" /> Edit Contract
-          </button>
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">
-            <FileText className="h-4 w-4" /> Preview PDF
-          </button>
-          <button onClick={() => setContractStatus('Signed')} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700">
-            <CheckCircle2 className="h-4 w-4" /> Mark as Signed
-          </button>
-        </div>
-      </div>
-
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Contract Preview</p>
-        <div className="mt-3 flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Contractor Agreement</h1>
-            <p className="mt-3 text-slate-300">{lead.customer.name} · {lead.projectTitle}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className={`rounded-full px-4 py-2 text-sm font-bold ${contractStatus === 'Signed' ? 'bg-emerald-500 text-white' : 'bg-blue-500 text-white'}`}>{contractStatus}</span>
-            <span className="rounded-2xl bg-white px-5 py-4 text-right text-slate-950">
-              <span className="block text-xs font-bold uppercase tracking-wide text-slate-500">Contract Total</span>
-              <span className="block text-2xl font-black">{currency.format(total)}</span>
-            </span>
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-6 2xl:grid-cols-[1fr_380px]">
-        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div className="border-b border-slate-200 pb-6">
-            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">ContractorFlow CRM</p>
-                <h2 className="mt-2 text-2xl font-black text-slate-950">Home Improvement Agreement</h2>
-                <p className="mt-2 text-sm text-slate-500">Generated from {estimate.number}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm">
-                <p className="font-bold text-slate-950">Prepared For</p>
-                <p className="mt-1 text-slate-700">{lead.customer.name}</p>
-                <p className="text-slate-700">{lead.customer.address}</p>
-                <p className="text-slate-700">{lead.customer.phone}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-3">
-            <ContractSummary label="Customer" value={lead.customer.name} />
-            <ContractSummary label="Project" value={lead.projectTitle} />
-            <ContractSummary label="Total Amount" value={currency.format(total)} />
-          </div>
-
-          <div className="mt-8 space-y-6">
-            {contractSections.map((section) => (
-              <ContractSection key={section.title} title={section.title}>{section.content}</ContractSection>
-            ))}
-
-            <ContractSection title="Line Items">
-              <div className="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th className="px-4 py-3">Description</th>
-                      <th className="px-4 py-3">Category</th>
-                      <th className="px-4 py-3">Qty</th>
-                      <th className="px-4 py-3 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {estimate.lineItems.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-4 py-3 font-semibold text-slate-900">{item.description}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.category}</td>
-                        <td className="px-4 py-3 text-slate-600">{item.quantity} {item.unit}</td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-950">{currency.format(item.quantity * item.unitPrice)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="space-y-3 lg:hidden">
-                {estimate.lineItems.map((item) => (
-                  <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex justify-between gap-3">
-                      <p className="font-bold text-slate-950">{item.description}</p>
-                      <p className="font-black text-slate-950">{currency.format(item.quantity * item.unitPrice)}</p>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-500">{item.category} · {item.quantity} {item.unit} × {currency.format(item.unitPrice)}</p>
-                  </div>
-                ))}
-              </div>
-            </ContractSection>
-
-            <ContractSection title="Signature Lines">
-              <div className="grid gap-5 md:grid-cols-2">
-                <SignatureLine label="Client Signature" name={lead.customer.name} />
-                <SignatureLine label="Contractor Signature" name="ContractorFlow CRM Representative" />
-              </div>
-            </ContractSection>
-          </div>
-        </section>
-
-        <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm 2xl:sticky 2xl:top-28 2xl:self-start">
-          <h2 className="text-lg font-bold text-slate-950">Contract Snapshot</h2>
-          <p className="mt-1 text-sm text-slate-500">Review the agreement before sending for signature.</p>
-          <div className="mt-5 space-y-3">
-            <InfoRow label="Customer" value={lead.customer.name} />
-            <InfoRow label="Address" value={lead.customer.address} />
-            <InfoRow label="Project" value={lead.projectTitle} />
-            <InfoRow label="Materials" value={estimate.materialsIncluded ? 'Included' : 'Labor only'} />
-            <InfoRow label="Contract Status" value={contractStatus} />
-          </div>
-          <div className="mt-5 rounded-2xl bg-blue-50 p-4 text-blue-950">
-            <p className="text-sm font-bold">Total Contract Amount</p>
-            <p className="mt-1 text-3xl font-black">{currency.format(total)}</p>
-          </div>
-        </aside>
-      </div>
-    </div>
-  )
-}
-
-function ContractSummary({ label, value }) {
-  return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p>
-      <p className="mt-2 font-bold text-slate-950">{value}</p>
-    </div>
-  )
-}
-
-function ContractSection({ title, children }) {
-  return (
-    <section>
-      <h3 className="mb-3 text-lg font-black text-slate-950">{title}</h3>
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">{children}</div>
-    </section>
-  )
-}
-
-function SignatureLine({ label, name }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-sm font-bold text-slate-950">{label}</p>
-      <div className="mt-12 border-t border-slate-400 pt-3">
-        <p className="text-sm font-semibold text-slate-700">{name}</p>
-        <p className="mt-1 text-xs text-slate-500">Signature / Date</p>
-      </div>
-    </div>
-  )
-}
-
 function AccordionCard({ title, open, onToggle, children }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
@@ -1145,6 +1157,31 @@ function MobileField({ label, children }) {
 
 function getEstimateTotal(lineItems) {
   return lineItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0)
+}
+
+function getPaymentSummary(lead) {
+  const contractAmount = getEstimateTotal(lead.estimate.lineItems) || lead.value
+  const payments = lead.payments || []
+  const paidTotal = payments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  const depositRequired = Math.round(contractAmount * 0.5)
+  const depositPaid = payments
+    .filter((payment) => payment.type === 'Deposit')
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+  const remainingBalance = Math.max(contractAmount - paidTotal, 0)
+
+  let paymentStatus = 'Unpaid'
+  if (remainingBalance <= 0) paymentStatus = 'Paid in Full'
+  else if (paidTotal > 0 && depositPaid >= depositRequired) paymentStatus = 'Deposit Paid'
+  else if (paidTotal > 0) paymentStatus = 'Partially Paid'
+
+  return { contractAmount, paidTotal, depositRequired, depositPaid, remainingBalance, paymentStatus }
+}
+
+function formatPaymentDate(date) {
+  if (!date) return 'No date'
+  const parsed = new Date(`${date}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) return date
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 export default App
