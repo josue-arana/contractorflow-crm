@@ -94,7 +94,7 @@ function ContractorFlowApp() {
             />
             <Route path="/leads" element={<ComingSoonPage title="Leads" description="A full lead list, filters, lead owners, and follow-up tasks will live here. For now, manage active opportunities from the dashboard pipeline." icon={Users} />} />
             <Route path="/estimates" element={<ComingSoonPage title="Estimates" description="Centralized estimate management, estimate statuses, and reusable scope templates are coming soon." icon={ClipboardList} />} />
-            <Route path="/jobs" element={<ComingSoonPage title="Jobs" description="Track signed projects, crew schedules, job stages, and completion progress from this page." icon={BriefcaseBusiness} />} />
+            <Route path="/jobs" element={<JobsPage leads={leads} onViewJob={openProject} />} />
             <Route path="/calendar" element={<ComingSoonPage title="Calendar" description="Upcoming walkthroughs, estimate appointments, crew schedules, and project milestones will appear here." icon={CalendarDays} />} />
             <Route path="/clients" element={<ComingSoonPage title="Clients" description="Customer profiles, contact history, addresses, and project records will be organized here." icon={Users} />} />
             <Route path="/invoices" element={<ComingSoonPage title="Invoices" description="Invoice tracking, balances due, payment history, and overdue reminders are planned for this section." icon={DollarSign} />} />
@@ -151,6 +151,206 @@ function DashboardPage({
         onLeadClick={onLeadClick}
       />
     </>
+  )
+}
+
+
+function JobsPage({ leads, onViewJob }) {
+  const [selectedFilter, setSelectedFilter] = useState('All')
+  const jobFilters = ['All', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
+
+  const jobs = useMemo(() => {
+    return leads
+      .filter((lead) => ['Won', 'Signed'].includes(lead.status) || ['Signed', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid'].includes(lead.projectStatus))
+      .map((lead) => {
+        const portal = getPortalData(lead)
+        const amountPaid = portal.amountPaid || 0
+        const remainingBalance = Math.max((portal.contractAmount || lead.value) - amountPaid, 0)
+        const derivedStatus = remainingBalance === 0 && ['Completed', 'Paid'].includes(lead.projectStatus) ? 'Paid' : lead.projectStatus || (lead.status === 'Won' ? 'Scheduled' : 'In Progress')
+
+        return {
+          ...lead,
+          jobStatus: derivedStatus,
+          startDate: portal.startDate,
+          projectValue: portal.contractAmount || lead.value,
+          amountPaid,
+          remainingBalance,
+          nextStep: lead.nextStep || 'Review project progress',
+        }
+      })
+  }, [leads])
+
+  const filteredJobs = selectedFilter === 'All'
+    ? jobs
+    : jobs.filter((job) => job.jobStatus === selectedFilter)
+
+  const activeJobs = jobs.filter((job) => !['Completed', 'Paid'].includes(job.jobStatus)).length
+  const inProgressJobs = jobs.filter((job) => job.jobStatus === 'In Progress').length
+  const waitingJobs = jobs.filter((job) => ['Waiting on Client', 'Waiting on Materials'].includes(job.jobStatus)).length
+  const completedThisMonth = jobs.filter((job) => ['Completed', 'Paid'].includes(job.jobStatus)).length
+  const outstandingBalance = jobs.reduce((sum, job) => sum + job.remainingBalance, 0)
+
+  const summaryCards = [
+    { label: 'Active Jobs', value: activeJobs, helper: 'Signed projects not fully closed', icon: BriefcaseBusiness },
+    { label: 'In Progress', value: inProgressJobs, helper: 'Crews currently working', icon: Zap },
+    { label: 'Waiting', value: waitingJobs, helper: 'Client or material blockers', icon: CalendarDays },
+    { label: 'Completed This Month', value: completedThisMonth, helper: 'Ready to invoice or archive', icon: CheckCircle2 },
+    { label: 'Outstanding Balance', value: currency.format(outstandingBalance), helper: 'Remaining across jobs', icon: DollarSign },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
+        <div>
+          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">Jobs</p>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Active Job Tracking</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+            Manage signed remodeling, roofing, deck, and bathroom projects from scheduled start through final payment.
+          </p>
+        </div>
+        <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+          <CalendarDays className="h-4 w-4" /> Schedule Job
+        </button>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        {summaryCards.map((card) => (
+          <MetricCard key={card.label} {...card} />
+        ))}
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <h2 className="text-xl font-bold text-slate-950">Job List</h2>
+            <p className="text-sm text-slate-500">Click a job row or View Job to open the existing project workspace.</p>
+          </div>
+          <SelectField
+            value={selectedFilter}
+            onChange={(event) => setSelectedFilter(event.target.value)}
+            containerClassName="w-full lg:w-72"
+            className="bg-slate-50"
+            aria-label="Filter jobs by status"
+          >
+            {jobFilters.map((filter) => (
+              <option key={filter} value={filter}>{filter}</option>
+            ))}
+          </SelectField>
+        </div>
+
+        <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
+          {jobFilters.map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setSelectedFilter(filter)}
+              className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${selectedFilter === filter ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+              {filter}
+            </button>
+          ))}
+        </div>
+
+        <div className="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Customer / Project</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Start Date</th>
+                <th className="px-4 py-3 text-right">Value</th>
+                <th className="px-4 py-3 text-right">Paid</th>
+                <th className="px-4 py-3 text-right">Remaining</th>
+                <th className="px-4 py-3">Next Step</th>
+                <th className="px-4 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredJobs.map((job) => (
+                <tr key={job.id} onClick={() => onViewJob(job.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                  <td className="px-4 py-4">
+                    <p className="font-bold text-slate-950">{job.client}</p>
+                    <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
+                  </td>
+                  <td className="px-4 py-4"><StatusBadge status={job.jobStatus} /></td>
+                  <td className="px-4 py-4 font-medium text-slate-700">{job.startDate}</td>
+                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(job.projectValue)}</td>
+                  <td className="px-4 py-4 text-right font-bold text-emerald-700">{currency.format(job.amountPaid)}</td>
+                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(job.remainingBalance)}</td>
+                  <td className="max-w-[220px] px-4 py-4 text-slate-600">{job.nextStep}</td>
+                  <td className="px-4 py-4 text-right">
+                    <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">
+                      View Job
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="space-y-3 md:hidden">
+          {filteredJobs.map((job) => (
+            <article key={job.id} onClick={() => onViewJob(job.id)} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-slate-950">{job.client}</h3>
+                  <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
+                </div>
+                <StatusBadge status={job.jobStatus} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <MobileJobStat label="Start" value={job.startDate} />
+                <MobileJobStat label="Value" value={currency.format(job.projectValue)} />
+                <MobileJobStat label="Paid" value={currency.format(job.amountPaid)} />
+                <MobileJobStat label="Remaining" value={currency.format(job.remainingBalance)} />
+              </div>
+              <div className="mt-4 rounded-2xl bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Next Step</p>
+                <p className="mt-1 text-sm font-medium text-slate-700">{job.nextStep}</p>
+              </div>
+              <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
+                View Job
+              </button>
+            </article>
+          ))}
+        </div>
+
+        {filteredJobs.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+            <p className="font-bold text-slate-900">No jobs found</p>
+            <p className="mt-2 text-sm text-slate-500">Try another status filter or convert a won project into an active job.</p>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+function StatusBadge({ status }) {
+  const styles = {
+    Scheduled: 'bg-sky-50 text-sky-700 ring-sky-100',
+    'In Progress': 'bg-blue-50 text-blue-700 ring-blue-100',
+    'Waiting on Client': 'bg-amber-50 text-amber-700 ring-amber-100',
+    'Waiting on Materials': 'bg-orange-50 text-orange-700 ring-orange-100',
+    'Ready for Final Walkthrough': 'bg-purple-50 text-purple-700 ring-purple-100',
+    Completed: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    Paid: 'bg-slate-100 text-slate-700 ring-slate-200',
+    Signed: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
+  }
+
+  return (
+    <span className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${styles[status] || 'bg-slate-100 text-slate-700 ring-slate-200'}`}>
+      {status}
+    </span>
+  )
+}
+
+function MobileJobStat({ label, value }) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-900">{value}</p>
+    </div>
   )
 }
 
