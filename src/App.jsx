@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Bell, BriefcaseBusiness, CalendarDays, Camera, CheckCircle2, ChevronDown, ClipboardList, DollarSign, ExternalLink, FileText, Home, Menu, Search, Settings, Share2, Users, X, Zap } from 'lucide-react'
 import { initialLeads, pipelineStatuses } from './data/mockLeads'
 
@@ -8,15 +9,31 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 })
 
+const sidebarNavItems = [
+  { label: 'Dashboard', path: '/dashboard', icon: Home },
+  { label: 'Leads', path: '/leads', icon: Users },
+  { label: 'Estimates', path: '/estimates', icon: ClipboardList },
+  { label: 'Jobs', path: '/jobs', icon: BriefcaseBusiness },
+  { label: 'Calendar', path: '/calendar', icon: CalendarDays },
+  { label: 'Clients', path: '/clients', icon: Users },
+  { label: 'Invoices', path: '/invoices', icon: DollarSign },
+  { label: 'Settings', path: '/settings', icon: Settings },
+]
+
 function App() {
+  return (
+    <BrowserRouter>
+      <ContractorFlowApp />
+    </BrowserRouter>
+  )
+}
+
+function ContractorFlowApp() {
   const [leads, setLeads] = useState(initialLeads)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
-  const [currentView, setCurrentView] = useState('dashboard')
-  const [selectedLeadId, setSelectedLeadId] = useState(initialLeads[0].id)
-
-  const selectedLead = leads.find((lead) => lead.id === selectedLeadId) || leads[0]
+  const navigate = useNavigate()
 
   const metrics = useMemo(() => {
     const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
@@ -41,14 +58,12 @@ function App() {
   }
 
   function openProject(leadId) {
-    setSelectedLeadId(leadId)
-    setCurrentView('project')
+    navigate(`/projects/${leadId}`)
     setSidebarOpen(false)
   }
 
   function openPortal(leadId) {
-    setSelectedLeadId(leadId)
-    setCurrentView('portal')
+    navigate(`/portal/${leadId}`)
     setSidebarOpen(false)
   }
 
@@ -60,97 +75,198 @@ function App() {
         <Topbar onMenuClick={() => setSidebarOpen(true)} />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
-          {currentView === 'dashboard' && (
-            <>
-              <section className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-                <div>
-                  <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">ContractorFlow CRM</p>
-                  <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Lead Pipeline Dashboard</h1>
-                  <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
-                    Track remodeling, deck, roofing, and painting opportunities from first call to signed job.
-                  </p>
-                </div>
-                <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
-                  <Zap className="h-4 w-4" /> Add Lead
-                </button>
-              </section>
-
-              <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                {metrics.map((metric) => (
-                  <MetricCard key={metric.label} {...metric} />
-                ))}
-              </section>
-
-              <PipelineBoard
-                leads={leads}
-                statuses={pipelineStatuses}
-                draggedLeadId={draggedLeadId}
-                setDraggedLeadId={setDraggedLeadId}
-                moveLead={moveLead}
-                selectedMobileStage={selectedMobileStage}
-                setSelectedMobileStage={setSelectedMobileStage}
-                onLeadClick={openProject}
-              />
-            </>
-          )}
-
-          {currentView === 'project' && (
-            <ProjectDetailPage
-              lead={selectedLead}
-              onBack={() => setCurrentView('dashboard')}
-              onOpenPortal={() => openPortal(selectedLead.id)}
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route
+              path="/dashboard"
+              element={
+                <DashboardPage
+                  leads={leads}
+                  metrics={metrics}
+                  draggedLeadId={draggedLeadId}
+                  setDraggedLeadId={setDraggedLeadId}
+                  selectedMobileStage={selectedMobileStage}
+                  setSelectedMobileStage={setSelectedMobileStage}
+                  moveLead={moveLead}
+                  onLeadClick={openProject}
+                />
+              }
             />
-          )}
-
-          {currentView === 'portal' && (
-            <CustomerPortalPage
-              lead={selectedLead}
-              onBack={() => setCurrentView('project')}
-            />
-          )}
+            <Route path="/leads" element={<ComingSoonPage title="Leads" description="A full lead list, filters, lead owners, and follow-up tasks will live here. For now, manage active opportunities from the dashboard pipeline." icon={Users} />} />
+            <Route path="/estimates" element={<ComingSoonPage title="Estimates" description="Centralized estimate management, estimate statuses, and reusable scope templates are coming soon." icon={ClipboardList} />} />
+            <Route path="/jobs" element={<ComingSoonPage title="Jobs" description="Track signed projects, crew schedules, job stages, and completion progress from this page." icon={BriefcaseBusiness} />} />
+            <Route path="/calendar" element={<ComingSoonPage title="Calendar" description="Upcoming walkthroughs, estimate appointments, crew schedules, and project milestones will appear here." icon={CalendarDays} />} />
+            <Route path="/clients" element={<ComingSoonPage title="Clients" description="Customer profiles, contact history, addresses, and project records will be organized here." icon={Users} />} />
+            <Route path="/invoices" element={<ComingSoonPage title="Invoices" description="Invoice tracking, balances due, payment history, and overdue reminders are planned for this section." icon={DollarSign} />} />
+            <Route path="/settings" element={<ComingSoonPage title="Settings" description="Company profile, team members, estimate defaults, payment terms, and portal settings will be configured here." icon={Settings} />} />
+            <Route path="/projects/:leadId" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} />} />
+            <Route path="/portal/:leadId" element={<PortalRoute leads={leads} onBack={(leadId) => navigate(`/projects/${leadId}`)} />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </main>
       </div>
     </div>
   )
 }
 
-function Sidebar({ isOpen, onClose }) {
-  const navItems = [
-    { label: 'Dashboard', icon: Home, active: true },
-    { label: 'Leads', icon: Users },
-    { label: 'Estimates', icon: ClipboardList },
-    { label: 'Jobs', icon: BriefcaseBusiness },
-    { label: 'Calendar', icon: CalendarDays },
-    { label: 'Clients', icon: Users },
-    { label: 'Invoices', icon: DollarSign },
-    { label: 'Settings', icon: Settings },
-  ]
+function DashboardPage({
+  leads,
+  metrics,
+  draggedLeadId,
+  setDraggedLeadId,
+  selectedMobileStage,
+  setSelectedMobileStage,
+  moveLead,
+  onLeadClick,
+}) {
+  return (
+    <>
+      <section className="mb-8 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
+        <div>
+          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">ContractorFlow CRM</p>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">Lead Pipeline Dashboard</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+            Track remodeling, deck, roofing, and painting opportunities from first call to signed job.
+          </p>
+        </div>
+        <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
+          <Zap className="h-4 w-4" /> Add Lead
+        </button>
+      </section>
 
+      <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((metric) => (
+          <MetricCard key={metric.label} {...metric} />
+        ))}
+      </section>
+
+      <PipelineBoard
+        leads={leads}
+        statuses={pipelineStatuses}
+        draggedLeadId={draggedLeadId}
+        setDraggedLeadId={setDraggedLeadId}
+        moveLead={moveLead}
+        selectedMobileStage={selectedMobileStage}
+        setSelectedMobileStage={setSelectedMobileStage}
+        onLeadClick={onLeadClick}
+      />
+    </>
+  )
+}
+
+function ProjectRoute({ leads, onBack, onOpenPortal }) {
+  const { leadId } = useParams()
+  const lead = leads.find((item) => item.id === leadId)
+
+  if (!lead) {
+    return (
+      <ComingSoonPage
+        title="Project Not Found"
+        description="This project could not be found. Return to the dashboard and select an active project."
+        icon={BriefcaseBusiness}
+        actionLabel="Back to Dashboard"
+        onAction={onBack}
+      />
+    )
+  }
+
+  return (
+    <ProjectDetailPage
+      lead={lead}
+      onBack={onBack}
+      onOpenPortal={() => onOpenPortal(lead.id)}
+    />
+  )
+}
+
+function PortalRoute({ leads, onBack }) {
+  const { leadId } = useParams()
+  const lead = leads.find((item) => item.id === leadId)
+
+  if (!lead) {
+    return (
+      <ComingSoonPage
+        title="Portal Not Found"
+        description="This customer portal link does not match an active project."
+        icon={Share2}
+        actionLabel="Back to Dashboard"
+        onAction={() => onBack(initialLeads[0].id)}
+      />
+    )
+  }
+
+  return (
+    <CustomerPortalPage
+      lead={lead}
+      onBack={() => onBack(lead.id)}
+    />
+  )
+}
+
+function ComingSoonPage({ title, description, icon: Icon = FileText, actionLabel, onAction }) {
+  return (
+    <section className="mx-auto flex min-h-[calc(100vh-9rem)] max-w-4xl items-center justify-center">
+      <div className="w-full rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-10">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
+          <Icon className="h-8 w-8" />
+        </div>
+        <p className="mt-6 text-sm font-semibold uppercase tracking-[0.25em] text-blue-600">Coming Soon</p>
+        <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">{title}</h1>
+        <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">{description}</p>
+        <div className="mt-8 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-left">
+          <h2 className="text-sm font-bold text-slate-900">Planned workflow</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            This page is now connected to the main application navigation. The sidebar, mobile menu, active route highlighting,
+            and browser navigation all work, so this section can be expanded without changing the app flow later.
+          </p>
+        </div>
+        {actionLabel && onAction && (
+          <button onClick={onAction} className="mt-6 inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">
+            {actionLabel}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function Sidebar({ isOpen, onClose }) {
   return (
     <>
       <div className={`fixed inset-0 z-40 bg-slate-950/50 lg:hidden ${isOpen ? 'block' : 'hidden'}`} onClick={onClose} />
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col bg-slate-950 px-5 py-6 text-white shadow-2xl transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="mb-8 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <NavLink to="/dashboard" onClick={onClose} className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500 font-bold shadow-lg shadow-blue-500/30">CF</div>
             <div>
               <p className="font-bold leading-tight">ContractorFlow</p>
               <p className="text-xs text-slate-400">Small Contractor CRM</p>
             </div>
-          </div>
+          </NavLink>
           <button className="rounded-xl p-2 text-slate-400 hover:bg-slate-800 lg:hidden" onClick={onClose}>
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <nav className="space-y-1">
-          {navItems.map((item) => {
+          {sidebarNavItems.map((item) => {
             const Icon = item.icon
             return (
-              <button key={item.label} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${item.active ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'text-slate-300 hover:bg-slate-900 hover:text-white'}`}>
+              <NavLink
+                key={item.label}
+                to={item.path}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                      : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                  }`
+                }
+              >
                 <Icon className="h-5 w-5" />
                 {item.label}
-              </button>
+              </NavLink>
             )
           })}
         </nav>
