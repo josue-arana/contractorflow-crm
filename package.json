@@ -20,8 +20,9 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.0",
+    "@tailwindcss/vite": "^4.3.0",
     "autoprefixer": "latest",
     "postcss": "latest",
-    "tailwindcss": "latest"
+    "tailwindcss": "^4.3.0"
   }
 }
