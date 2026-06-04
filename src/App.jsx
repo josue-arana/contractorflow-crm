@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Bell, BriefcaseBusiness, CalendarDays, Camera, CheckCircle2, ChevronDown, ClipboardList, DollarSign, ExternalLink, FileText, Home, Menu, Search, Settings, Share2, Users, X, Zap } from 'lucide-react'
 import { initialLeads, pipelineStatuses } from './data/mockLeads'
@@ -8,6 +8,19 @@ const currency = new Intl.NumberFormat('en-US', {
   currency: 'USD',
   maximumFractionDigits: 0,
 })
+
+
+
+const LANGUAGE_STORAGE_KEYS = {
+  contractor: 'contractorflow.contractorLanguage',
+  portal: 'contractorflow.portalLanguage',
+}
+
+function getStoredLanguage(storageKey) {
+  if (typeof window === 'undefined') return 'en'
+  const storedLanguage = window.localStorage.getItem(storageKey)
+  return storedLanguage === 'es' || storedLanguage === 'en' ? storedLanguage : 'en'
+}
 
 const sidebarNavItems = [
   { labelKey: 'dashboard', path: '/dashboard', icon: Home },
@@ -955,9 +968,19 @@ function ContractorFlowApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
-  const [language, setLanguage] = useState('en')
-  const t = useT(language)
+  const [contractorLanguage, setContractorLanguage] = useState(() => getStoredLanguage(LANGUAGE_STORAGE_KEYS.contractor))
+  const [portalLanguage, setPortalLanguage] = useState(() => getStoredLanguage(LANGUAGE_STORAGE_KEYS.portal))
+  const t = useT(contractorLanguage)
+  const portalT = useT(portalLanguage)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEYS.contractor, contractorLanguage)
+  }, [contractorLanguage])
+
+  useEffect(() => {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEYS.portal, portalLanguage)
+  }, [portalLanguage])
 
   const metrics = useMemo(() => {
     const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
@@ -996,7 +1019,7 @@ function ContractorFlowApp() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} />
 
       <div className="lg:pl-72">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} language={language} setLanguage={setLanguage} t={t} />
+        <Topbar onMenuClick={() => setSidebarOpen(true)} language={contractorLanguage} setLanguage={setContractorLanguage} t={t} />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
           <Routes>
@@ -1024,10 +1047,10 @@ function ContractorFlowApp() {
             <Route path="/clients" element={<ComingSoonPage title={t('clientsComingTitle')} description={t('clientsComingDescription')} icon={Users} t={t} />} />
             <Route path="/invoices" element={<ComingSoonPage title={t('invoicesComingTitle')} description={t('invoicesComingDescription')} icon={DollarSign} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
-            <Route path="/projects/:leadId" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} t={t} language={language} />} />
+            <Route path="/projects/:leadId" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} t={t} language={contractorLanguage} />} />
             <Route path="/projects/:leadId/estimate" element={<EstimateRoute leads={leads} t={t} />} />
             <Route path="/projects/:leadId/contract" element={<ContractRoute leads={leads} t={t} />} />
-            <Route path="/portal/:leadId" element={<PortalRoute leads={leads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={t} language={language} setLanguage={setLanguage} />} />
+            <Route path="/portal/:leadId" element={<PortalRoute leads={leads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
@@ -1413,6 +1436,30 @@ function Sidebar({ isOpen, onClose, t }) {
   )
 }
 
+
+function LanguageToggle({ language, setLanguage, t }) {
+  return (
+    <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white p-1 shadow-sm" aria-label={t('language')}>
+      <button
+        type="button"
+        onClick={() => setLanguage('en')}
+        className={`rounded-xl px-3 py-2 text-xs font-bold transition ${language === 'en' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+      >
+        <span className="hidden sm:inline">🇺🇸 English</span>
+        <span className="sm:hidden">🇺🇸 EN</span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setLanguage('es')}
+        className={`rounded-xl px-3 py-2 text-xs font-bold transition ${language === 'es' ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+      >
+        <span className="hidden sm:inline">🇪🇸 Español</span>
+        <span className="sm:hidden">🇪🇸 ES</span>
+      </button>
+    </div>
+  )
+}
+
 function Topbar({ onMenuClick, language, setLanguage, t }) {
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
@@ -1427,9 +1474,7 @@ function Topbar({ onMenuClick, language, setLanguage, t }) {
         </div>
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50" aria-label={t('language')}>
-            {language === 'en' ? 'ES' : 'EN'}
-          </button>
+          <LanguageToggle language={language} setLanguage={setLanguage} t={t} />
           <button className="relative rounded-2xl border border-slate-200 p-3 hover:bg-slate-50">
             <Bell className="h-5 w-5 text-slate-600" />
             <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-500" />
@@ -1931,7 +1976,7 @@ function CustomerPortalPage({ lead, onBack, t, language, setLanguage }) {
         <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
           <ArrowLeft className="h-4 w-4" /> {t('projectWorkspace')}
         </button>
-        <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50">{language === 'en' ? 'Español' : 'English'}</button>
+        <LanguageToggle language={language} setLanguage={setLanguage} t={t} />
       </div>
 
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
