@@ -1,6 +1,7 @@
-import { FileText } from 'lucide-react'
+import { Camera, CheckCircle2, FileText } from 'lucide-react'
+import { DetailRow } from '../ui/DetailRow'
+import { InfoCard } from '../ui/InfoCard'
 import { currency } from '../../utils/formatters'
-import { getPortalData } from '../../utils/portal'
 import { tStatus } from '../../translations'
 
 export function PortalSummary({ lead, portal, full = false, t = (key) => key }) {
@@ -93,4 +94,3 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key }) 
     </div>
   )
 }
-
