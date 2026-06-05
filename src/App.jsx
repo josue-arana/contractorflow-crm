@@ -14,6 +14,8 @@ import { EstimateBuilderRoute } from './pages/EstimateBuilderPage'
 import { EstimatesPage } from './pages/EstimatesPage'
 import { ContractRoute, ContractsPage } from './pages/ContractsPage'
 import { JobsPage } from './pages/JobsPage'
+import { ClientsPage } from './pages/ClientsPage'
+import { ClientProfilePage } from './pages/ClientProfilePage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 
@@ -64,6 +66,11 @@ function ContractorFlowApp() {
     setSidebarOpen(false)
   }
 
+  function openClient(clientId) {
+    navigate(`/clients/${clientId}`)
+    setSidebarOpen(false)
+  }
+
   const dashboardPage = (
     <DashboardPage
       leads={leads}
@@ -99,7 +106,8 @@ function ContractorFlowApp() {
             <Route path="/contracts" element={<ContractsPage leads={leads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/jobs" element={<JobsPage leads={leads} onViewJob={openProject} t={t} />} />
             <Route path="/calendar" element={<ComingSoonPage title={t('calendarComingTitle')} description={t('calendarComingDescription')} icon={CalendarDays} t={t} />} />
-            <Route path="/clients" element={<ComingSoonPage title={t('clientsComingTitle')} description={t('clientsComingDescription')} icon={Users} t={t} />} />
+            <Route path="/clients" element={<ClientsPage leads={leads} onOpenClient={openClient} t={t} />} />
+            <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} t={t} />} />
             <Route path="/invoices" element={<ComingSoonPage title={t('invoicesComingTitle')} description={t('invoicesComingDescription')} icon={DollarSign} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
             <Route path="/projects/:id" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} t={t} />} />
