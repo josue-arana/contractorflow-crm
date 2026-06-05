@@ -19,6 +19,7 @@ import { ClientProfilePage } from './pages/ClientProfilePage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { InvoicesPage } from './pages/InvoicesPage'
 import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
+import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 
 function App() {
@@ -107,7 +108,7 @@ function ContractorFlowApp() {
             <Route path="/estimates" element={<EstimatesPage leads={leads} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/contracts" element={<ContractsPage leads={leads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/jobs" element={<JobsPage leads={leads} onViewJob={openProject} t={t} />} />
-            <Route path="/calendar" element={<ComingSoonPage title={t('calendarComingTitle')} description={t('calendarComingDescription')} icon={CalendarDays} t={t} />} />
+            <Route path="/calendar" element={<CalendarPage leads={leads} onViewProject={openProject} t={t} />} />
             <Route path="/clients" element={<ClientsPage leads={leads} onOpenClient={openClient} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} t={t} />} />
             <Route path="/invoices" element={<InvoicesPage leads={leads} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} t={t} />} />
@@ -135,7 +136,6 @@ function ProjectRoute({ leads, onBack, onOpenPortal, t }) {
     return <ProjectNotFound onBack={onBack} t={t} />
   }
 
-            
   return <ProjectDetailPage lead={lead} onBack={onBack} onOpenPortal={() => onOpenPortal(lead.id)} t={t} />
 }
 
