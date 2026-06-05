@@ -17,6 +17,8 @@ import { JobsPage } from './pages/JobsPage'
 import { ClientsPage } from './pages/ClientsPage'
 import { ClientProfilePage } from './pages/ClientProfilePage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
+import { InvoicesPage } from './pages/InvoicesPage'
+import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 
 function App() {
@@ -108,7 +110,8 @@ function ContractorFlowApp() {
             <Route path="/calendar" element={<ComingSoonPage title={t('calendarComingTitle')} description={t('calendarComingDescription')} icon={CalendarDays} t={t} />} />
             <Route path="/clients" element={<ClientsPage leads={leads} onOpenClient={openClient} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} t={t} />} />
-            <Route path="/invoices" element={<ComingSoonPage title={t('invoicesComingTitle')} description={t('invoicesComingDescription')} icon={DollarSign} t={t} />} />
+            <Route path="/invoices" element={<InvoicesPage leads={leads} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} t={t} />} />
+            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={leads} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
             <Route path="/projects/:id" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} t={t} />} />
             <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={leads} t={t} />} />
@@ -132,6 +135,7 @@ function ProjectRoute({ leads, onBack, onOpenPortal, t }) {
     return <ProjectNotFound onBack={onBack} t={t} />
   }
 
+            
   return <ProjectDetailPage lead={lead} onBack={onBack} onOpenPortal={() => onOpenPortal(lead.id)} t={t} />
 }
 
