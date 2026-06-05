@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
-import { BriefcaseBusiness, CalendarDays, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
+import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
 import { Topbar } from './components/layout/Topbar'
 import { initialLeads, pipelineStatuses } from './data/mockLeads'
@@ -14,6 +14,7 @@ import { EstimateBuilderRoute } from './pages/EstimateBuilderPage'
 import { EstimatesPage } from './pages/EstimatesPage'
 import { ContractRoute, ContractsPage } from './pages/ContractsPage'
 import { JobsPage } from './pages/JobsPage'
+import { LeadsPage } from './pages/LeadsPage'
 import { ClientsPage } from './pages/ClientsPage'
 import { ClientProfilePage } from './pages/ClientProfilePage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
@@ -21,6 +22,7 @@ import { InvoicesPage } from './pages/InvoicesPage'
 import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
+import { buildClientProfiles, getClientSlug } from './utils/clients'
 
 function App() {
   return (
@@ -32,6 +34,7 @@ function App() {
 
 function ContractorFlowApp() {
   const [leads, setLeads] = useState(initialLeads)
+  const [customClients, setCustomClients] = useState([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
@@ -40,6 +43,7 @@ function ContractorFlowApp() {
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
+  const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
 
   const metrics = useMemo(() => {
     const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
@@ -54,6 +58,54 @@ function ContractorFlowApp() {
       { label: t('metricRevenuePipeline'), value: currency.format(pipelineValue), helper: t('metricRevenuePipelineHelper'), icon: DollarSign },
     ]
   }, [leads, t])
+
+
+  function createLead(lead) {
+    const id = `lead-${Date.now()}`
+    setLeads((current) => [
+      {
+        id,
+        ...lead,
+        value: Number(lead.value) || 0,
+        projectStatus: lead.projectStatus || (lead.status === 'Won' ? 'Signed' : 'Lead'),
+      },
+      ...current,
+    ])
+  }
+
+  function updateLead(leadId, updates) {
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, ...updates, id: lead.id, value: Number(updates.value) || 0 } : lead)))
+  }
+
+  function createClient(client) {
+    const id = getClientSlug(client.name) || `client-${Date.now()}`
+    setCustomClients((current) => {
+      const existing = current.find((item) => item.id === id)
+      if (existing) return current.map((item) => (item.id === id ? { ...item, ...client, id } : item))
+      return [{ id, ...client }, ...current]
+    })
+  }
+
+  function updateClient(clientId, updates) {
+    setCustomClients((current) => {
+      const existing = current.find((item) => item.id === clientId)
+      if (existing) return current.map((item) => (item.id === clientId ? { ...item, ...updates, id: clientId } : item))
+      return [{ id: clientId, ...updates }, ...current]
+    })
+
+    setLeads((current) => current.map((lead) => {
+      const leadClientId = getClientSlug(lead.client)
+      if (leadClientId !== clientId) return lead
+      return {
+        ...lead,
+        client: updates.name || lead.client,
+        phone: updates.phone || lead.phone,
+        email: updates.email || lead.email,
+        address: updates.address || lead.address,
+        location: updates.address || lead.location,
+      }
+    }))
+  }
 
   function moveLead(leadId, targetStatus) {
     setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, status: targetStatus } : lead)))
@@ -104,17 +156,17 @@ function ContractorFlowApp() {
           <Routes>
             <Route path="/" element={dashboardPage} />
             <Route path="/dashboard" element={dashboardPage} />
-            <Route path="/leads" element={<ComingSoonPage title={t('leadsComingTitle')} description={t('leadsComingDescription')} icon={Users} t={t} />} />
+            <Route path="/leads" element={<LeadsPage leads={leads} clients={clients} onViewProject={openProject} onCreateLead={createLead} t={t} />} />
             <Route path="/estimates" element={<EstimatesPage leads={leads} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/contracts" element={<ContractsPage leads={leads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/jobs" element={<JobsPage leads={leads} onViewJob={openProject} t={t} />} />
             <Route path="/calendar" element={<CalendarPage leads={leads} onViewProject={openProject} t={t} />} />
-            <Route path="/clients" element={<ClientsPage leads={leads} onOpenClient={openClient} t={t} />} />
-            <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} t={t} />} />
+            <Route path="/clients" element={<ClientsPage leads={leads} customClients={customClients} onOpenClient={openClient} onCreateClient={createClient} t={t} />} />
+            <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} customClients={customClients} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} t={t} />} />
             <Route path="/invoices" element={<InvoicesPage leads={leads} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} t={t} />} />
             <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={leads} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
-            <Route path="/projects/:id" element={<ProjectRoute leads={leads} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} t={t} />} />
+            <Route path="/projects/:id" element={<ProjectRoute leads={leads} clients={clients} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} t={t} />} />
             <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={leads} t={t} />} />
             <Route path="/projects/:id/contract" element={<ContractRoute leads={leads} t={t} />} />
             <Route path="/portal/:id" element={<PortalRoute leads={leads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
@@ -127,7 +179,7 @@ function ContractorFlowApp() {
   )
 }
 
-function ProjectRoute({ leads, onBack, onOpenPortal, t }) {
+function ProjectRoute({ leads, clients, onBack, onOpenPortal, onUpdateLead, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
@@ -136,7 +188,7 @@ function ProjectRoute({ leads, onBack, onOpenPortal, t }) {
     return <ProjectNotFound onBack={onBack} t={t} />
   }
 
-  return <ProjectDetailPage lead={lead} onBack={onBack} onOpenPortal={() => onOpenPortal(lead.id)} t={t} />
+  return <ProjectDetailPage lead={lead} clients={clients} onBack={onBack} onOpenPortal={() => onOpenPortal(lead.id)} onUpdateLead={onUpdateLead} t={t} />
 }
 
 function PortalRoute({ leads, onBack, t, language, setLanguage }) {

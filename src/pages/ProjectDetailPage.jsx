@@ -1,4 +1,5 @@
-import { ArrowLeft, Camera, ClipboardList, ExternalLink, FileText, Share2, DollarSign } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowLeft, Camera, ClipboardList, Edit3, ExternalLink, FileText, Share2, DollarSign } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
@@ -6,10 +7,12 @@ import { PortalSummary } from '../components/portal/PortalSummary'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
+import { LeadFormModal } from '../components/leads/LeadFormModal'
 
-export function ProjectDetailPage({ lead, onBack, onOpenPortal, t }) {
+export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, onUpdateLead, t }) {
   const portal = getPortalData(lead)
   const navigate = useNavigate()
+  const [isEditOpen, setIsEditOpen] = useState(false)
 
   const actionButtons = [
     { label: portal.estimate?.number && portal.estimate.number !== 'Draft' ? t('openEstimate') : t('createEstimate'), icon: ClipboardList, action: () => navigate(`/projects/${lead.id}/estimate`), primary: true },
@@ -17,6 +20,7 @@ export function ProjectDetailPage({ lead, onBack, onOpenPortal, t }) {
     { label: t('recordPayment'), icon: DollarSign, action: () => alert(t('recordPayment')) },
     { label: t('uploadPhotos'), icon: Camera, action: () => alert(t('uploadPhotos')) },
     { label: t('openCustomerPortal'), icon: Share2, action: onOpenPortal },
+    { label: t('editLead'), icon: Edit3, action: () => setIsEditOpen(true) },
   ]
 
   return (
@@ -91,6 +95,15 @@ export function ProjectDetailPage({ lead, onBack, onOpenPortal, t }) {
         </div>
         <PortalSummary lead={lead} portal={portal} t={t} />
       </section>
+      <LeadFormModal
+        isOpen={isEditOpen}
+        mode="edit"
+        lead={lead}
+        clients={clients}
+        onClose={() => setIsEditOpen(false)}
+        onSave={(updatedLead) => { onUpdateLead(lead.id, updatedLead); setIsEditOpen(false) }}
+        t={t}
+      />
     </div>
   )
 }

@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
-import { DollarSign, Search, UserCheck, Users, WalletCards } from 'lucide-react'
+import { DollarSign, Plus, Search, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
+import { ClientFormModal } from '../components/clients/ClientFormModal'
 
-export function ClientsPage({ leads, onOpenClient, t }) {
+export function ClientsPage({ leads, customClients = [], onOpenClient, onCreateClient, t }) {
   const [searchTerm, setSearchTerm] = useState('')
-  const clients = useMemo(() => buildClientProfiles(leads), [leads])
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
 
   const filteredClients = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
@@ -37,6 +39,9 @@ export function ClientsPage({ leads, onOpenClient, t }) {
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('clientsPageTitle')}</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('clientsPageHelp')}</p>
         </div>
+        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+          <Plus className="h-4 w-4" /> {t('createClient')}
+        </button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -121,6 +126,13 @@ export function ClientsPage({ leads, onOpenClient, t }) {
           </div>
         )}
       </section>
+      <ClientFormModal
+        isOpen={isCreateOpen}
+        mode="create"
+        onClose={() => setIsCreateOpen(false)}
+        onSave={(client) => { onCreateClient(client); setIsCreateOpen(false) }}
+        t={t}
+      />
     </div>
   )
 }

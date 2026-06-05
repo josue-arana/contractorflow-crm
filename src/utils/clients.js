@@ -6,8 +6,27 @@ export function getClientSlug(name = '') {
     .replace(/^-+|-+$/g, '')
 }
 
-export function buildClientProfiles(leads = []) {
+export function buildClientProfiles(leads = [], customClients = []) {
   const clientMap = new Map()
+
+  customClients.forEach((client) => {
+    const id = client.id || getClientSlug(client.name)
+    clientMap.set(id, {
+      id,
+      name: client.name || 'Unknown Client',
+      phone: client.phone || '(410) 555-0100',
+      email: client.email || `${id || 'client'}@example.com`,
+      address: client.address || 'Address not added',
+      latestProjectStatus: client.latestProjectStatus || 'Lead',
+      projectCount: 0,
+      totalProjectValue: 0,
+      outstandingBalance: 0,
+      repeatClient: Boolean(client.repeatClient),
+      projects: [],
+      notes: client.notes ? [client.notes] : ['Client added manually.'],
+      manualClient: true,
+    })
+  })
 
   leads.forEach((lead) => {
     const name = lead.client || 'Unknown Client'
@@ -30,11 +49,12 @@ export function buildClientProfiles(leads = []) {
       existing.projectCount += 1
       existing.totalProjectValue += contractAmount
       existing.outstandingBalance += balance
-      existing.repeatClient = true
+      existing.repeatClient = existing.repeatClient || existing.projectCount > 1 || lead.source === 'Repeat Client'
       existing.latestProjectStatus = projectRecord.latestStatus || existing.latestProjectStatus
       if (!existing.phone && lead.phone) existing.phone = lead.phone
       if (!existing.email && lead.email) existing.email = lead.email
       if (!existing.address && lead.address) existing.address = lead.address
+      if (lead.nextStep) existing.notes = [...new Set([...(existing.notes || []), lead.nextStep])]
     } else {
       clientMap.set(slug, {
         id: slug,

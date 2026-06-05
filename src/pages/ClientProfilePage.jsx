@@ -1,15 +1,17 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { ArrowLeft, BriefcaseBusiness, ClipboardList, DollarSign, FileSignature, MessageSquare, Phone, Plus, WalletCards } from 'lucide-react'
+import { ArrowLeft, BriefcaseBusiness, ClipboardList, DollarSign, Edit3, FileSignature, MessageSquare, Phone, Plus, WalletCards } from 'lucide-react'
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
+import { ClientFormModal } from '../components/clients/ClientFormModal'
 
-export function ClientProfilePage({ leads, onBack, onOpenProject, onCreateProject, onRecordPayment, t }) {
+export function ClientProfilePage({ leads, customClients = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, t }) {
   const { clientId } = useParams()
-  const clients = useMemo(() => buildClientProfiles(leads), [leads])
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const client = clients.find((item) => item.id === clientId)
 
   if (!client) {
@@ -45,6 +47,7 @@ export function ClientProfilePage({ leads, onBack, onOpenProject, onCreateProjec
             <a href={`tel:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50"><Phone className="h-4 w-4" /> {t('callClient')}</a>
             <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>
             <button onClick={onCreateProject} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
+            <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
           </div>
         </div>
       </section>
@@ -114,6 +117,14 @@ export function ClientProfilePage({ leads, onBack, onOpenProject, onCreateProjec
           </div>
         </InfoCard>
       </section>
+      <ClientFormModal
+        isOpen={isEditOpen}
+        mode="edit"
+        client={client}
+        onClose={() => setIsEditOpen(false)}
+        onSave={(updatedClient) => { onUpdateClient(client.id, updatedClient); setIsEditOpen(false) }}
+        t={t}
+      />
     </div>
   )
 }
