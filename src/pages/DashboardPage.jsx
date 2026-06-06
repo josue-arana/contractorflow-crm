@@ -13,7 +13,6 @@ export function DashboardPage({
   moveLead,
   onLeadClick,
   onCreateLeadClick,
-  successMessage,
   t,
 }) {
   return (
@@ -31,11 +30,6 @@ export function DashboardPage({
         </button>
       </section>
 
-      {successMessage && (
-        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
-          {successMessage}
-        </div>
-      )}
 
       <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (

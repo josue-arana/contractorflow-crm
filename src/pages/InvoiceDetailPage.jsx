@@ -26,7 +26,6 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
   const [showPreview, setShowPreview] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showSendModal, setShowSendModal] = useState(false)
-  const [successMessage, setSuccessMessage] = useState('')
   const invoice = invoices.find((item) => item.id === invoiceId && !deletedIds.includes(item.id))
   const lead = invoice ? leads.find((item) => item.id === invoice.leadId) : null
   const [draftInvoice, setDraftInvoice] = useState(invoice || null)
@@ -73,15 +72,11 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
 
   function saveInvoice() {
     onUpdateInvoice?.(currentInvoice.id, currentInvoice)
-    setSuccessMessage(t('invoiceSaved'))
-    window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
   function savePayment(payment) {
     onRecordInvoicePayment?.(currentInvoice.id, payment)
     setShowPaymentModal(false)
-    setSuccessMessage(t('paymentRecorded'))
-    window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
   function confirmMarkPaid() {
@@ -100,8 +95,6 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     }
     if (confirmAction?.mode === 'markPaid') {
       onMarkInvoicePaid?.(currentInvoice.id)
-      setSuccessMessage(t('invoiceMarkedPaid'))
-      window.setTimeout(() => setSuccessMessage(''), 2500)
     }
     setConfirmAction(null)
   }
@@ -110,7 +103,6 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={() => navigate('/invoices')} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('backToInvoices')}</button>
 
-      {successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{successMessage}</div>}
 
       <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
         <div>

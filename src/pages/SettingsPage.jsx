@@ -4,7 +4,6 @@ import { InfoCard } from '../components/ui/InfoCard'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const [draft, setDraft] = useState(settings)
-  const [successMessage, setSuccessMessage] = useState('')
 
   useEffect(() => {
     setDraft(settings)
@@ -53,8 +52,6 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
       appLanguage: language,
     }
     onSaveSettings?.(nextSettings)
-    setSuccessMessage(t('settingsSaved'))
-    window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
   const company = draft?.company || {}
@@ -69,11 +66,6 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{t('settingsHelp')}</p>
       </section>
 
-      {successMessage && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
-          {successMessage}
-        </div>
-      )}
 
       <section className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">

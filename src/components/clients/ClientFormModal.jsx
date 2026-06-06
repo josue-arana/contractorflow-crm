@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { ModalShell } from '../common/ModalShell'
 
 const emptyClient = {
   name: '',
@@ -29,8 +30,7 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4">
-      <div className="w-full rounded-t-3xl bg-white p-5 shadow-2xl sm:max-w-2xl sm:rounded-3xl sm:p-6">
+    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-2xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">{t('clients')}</p>
@@ -64,8 +64,7 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
             <button type="submit" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">{mode === 'edit' ? t('saveChanges') : t('saveClient')}</button>
           </div>
         </form>
-      </div>
-    </div>
+    </ModalShell>
   )
 }
 

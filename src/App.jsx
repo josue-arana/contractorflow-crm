@@ -8,6 +8,7 @@ import { initialLeads, pipelineStatuses } from './data/mockLeads'
 import { mockScheduleEvents } from './data/mockScheduleEvents'
 import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
+import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
@@ -69,8 +70,10 @@ const emptyArchiveState = {
 function App() {
   return (
     <BrowserRouter>
-      <ScrollToTop />
-      <ContractorFlowApp />
+      <ToastProvider>
+        <ScrollToTop />
+        <ContractorFlowApp />
+      </ToastProvider>
     </BrowserRouter>
   )
 }
@@ -83,7 +86,6 @@ function ContractorFlowApp() {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false)
   const [scheduleInitialLeadId, setScheduleInitialLeadId] = useState('')
   const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
-  const [dashboardSuccessMessage, setDashboardSuccessMessage] = useState('')
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
@@ -94,6 +96,7 @@ function ContractorFlowApp() {
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
+  const { showToast } = useToast()
 
   const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
@@ -123,31 +126,46 @@ function ContractorFlowApp() {
     })
   }
 
+  function archiveLeadRecord(id) {
+    updateArchiveList('leadIds', id, 'add')
+    showToast(t('itemArchived'))
+  }
+
+  function restoreLeadRecord(id) {
+    updateArchiveList('leadIds', id, 'remove')
+    showToast(t('itemRestored'))
+  }
+
+  function deleteLeadRecord(id) {
+    updateArchiveList('deletedLeadIds', id, 'add')
+    showToast(t('itemDeletedPermanently'))
+  }
+
   const archiveRecord = {
-    lead: (id) => updateArchiveList('leadIds', id, 'add'),
-    project: (id) => updateArchiveList('leadIds', id, 'add'),
-    job: (id) => updateArchiveList('leadIds', id, 'add'),
-    estimate: (id) => updateArchiveList('leadIds', id, 'add'),
-    client: (id) => updateArchiveList('clientIds', id, 'add'),
-    invoice: (id) => updateArchiveList('invoiceIds', id, 'add'),
+    lead: archiveLeadRecord,
+    project: archiveLeadRecord,
+    job: archiveLeadRecord,
+    estimate: archiveLeadRecord,
+    client: (id) => { updateArchiveList('clientIds', id, 'add'); showToast(t('itemArchived')) },
+    invoice: (id) => { updateArchiveList('invoiceIds', id, 'add'); showToast(t('itemArchived')) },
   }
 
   const restoreRecord = {
-    lead: (id) => updateArchiveList('leadIds', id, 'remove'),
-    project: (id) => updateArchiveList('leadIds', id, 'remove'),
-    job: (id) => updateArchiveList('leadIds', id, 'remove'),
-    estimate: (id) => updateArchiveList('leadIds', id, 'remove'),
-    client: (id) => updateArchiveList('clientIds', id, 'remove'),
-    invoice: (id) => updateArchiveList('invoiceIds', id, 'remove'),
+    lead: restoreLeadRecord,
+    project: restoreLeadRecord,
+    job: restoreLeadRecord,
+    estimate: restoreLeadRecord,
+    client: (id) => { updateArchiveList('clientIds', id, 'remove'); showToast(t('itemRestored')) },
+    invoice: (id) => { updateArchiveList('invoiceIds', id, 'remove'); showToast(t('itemRestored')) },
   }
 
   const deleteRecord = {
-    lead: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
-    project: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
-    job: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
-    estimate: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
-    client: (id) => updateArchiveList('deletedClientIds', id, 'add'),
-    invoice: (id) => updateArchiveList('deletedInvoiceIds', id, 'add'),
+    lead: deleteLeadRecord,
+    project: deleteLeadRecord,
+    job: deleteLeadRecord,
+    estimate: deleteLeadRecord,
+    client: (id) => { updateArchiveList('deletedClientIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
+    invoice: (id) => { updateArchiveList('deletedInvoiceIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
   }
 
   function createLead(lead) {
@@ -161,18 +179,18 @@ function ContractorFlowApp() {
       },
       ...current,
     ])
+    showToast(t('leadCreated'))
     return id
   }
 
   function createLeadFromDashboard(lead) {
     createLead(lead)
     setIsDashboardLeadModalOpen(false)
-    setDashboardSuccessMessage(t('leadCreated'))
-    window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
   }
 
   function updateLead(leadId, updates) {
     setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, ...updates, id: lead.id, value: Number(updates.value) || 0 } : lead)))
+    showToast(t('leadUpdated'))
   }
 
   function createClient(client) {
@@ -184,6 +202,7 @@ function ContractorFlowApp() {
       if (existing) return current.map((item) => (item.id === id ? { ...item, ...client, id } : item))
       return [{ id, ...client }, ...current]
     })
+    showToast(t('clientCreated'))
   }
 
   function updateClient(clientId, updates) {
@@ -205,6 +224,7 @@ function ContractorFlowApp() {
         location: updates.address || lead.location,
       }
     }))
+    showToast(t('clientUpdated'))
   }
 
   function moveLead(leadId, targetStatus) {
@@ -235,6 +255,7 @@ function ContractorFlowApp() {
       }
       return { ...next, status: getInvoiceStatus(next) }
     }))
+    showToast(t('invoiceSaved'))
   }
 
   function recordInvoicePayment(invoiceId, payment) {
@@ -252,6 +273,7 @@ function ContractorFlowApp() {
       }
       return { ...next, status: getInvoiceStatus(next) }
     }))
+    showToast(t('paymentRecorded'))
   }
 
   function markInvoicePaid(invoiceId) {
@@ -265,15 +287,17 @@ function ContractorFlowApp() {
         : invoice.paymentHistory || []
       return { ...invoice, amountPaid: amount, status: 'Paid', paymentHistory }
     }))
+    showToast(t('paymentRecorded'))
   }
 
   function markInvoiceSent(invoiceId) {
     setInvoices((current) => current.map((invoice) => invoice.id === invoiceId && invoice.status === 'Draft' ? { ...invoice, status: 'Sent' } : invoice))
   }
 
-  function createScheduleEvent(event) {
+  function createScheduleEvent(event, source = 'event') {
     const id = `evt-${Date.now()}`
     setScheduleEvents((current) => [{ id, ...event }, ...current])
+    showToast(t(source === 'job' ? 'jobScheduled' : 'eventCreated'))
   }
 
   function openScheduleModal(leadId = '') {
@@ -343,7 +367,6 @@ function ContractorFlowApp() {
       moveLead={moveLead}
       onLeadClick={openProject}
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
-      successMessage={dashboardSuccessMessage}
       t={t}
     />
   )
@@ -368,12 +391,12 @@ function ContractorFlowApp() {
             <Route path="/estimates" element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
             <Route path="/contracts" element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/jobs" element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onScheduleJob={() => openScheduleModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
-            <Route path="/calendar" element={<CalendarPage leads={activeLeads} scheduleEvents={scheduleEvents} onCreateEvent={createScheduleEvent} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
+            <Route path="/calendar" element={<CalendarPage leads={activeLeads} scheduleEvents={scheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
             <Route path="/clients" element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
             <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
-            <Route path="/settings" element={<SettingsPage settings={companySettings} onSaveSettings={setCompanySettings} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
+            <Route path="/settings" element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
             <Route path="/projects/:id" element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={scheduleEvents} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
             <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
             <Route path="/projects/:id/contract" element={<ContractRoute companySettings={companySettings} leads={visibleLeads} t={t} />} />
@@ -384,7 +407,7 @@ function ContractorFlowApp() {
         </main>
       </div>
       <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
-      <ScheduleEventModal isOpen={isScheduleModalOpen} leads={activeLeads} initialLeadId={scheduleInitialLeadId} onClose={() => setIsScheduleModalOpen(false)} onSave={createScheduleEvent} t={t} />
+      <ScheduleEventModal isOpen={isScheduleModalOpen} leads={activeLeads} initialLeadId={scheduleInitialLeadId} onClose={() => setIsScheduleModalOpen(false)} onSave={(event) => { createScheduleEvent(event, 'job'); setIsScheduleModalOpen(false) }} t={t} />
     </div>
   )
 }

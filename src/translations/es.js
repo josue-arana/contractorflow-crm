@@ -721,5 +721,13 @@ export const es = {
   "contractorAppLanguage": "Idioma de la app del contratista",
   "customerPortalDefaultLanguage": "Idioma del portal del cliente",
   "saveSettings": "Guardar configuración",
-  "settingsSaved": "Configuración guardada"
+  "settingsSaved": "Configuración guardada",
+  "leadUpdated": "Cliente potencial actualizado",
+  "clientCreated": "Cliente creado",
+  "clientUpdated": "Cliente actualizado",
+  "jobScheduled": "Trabajo programado",
+  "eventCreated": "Evento creado",
+  "itemArchived": "Registro archivado",
+  "itemRestored": "Registro restaurado",
+  "itemDeletedPermanently": "Registro eliminado permanentemente"
 }

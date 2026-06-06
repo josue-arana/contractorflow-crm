@@ -721,5 +721,13 @@ export const en = {
   "contractorAppLanguage": "Contractor app language",
   "customerPortalDefaultLanguage": "Customer portal default language",
   "saveSettings": "Save Settings",
-  "settingsSaved": "Settings saved"
+  "settingsSaved": "Settings saved",
+  "leadUpdated": "Lead updated",
+  "clientCreated": "Client created",
+  "clientUpdated": "Client updated",
+  "jobScheduled": "Job scheduled",
+  "eventCreated": "Event created",
+  "itemArchived": "Item archived",
+  "itemRestored": "Item restored",
+  "itemDeletedPermanently": "Item deleted permanently"
 }
