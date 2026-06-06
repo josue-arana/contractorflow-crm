@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowLeft, Camera, ClipboardList, Edit3, ExternalLink, FileText, Share2, DollarSign } from 'lucide-react'
+import { Archive, ArrowLeft, Camera, ClipboardList, Edit3, ExternalLink, FileText, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
@@ -8,11 +8,13 @@ import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
-export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, onUpdateLead, t }) {
+export function ProjectDetailPage({ lead, clients = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const portal = getPortalData(lead)
   const navigate = useNavigate()
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
 
   const actionButtons = [
     { label: portal.estimate?.number && portal.estimate.number !== 'Draft' ? t('openEstimate') : t('createEstimate'), icon: ClipboardList, action: () => navigate(`/projects/${lead.id}/estimate`), primary: true },
@@ -21,6 +23,9 @@ export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, on
     { label: t('uploadPhotos'), icon: Camera, action: () => alert(t('uploadPhotos')) },
     { label: t('openCustomerPortal'), icon: Share2, action: onOpenPortal },
     { label: t('editLead'), icon: Edit3, action: () => setIsEditOpen(true) },
+    isArchived
+      ? { label: t('restore'), icon: Undo2, action: onRestoreProject }
+      : { label: t('archive'), icon: Archive, action: () => setConfirmAction({ mode: 'archive' }) },
   ]
 
   return (
@@ -35,6 +40,7 @@ export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, on
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('projectWorkspace')}</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight">{lead.projectTitle || lead.projectType}</h1>
             <p className="mt-2 text-slate-300">{lead.client} · {lead.location}</p>
+            {isArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
           </div>
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 lg:block">
             <p className="text-xs text-slate-300">{t('projectValue')}</p>
@@ -62,6 +68,11 @@ export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, on
             )
           })}
         </div>
+        {isArchived && (
+          <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
+            <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
+          </button>
+        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -102,6 +113,20 @@ export function ProjectDetailPage({ lead, clients = [], onBack, onOpenPortal, on
         clients={clients}
         onClose={() => setIsEditOpen(false)}
         onSave={(updatedLead) => { onUpdateLead(lead.id, updatedLead); setIsEditOpen(false) }}
+        t={t}
+      />
+      <ConfirmRecordModal
+        isOpen={Boolean(confirmAction)}
+        mode={confirmAction?.mode}
+        title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')}
+        message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')}
+        confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (confirmAction?.mode === 'archive') onArchiveProject?.()
+          if (confirmAction?.mode === 'delete') { onDeleteProject?.(); onBack?.() }
+          setConfirmAction(null)
+        }}
         t={t}
       />
     </div>

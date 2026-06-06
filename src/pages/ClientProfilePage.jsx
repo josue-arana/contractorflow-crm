@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { ArrowLeft, BriefcaseBusiness, ClipboardList, DollarSign, Edit3, FileSignature, MessageSquare, Phone, Plus, WalletCards } from 'lucide-react'
+import { Archive, ArrowLeft, BriefcaseBusiness, ClipboardList, DollarSign, Edit3, FileSignature, MessageSquare, Phone, Plus, Trash2, Undo2, WalletCards } from 'lucide-react'
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
-export function ClientProfilePage({ leads, customClients = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, t }) {
+export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const client = clients.find((item) => item.id === clientId)
 
@@ -22,6 +24,15 @@ export function ClientProfilePage({ leads, customClients = [], onBack, onOpenPro
         <button onClick={onBack} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('backToClients')}</button>
       </section>
     )
+  }
+
+  const isArchived = archivedClientIds.includes(client.id)
+
+  function runConfirmAction() {
+    if (!confirmAction) return
+    if (confirmAction.mode === 'archive') onArchiveClient(client.id)
+    if (confirmAction.mode === 'delete') { onDeleteClient(client.id); onBack() }
+    setConfirmAction(null)
   }
 
   const estimates = client.projects.map((project) => project.portal?.estimate).filter(Boolean)
@@ -48,6 +59,14 @@ export function ClientProfilePage({ leads, customClients = [], onBack, onOpenPro
             <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>
             <button onClick={onCreateProject} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
             <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
+            {isArchived ? (
+              <>
+                <button onClick={() => onRestoreClient(client.id)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="h-4 w-4" /> {t('restore')}</button>
+                <button onClick={() => setConfirmAction({ mode: 'delete' })} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="h-4 w-4" /> {t('deletePermanently')}</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirmAction({ mode: 'archive' })} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Archive className="h-4 w-4" /> {t('archive')}</button>
+            )}
           </div>
         </div>
       </section>
@@ -125,6 +144,7 @@ export function ClientProfilePage({ leads, customClients = [], onBack, onOpenPro
         onSave={(updatedClient) => { onUpdateClient(client.id, updatedClient); setIsEditOpen(false) }}
         t={t}
       />
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )
 }

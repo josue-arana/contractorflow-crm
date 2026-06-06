@@ -1,16 +1,18 @@
 import { useMemo, useState } from 'react'
-import { BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, Zap } from 'lucide-react'
+import { Archive, BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, Trash2, Undo2, Zap } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { MobileJobStat } from '../components/ui/MobileJobStat'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 
-export function JobsPage({ leads, onViewJob, t }) {
+export function JobsPage({ leads, archivedIds = [], onViewJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
-  const jobFilters = ['All', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
+  const [confirmAction, setConfirmAction] = useState(null)
+  const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
 
   const jobs = useMemo(() => {
     return leads
@@ -33,15 +35,18 @@ export function JobsPage({ leads, onViewJob, t }) {
       })
   }, [leads])
 
+  const activeJobsList = jobs.filter((job) => !archivedIds.includes(job.id))
   const filteredJobs = selectedFilter === 'All'
-    ? jobs
-    : jobs.filter((job) => job.jobStatus === selectedFilter)
+    ? activeJobsList
+    : selectedFilter === 'Archived'
+      ? jobs.filter((job) => archivedIds.includes(job.id))
+      : activeJobsList.filter((job) => job.jobStatus === selectedFilter)
 
-  const activeJobs = jobs.filter((job) => !['Completed', 'Paid'].includes(job.jobStatus)).length
-  const inProgressJobs = jobs.filter((job) => job.jobStatus === 'In Progress').length
-  const waitingJobs = jobs.filter((job) => ['Waiting on Client', 'Waiting on Materials'].includes(job.jobStatus)).length
-  const completedThisMonth = jobs.filter((job) => ['Completed', 'Paid'].includes(job.jobStatus)).length
-  const outstandingBalance = jobs.reduce((sum, job) => sum + job.remainingBalance, 0)
+  const activeJobs = activeJobsList.filter((job) => !['Completed', 'Paid'].includes(job.jobStatus)).length
+  const inProgressJobs = activeJobsList.filter((job) => job.jobStatus === 'In Progress').length
+  const waitingJobs = activeJobsList.filter((job) => ['Waiting on Client', 'Waiting on Materials'].includes(job.jobStatus)).length
+  const completedThisMonth = activeJobsList.filter((job) => ['Completed', 'Paid'].includes(job.jobStatus)).length
+  const outstandingBalance = activeJobsList.reduce((sum, job) => sum + job.remainingBalance, 0)
 
   const summaryCards = [
     { label: t('activeJobs'), value: activeJobs, helper: t('activeJobsHelper'), icon: BriefcaseBusiness },
@@ -50,6 +55,40 @@ export function JobsPage({ leads, onViewJob, t }) {
     { label: t('completedThisMonth'), value: completedThisMonth, helper: t('completedThisMonthHelper'), icon: CheckCircle2 },
     { label: t('outstandingBalance'), value: currency.format(outstandingBalance), helper: t('outstandingBalanceHelper'), icon: DollarSign },
   ]
+
+
+  function confirmArchive(job) {
+    setConfirmAction({ mode: 'archive', job })
+  }
+
+  function confirmDelete(job) {
+    setConfirmAction({ mode: 'delete', job })
+  }
+
+  function runConfirmAction() {
+    if (!confirmAction) return
+    if (confirmAction.mode === 'archive') onArchiveJob(confirmAction.job.id)
+    if (confirmAction.mode === 'delete') onDeleteJob(confirmAction.job.id)
+    setConfirmAction(null)
+  }
+
+  function renderJobActions(job, compact = false) {
+    const isArchived = archivedIds.includes(job.id)
+    if (isArchived) {
+      return (
+        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
+          <button onClick={(event) => { event.stopPropagation(); onRestoreJob(job.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={(event) => { event.stopPropagation(); confirmDelete(job) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        </div>
+      )
+    }
+    return (
+      <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
+        <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(job) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -86,7 +125,7 @@ export function JobsPage({ leads, onViewJob, t }) {
             aria-label={t('filterJobsByStatus')}
           >
             {jobFilters.map((filter) => (
-              <option key={filter} value={filter}>{filter === 'All' ? t('all') : tStatus(t, filter)}</option>
+              <option key={filter} value={filter}>{filter === 'All' ? t('all') : filter === 'Archived' ? t('archived') : tStatus(t, filter)}</option>
             ))}
           </SelectField>
         </div>
@@ -98,7 +137,7 @@ export function JobsPage({ leads, onViewJob, t }) {
               onClick={() => setSelectedFilter(filter)}
               className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${selectedFilter === filter ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
-              {filter === 'All' ? t('all') : tStatus(t, filter)}
+              {filter === 'All' ? t('all') : filter === 'Archived' ? t('archived') : tStatus(t, filter)}
             </button>
           ))}
         </div>
@@ -124,17 +163,13 @@ export function JobsPage({ leads, onViewJob, t }) {
                     <p className="font-bold text-slate-950">{job.client}</p>
                     <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
                   </td>
-                  <td className="px-4 py-4"><StatusBadge status={job.jobStatus} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(job.id) ? 'Archived' : job.jobStatus} t={t} /></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{job.startDate}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(job.projectValue)}</td>
                   <td className="px-4 py-4 text-right font-bold text-emerald-700">{currency.format(job.amountPaid)}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(job.remainingBalance)}</td>
                   <td className="max-w-[220px] px-4 py-4 text-slate-600">{job.nextStep}</td>
-                  <td className="px-4 py-4 text-right">
-                    <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">
-                      {t('viewJob')}
-                    </button>
-                  </td>
+                  <td className="px-4 py-4 text-right">{renderJobActions(job)}</td>
                 </tr>
               ))}
             </tbody>
@@ -149,7 +184,7 @@ export function JobsPage({ leads, onViewJob, t }) {
                   <h3 className="font-bold text-slate-950">{job.client}</h3>
                   <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
                 </div>
-                <StatusBadge status={job.jobStatus} t={t} />
+                <StatusBadge status={archivedIds.includes(job.id) ? 'Archived' : job.jobStatus} t={t} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <MobileJobStat label={t('start')} value={job.startDate} />
@@ -161,9 +196,7 @@ export function JobsPage({ leads, onViewJob, t }) {
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('nextStep')}</p>
                 <p className="mt-1 text-sm font-medium text-slate-700">{job.nextStep}</p>
               </div>
-              <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="mt-4 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
-                {t('viewJob')}
-              </button>
+              <div className="mt-4">{renderJobActions(job, true)}</div>
             </article>
           ))}
         </div>
@@ -175,6 +208,7 @@ export function JobsPage({ leads, onViewJob, t }) {
           </div>
         )}
       </section>
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )
 }

@@ -1,17 +1,20 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { contractorCompany, mockInvoices } from '../data/mockInvoices'
 import { currency } from '../utils/formatters'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
 function remainingBalance(invoice) {
   return Math.max((invoice.amount || 0) - (invoice.amountPaid || 0), 0)
 }
 
-export function InvoiceDetailRoute({ leads, t }) {
+export function InvoiceDetailRoute({ leads, archivedIds = [], deletedIds = [], onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
-  const invoice = mockInvoices.find((item) => item.id === invoiceId)
+  const [confirmAction, setConfirmAction] = useState(null)
+  const invoice = mockInvoices.find((item) => item.id === invoiceId && !deletedIds.includes(item.id))
   const lead = invoice ? leads.find((item) => item.id === invoice.leadId) : null
 
   if (!invoice) {
@@ -26,6 +29,7 @@ export function InvoiceDetailRoute({ leads, t }) {
     )
   }
 
+  const isArchived = archivedIds.includes(invoice.id)
   const balance = remainingBalance(invoice)
   const clientAddress = lead?.address || lead?.location || t('notAvailable')
   const clientEmail = lead?.email || t('notAvailable')
@@ -41,7 +45,7 @@ export function InvoiceDetailRoute({ leads, t }) {
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{invoice.number}</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{invoice.projectTitle}</p>
         </div>
-        <StatusBadge status={invoice.status} t={t} />
+        <StatusBadge status={isArchived ? 'Archived' : invoice.status} t={t} />
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -64,6 +68,14 @@ export function InvoiceDetailRoute({ leads, t }) {
                 <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('previewPdf')}</button>
                 <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
                 <button className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100">{t('markAsPaid')}</button>
+                {isArchived ? (
+                  <>
+                    <button onClick={() => onRestoreInvoice?.(invoice.id)} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
+                    <button onClick={() => setConfirmAction({ mode: 'delete' })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmAction({ mode: 'archive' })} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
+                )}
               </div>
             </div>
 
@@ -117,6 +129,7 @@ export function InvoiceDetailRoute({ leads, t }) {
           </section>
         </aside>
       </section>
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveInvoice?.(invoice.id); if (confirmAction?.mode === 'delete') { onDeleteInvoice?.(invoice.id); navigate('/invoices') } setConfirmAction(null) }} t={t} />
     </div>
   )
 }

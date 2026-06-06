@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardList, DollarSign, FileText } from 'lucide-react'
+import { Archive, CheckCircle2, ClipboardList, DollarSign, FileText, Trash2, Undo2 } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
-const estimateFilters = ['All', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
+const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
 
 function getEstimateStatus(lead) {
   if (lead.portal?.contract?.status === 'Signed') return 'Converted to Contract'
@@ -16,8 +17,9 @@ function getEstimateStatus(lead) {
   return 'Draft'
 }
 
-export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
+export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
+  const [confirmAction, setConfirmAction] = useState(null)
 
   const estimates = useMemo(() => leads.map((lead) => ({
     id: lead.id,
@@ -29,14 +31,17 @@ export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
     nextAction: lead.status === 'Won' ? t('convertToContract') : t('sendToCustomer'),
   })), [leads, t])
 
+  const activeEstimates = estimates.filter((estimate) => !archivedIds.includes(estimate.id))
   const filteredEstimates = selectedFilter === 'All'
-    ? estimates
-    : estimates.filter((estimate) => estimate.status === selectedFilter)
+    ? activeEstimates
+    : selectedFilter === 'Archived'
+      ? estimates.filter((estimate) => archivedIds.includes(estimate.id))
+      : activeEstimates.filter((estimate) => estimate.status === selectedFilter)
 
-  const draftCount = estimates.filter((estimate) => estimate.status === 'Draft').length
-  const sentCount = estimates.filter((estimate) => estimate.status === 'Sent').length
-  const approvedCount = estimates.filter((estimate) => estimate.status === 'Approved' || estimate.status === 'Converted to Contract').length
-  const totalValue = estimates.reduce((sum, estimate) => sum + estimate.amount, 0)
+  const draftCount = activeEstimates.filter((estimate) => estimate.status === 'Draft').length
+  const sentCount = activeEstimates.filter((estimate) => estimate.status === 'Sent').length
+  const approvedCount = activeEstimates.filter((estimate) => estimate.status === 'Approved' || estimate.status === 'Converted to Contract').length
+  const totalValue = activeEstimates.reduce((sum, estimate) => sum + estimate.amount, 0)
 
   const summaryCards = [
     { label: t('draftEstimates'), value: draftCount, helper: t('draftEstimatesHelper'), icon: FileText },
@@ -44,6 +49,42 @@ export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
     { label: t('approvedEstimates'), value: approvedCount, helper: t('approvedEstimatesHelper'), icon: CheckCircle2 },
     { label: t('totalEstimatedValue'), value: currency.format(totalValue), helper: t('totalEstimatedValueHelper'), icon: DollarSign },
   ]
+
+
+  function confirmArchive(estimate) {
+    setConfirmAction({ mode: 'archive', estimate })
+  }
+
+  function confirmDelete(estimate) {
+    setConfirmAction({ mode: 'delete', estimate })
+  }
+
+  function runConfirmAction() {
+    if (!confirmAction) return
+    if (confirmAction.mode === 'archive') onArchiveEstimate(confirmAction.estimate.id)
+    if (confirmAction.mode === 'delete') onDeleteEstimate(confirmAction.estimate.id)
+    setConfirmAction(null)
+  }
+
+  function renderEstimateActions(estimate, compact = false) {
+    const isArchived = archivedIds.includes(estimate.id)
+    if (isArchived) {
+      return (
+        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
+          <button onClick={(event) => { event.stopPropagation(); onRestoreEstimate(estimate.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={(event) => { event.stopPropagation(); confirmDelete(estimate) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        </div>
+      )
+    }
+    return (
+      <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-2' : 'justify-end'}`}>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('convertToContract')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -66,14 +107,14 @@ export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
             <p className="text-sm text-slate-500">{t('estimateListHelp')}</p>
           </div>
           <SelectField value={selectedFilter} onChange={(event) => setSelectedFilter(event.target.value)} containerClassName="w-full lg:w-72" className="bg-slate-50" aria-label={t('filterEstimatesByStatus')}>
-            {estimateFilters.map((filter) => <option key={filter} value={filter}>{filter === 'All' ? t('all') : tStatus(t, filter)}</option>)}
+            {estimateFilters.map((filter) => <option key={filter} value={filter}>{filter === 'All' ? t('all') : filter === 'Archived' ? t('archived') : tStatus(t, filter)}</option>)}
           </SelectField>
         </div>
 
         <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
           {estimateFilters.map((filter) => (
             <button key={filter} onClick={() => setSelectedFilter(filter)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${selectedFilter === filter ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
-              {filter === 'All' ? t('all') : tStatus(t, filter)}
+              {filter === 'All' ? t('all') : filter === 'Archived' ? t('archived') : tStatus(t, filter)}
             </button>
           ))}
         </div>
@@ -95,16 +136,10 @@ export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
                 <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{estimate.client}</p><p className="text-sm text-slate-500">{estimate.projectTitle}</p></td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(estimate.amount)}</td>
-                  <td className="px-4 py-4"><StatusBadge status={estimate.status} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(estimate.id) ? 'Archived' : estimate.status} t={t} /></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{estimate.dateCreated}</td>
                   <td className="px-4 py-4 text-slate-600">{estimate.nextAction}</td>
-                  <td className="px-4 py-4 text-right">
-                    <div className="flex justify-end gap-2">
-                      <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-                      <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
-                      <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('convertToContract')}</button>
-                    </div>
-                  </td>
+                  <td className="px-4 py-4 text-right">{renderEstimateActions(estimate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -116,17 +151,15 @@ export function EstimatesPage({ leads, onOpenEstimate, onConvertEstimate, t }) {
             <article key={estimate.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{estimate.client}</h3><p className="text-sm text-slate-500">{estimate.projectTitle}</p></div>
-                <StatusBadge status={estimate.status} t={t} />
+                <StatusBadge status={archivedIds.includes(estimate.id) ? 'Archived' : estimate.status} t={t} />
               </div>
               <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('estimateAmount')}</p><p className="mt-1 text-xl font-bold text-slate-900">{currency.format(estimate.amount)}</p></div>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <button onClick={() => onOpenEstimate(estimate.id)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-                <button onClick={() => onConvertEstimate(estimate.id)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('convertToContract')}</button>
-              </div>
+              <div className="mt-3">{renderEstimateActions(estimate, true)}</div>
             </article>
           ))}
         </div>
       </section>
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )
 }

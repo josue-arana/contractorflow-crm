@@ -1,18 +1,20 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
-export function EstimateBuilderPage({ lead, t, onBack, onConvert }) {
+export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
   const [scope, setScope] = useState(t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
   const [total, setTotal] = useState(portal.estimate?.total || lead.value)
   const [materialsIncluded, setMaterialsIncluded] = useState(true)
   const [paymentTerms, setPaymentTerms] = useState(t('defaultPaymentTerms'))
   const [showLineItems, setShowLineItems] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
   const [lineItems, setLineItems] = useState([
     { name: t('laborAndProjectSetup'), amount: Math.round(lead.value * 0.35) },
     { name: t('materialsAndFinishWork'), amount: Math.round(lead.value * 0.65) },
@@ -35,6 +37,7 @@ export function EstimateBuilderPage({ lead, t, onBack, onConvert }) {
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('estimateBuilder')}</p>
         <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
         <p className="mt-2 text-sm text-slate-300">{t('estimateBuilderHelp')}</p>
+        {isArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
@@ -91,14 +94,23 @@ export function EstimateBuilderPage({ lead, t, onBack, onConvert }) {
           <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
           <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewEstimate')}</button>
           <button onClick={onConvert} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
+          {isArchived ? (
+            <>
+              <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
+              <button onClick={() => setConfirmAction({ mode: 'delete' })} className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
+            </>
+          ) : (
+            <button onClick={() => setConfirmAction({ mode: 'archive' })} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50"><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
+          )}
         </aside>
       </div>
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
     </div>
   )
 }
 
 
-export function EstimateBuilderRoute({ leads, t }) {
+export function EstimateBuilderRoute({ leads, archivedIds = [], onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId
@@ -121,7 +133,11 @@ export function EstimateBuilderRoute({ leads, t }) {
       lead={lead}
       t={t}
       onBack={() => navigate(`/projects/${lead.id}`)}
+      isArchived={archivedIds.includes(lead.id)}
       onConvert={() => navigate(`/projects/${lead.id}/contract`)}
+      onArchiveEstimate={() => onArchiveEstimate?.(lead.id)}
+      onRestoreEstimate={() => onRestoreEstimate?.(lead.id)}
+      onDeleteEstimate={() => onDeleteEstimate?.(lead.id)}
     />
   )
 }

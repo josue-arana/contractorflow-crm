@@ -24,6 +24,15 @@ import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
 
+const emptyArchiveState = {
+  leadIds: [],
+  clientIds: [],
+  invoiceIds: [],
+  deletedLeadIds: [],
+  deletedClientIds: [],
+  deletedInvoiceIds: [],
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -35,6 +44,7 @@ function App() {
 function ContractorFlowApp() {
   const [leads, setLeads] = useState(initialLeads)
   const [customClients, setCustomClients] = useState([])
+  const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
@@ -43,13 +53,16 @@ function ContractorFlowApp() {
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
-  const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
+
+  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
+  const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
+  const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
 
   const metrics = useMemo(() => {
-    const newLeads = leads.filter((lead) => lead.status === 'New Lead').length
-    const estimates = leads.filter((lead) => lead.status === 'Estimate Sent').length
-    const activeJobs = leads.filter((lead) => ['Contacted', 'Estimate Sent', 'Won'].includes(lead.status)).length
-    const pipelineValue = leads.reduce((sum, lead) => sum + lead.value, 0)
+    const newLeads = activeLeads.filter((lead) => lead.status === 'New Lead').length
+    const estimates = activeLeads.filter((lead) => lead.status === 'Estimate Sent').length
+    const activeJobs = activeLeads.filter((lead) => ['Contacted', 'Estimate Sent', 'Won'].includes(lead.status)).length
+    const pipelineValue = activeLeads.reduce((sum, lead) => sum + lead.value, 0)
 
     return [
       { label: t('metricNewLeads'), value: newLeads, helper: t('metricNewLeadsHelper'), icon: Users },
@@ -57,8 +70,44 @@ function ContractorFlowApp() {
       { label: t('metricJobsInProgress'), value: activeJobs, helper: t('metricJobsInProgressHelper'), icon: BriefcaseBusiness },
       { label: t('metricRevenuePipeline'), value: currency.format(pipelineValue), helper: t('metricRevenuePipelineHelper'), icon: DollarSign },
     ]
-  }, [leads, t])
+  }, [activeLeads, t])
 
+  function updateArchiveList(listName, id, mode) {
+    setArchives((current) => {
+      const currentList = current[listName] || []
+      const nextList = mode === 'add'
+        ? [...new Set([...currentList, id])]
+        : currentList.filter((itemId) => itemId !== id)
+      return { ...current, [listName]: nextList }
+    })
+  }
+
+  const archiveRecord = {
+    lead: (id) => updateArchiveList('leadIds', id, 'add'),
+    project: (id) => updateArchiveList('leadIds', id, 'add'),
+    job: (id) => updateArchiveList('leadIds', id, 'add'),
+    estimate: (id) => updateArchiveList('leadIds', id, 'add'),
+    client: (id) => updateArchiveList('clientIds', id, 'add'),
+    invoice: (id) => updateArchiveList('invoiceIds', id, 'add'),
+  }
+
+  const restoreRecord = {
+    lead: (id) => updateArchiveList('leadIds', id, 'remove'),
+    project: (id) => updateArchiveList('leadIds', id, 'remove'),
+    job: (id) => updateArchiveList('leadIds', id, 'remove'),
+    estimate: (id) => updateArchiveList('leadIds', id, 'remove'),
+    client: (id) => updateArchiveList('clientIds', id, 'remove'),
+    invoice: (id) => updateArchiveList('invoiceIds', id, 'remove'),
+  }
+
+  const deleteRecord = {
+    lead: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
+    project: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
+    job: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
+    estimate: (id) => updateArchiveList('deletedLeadIds', id, 'add'),
+    client: (id) => updateArchiveList('deletedClientIds', id, 'add'),
+    invoice: (id) => updateArchiveList('deletedInvoiceIds', id, 'add'),
+  }
 
   function createLead(lead) {
     const id = `lead-${Date.now()}`
@@ -79,6 +128,8 @@ function ContractorFlowApp() {
 
   function createClient(client) {
     const id = getClientSlug(client.name) || `client-${Date.now()}`
+    updateArchiveList('deletedClientIds', id, 'remove')
+    updateArchiveList('clientIds', id, 'remove')
     setCustomClients((current) => {
       const existing = current.find((item) => item.id === id)
       if (existing) return current.map((item) => (item.id === id ? { ...item, ...client, id } : item))
@@ -128,7 +179,7 @@ function ContractorFlowApp() {
 
   const dashboardPage = (
     <DashboardPage
-      leads={leads}
+      leads={activeLeads}
       metrics={metrics}
       draggedLeadId={draggedLeadId}
       setDraggedLeadId={setDraggedLeadId}
@@ -148,28 +199,28 @@ function ContractorFlowApp() {
         <Topbar onMenuClick={() => setSidebarOpen(true)} language={language} setLanguage={setLanguage} t={t} />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
-          {/*
-            Developer QA checklist for this routing bug-fix pass:
+          {/**
+            Developer QA checklist for route stability:
             Tested routes: /, /dashboard, /jobs, /projects/:id, /estimates,
             /clients, /invoices, /calendar, and /settings.
           */}
           <Routes>
             <Route path="/" element={dashboardPage} />
             <Route path="/dashboard" element={dashboardPage} />
-            <Route path="/leads" element={<LeadsPage leads={leads} clients={clients} onViewProject={openProject} onCreateLead={createLead} t={t} />} />
-            <Route path="/estimates" element={<EstimatesPage leads={leads} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
-            <Route path="/contracts" element={<ContractsPage leads={leads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
-            <Route path="/jobs" element={<JobsPage leads={leads} onViewJob={openProject} t={t} />} />
-            <Route path="/calendar" element={<CalendarPage leads={leads} onViewProject={openProject} t={t} />} />
-            <Route path="/clients" element={<ClientsPage leads={leads} customClients={customClients} onOpenClient={openClient} onCreateClient={createClient} t={t} />} />
-            <Route path="/clients/:clientId" element={<ClientProfilePage leads={leads} customClients={customClients} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} t={t} />} />
-            <Route path="/invoices" element={<InvoicesPage leads={leads} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} t={t} />} />
-            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={leads} t={t} />} />
+            <Route path="/leads" element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewProject={openProject} onCreateLead={createLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
+            <Route path="/estimates" element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
+            <Route path="/contracts" element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
+            <Route path="/jobs" element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
+            <Route path="/calendar" element={<CalendarPage leads={activeLeads} onViewProject={openProject} t={t} />} />
+            <Route path="/clients" element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
+            <Route path="/clients/:clientId" element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
+            <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
+            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={visibleLeads} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
-            <Route path="/projects/:id" element={<ProjectRoute leads={leads} clients={clients} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} t={t} />} />
-            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={leads} t={t} />} />
-            <Route path="/projects/:id/contract" element={<ContractRoute leads={leads} t={t} />} />
-            <Route path="/portal/:id" element={<PortalRoute leads={leads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
+            <Route path="/projects/:id" element={<ProjectRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
+            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
+            <Route path="/projects/:id/contract" element={<ContractRoute leads={visibleLeads} t={t} />} />
+            <Route path="/portal/:id" element={<PortalRoute leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
             <Route path="/dev/translations" element={<TranslationAuditPage t={t} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
@@ -179,7 +230,7 @@ function ContractorFlowApp() {
   )
 }
 
-function ProjectRoute({ leads, clients, onBack, onOpenPortal, onUpdateLead, t }) {
+function ProjectRoute({ leads, clients, archivedIds = [], onBack, onOpenPortal, onUpdateLead, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
@@ -188,7 +239,20 @@ function ProjectRoute({ leads, clients, onBack, onOpenPortal, onUpdateLead, t })
     return <ProjectNotFound onBack={onBack} t={t} />
   }
 
-  return <ProjectDetailPage lead={lead} clients={clients} onBack={onBack} onOpenPortal={() => onOpenPortal(lead.id)} onUpdateLead={onUpdateLead} t={t} />
+  return (
+    <ProjectDetailPage
+      lead={lead}
+      clients={clients}
+      isArchived={archivedIds.includes(lead.id)}
+      onBack={onBack}
+      onOpenPortal={() => onOpenPortal(lead.id)}
+      onUpdateLead={onUpdateLead}
+      onArchiveProject={() => onArchiveProject(lead.id)}
+      onRestoreProject={() => onRestoreProject(lead.id)}
+      onDeleteProject={() => onDeleteProject(lead.id)}
+      t={t}
+    />
+  )
 }
 
 function PortalRoute({ leads, onBack, t, language, setLanguage }) {
