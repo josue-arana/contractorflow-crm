@@ -13,6 +13,7 @@ import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
 import { ComingSoonPage } from './pages/ComingSoonPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { CustomerPortalPage } from './pages/CustomerPortalPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { EstimateBuilderRoute } from './pages/EstimateBuilderPage'
@@ -28,6 +29,33 @@ import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
+
+
+const defaultCompanySettings = {
+  appLanguage: 'en',
+  company: {
+    name: 'ContractorFlow Remodeling LLC',
+    ownerName: 'Josue Arana',
+    phone: '(410) 555-0199',
+    email: 'office@contractorflow.example',
+    address: 'Baltimore, MD 21201',
+    website: 'www.contractorflow.example',
+    licenseNumber: 'MHIC-000000',
+    logo: '',
+  },
+  defaults: {
+    paymentTerms: '50% downpayment with remaining balance due weekly based on work progress.',
+    depositPercentage: 50,
+    invoiceDueDays: 7,
+    materialsIncluded: true,
+  },
+  portal: {
+    defaultLanguage: 'en',
+    showPayments: true,
+    showPhotos: true,
+    showDocuments: true,
+  },
+}
 
 const emptyArchiveState = {
   leadIds: [],
@@ -62,6 +90,7 @@ function ContractorFlowApp() {
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
   const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
+  const [companySettings, setCompanySettings] = useState(() => ({ ...defaultCompanySettings, appLanguage: language, portal: { ...defaultCompanySettings.portal, defaultLanguage: portalLanguage } }))
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
@@ -321,7 +350,7 @@ function ContractorFlowApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} />
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} />
 
       <div className="lg:pl-72">
         <Topbar onMenuClick={() => setSidebarOpen(true)} language={language} setLanguage={setLanguage} t={t} />
@@ -343,12 +372,12 @@ function ContractorFlowApp() {
             <Route path="/clients" element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
-            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
-            <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
-            <Route path="/projects/:id" element={<ProjectRoute leads={visibleLeads} clients={clients} scheduleEvents={scheduleEvents} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
-            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
-            <Route path="/projects/:id/contract" element={<ContractRoute leads={visibleLeads} t={t} />} />
-            <Route path="/portal/:id" element={<PortalRoute leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
+            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
+            <Route path="/settings" element={<SettingsPage settings={companySettings} onSaveSettings={setCompanySettings} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
+            <Route path="/projects/:id" element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={scheduleEvents} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
+            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
+            <Route path="/projects/:id/contract" element={<ContractRoute companySettings={companySettings} leads={visibleLeads} t={t} />} />
+            <Route path="/portal/:id" element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
             <Route path="/dev/translations" element={<TranslationAuditPage t={t} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
@@ -360,7 +389,7 @@ function ContractorFlowApp() {
   )
 }
 
-function ProjectRoute({ leads, clients, scheduleEvents = [], archivedIds = [], onBack, onOpenPortal, onUpdateLead, onScheduleEvent, onExportEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], onBack, onOpenPortal, onUpdateLead, onScheduleEvent, onExportEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
@@ -372,6 +401,7 @@ function ProjectRoute({ leads, clients, scheduleEvents = [], archivedIds = [], o
   return (
     <ProjectDetailPage
       lead={lead}
+      companySettings={companySettings}
       clients={clients}
       isArchived={archivedIds.includes(lead.id)}
       onBack={onBack}
@@ -388,7 +418,7 @@ function ProjectRoute({ leads, clients, scheduleEvents = [], archivedIds = [], o
   )
 }
 
-function PortalRoute({ leads, onBack, t, language, setLanguage }) {
+function PortalRoute({ companySettings, leads, onBack, t, language, setLanguage }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
@@ -397,7 +427,7 @@ function PortalRoute({ leads, onBack, t, language, setLanguage }) {
     return <ProjectNotFound onBack={() => onBack(projectId || '')} t={t} />
   }
 
-  return <CustomerPortalPage lead={lead} onBack={() => onBack(lead.id)} t={t} language={language} setLanguage={setLanguage} />
+  return <CustomerPortalPage lead={lead} onBack={() => onBack(lead.id)} t={t} language={language} setLanguage={setLanguage} companySettings={companySettings} />
 }
 
 function ProjectNotFound({ onBack, t }) {

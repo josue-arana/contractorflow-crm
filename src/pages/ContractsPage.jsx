@@ -5,7 +5,7 @@ import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 
-export function ContractPreviewPage({ lead, t, onBack }) {
+export function ContractPreviewPage({ lead, t, companySettings, onBack }) {
   const portal = getPortalData(lead)
   const [showSendModal, setShowSendModal] = useState(false)
   const scope = t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)}.`
@@ -18,6 +18,8 @@ export function ContractPreviewPage({ lead, t, onBack }) {
         <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+        <DocumentCompanyHeader company={companySettings?.company} t={t} />
+        <div className="my-6 border-t border-slate-200" />
         <div className="mb-6 grid gap-3 sm:grid-cols-5">
           <button className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
           <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
@@ -44,12 +46,31 @@ export function ContractPreviewPage({ lead, t, onBack }) {
   )
 }
 
+function DocumentCompanyHeader({ company, t }) {
+  return (
+    <div className="flex items-center gap-3">
+      {company?.logo ? (
+        <img src={company.logo} alt="" className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200" />
+      ) : (
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white">{t('brandInitials')}</div>
+      )}
+      <div>
+        <p className="font-bold text-slate-950">{company?.name || t('brandName')}</p>
+        <p className="text-sm text-slate-600">{company?.phone || ''}</p>
+        <p className="text-sm text-slate-600">{company?.email || ''}</p>
+        <p className="text-sm text-slate-600">{company?.address || ''}</p>
+      </div>
+    </div>
+  )
+}
+
+
 function ContractSection({ title, children }) {
   return <section><h2 className="mb-2 text-base font-bold text-slate-950">{title}</h2><p>{children}</p></section>
 }
 
 
-export function ContractRoute({ leads, t }) {
+export function ContractRoute({ companySettings, leads, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId
@@ -67,7 +88,7 @@ export function ContractRoute({ leads, t }) {
     )
   }
 
-  return <ContractPreviewPage lead={lead} t={t} onBack={() => navigate(`/projects/${lead.id}/estimate`)} />
+  return <ContractPreviewPage lead={lead} t={t} companySettings={companySettings} onBack={() => navigate(`/projects/${lead.id}/estimate`)} />
 }
 
 export function ContractsPage({ leads, onViewContract, t }) {

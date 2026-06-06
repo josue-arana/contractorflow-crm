@@ -19,7 +19,7 @@ function calculateInvoiceTotal(lineItems = []) {
   return lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
 }
 
-export function InvoiceDetailRoute({ leads, invoices = [], archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
+export function InvoiceDetailRoute({ companySettings, leads, invoices = [], archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
   const [confirmAction, setConfirmAction] = useState(null)
@@ -54,6 +54,7 @@ export function InvoiceDetailRoute({ leads, invoices = [], archivedIds = [], del
   const clientEmail = lead?.email || t('notAvailable')
   const clientPhone = lead?.phone || t('notAvailable')
   const paymentHistory = currentInvoice.paymentHistory || []
+  const displayCompany = companySettings?.company || contractorCompany
 
   function updateDraft(field, value) {
     setDraftInvoice((current) => ({ ...current, [field]: value }))
@@ -222,7 +223,7 @@ export function InvoiceDetailRoute({ leads, invoices = [], archivedIds = [], del
       </section>
 
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode === 'delete' ? 'delete' : 'archive'} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : confirmAction?.mode === 'markPaid' ? t('confirmMarkAsPaid') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : confirmAction?.mode === 'markPaid' ? t('markAsPaidHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : confirmAction?.mode === 'markPaid' ? t('markAsPaid') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
-      <InvoicePreviewModal isOpen={showPreview} invoice={currentInvoice} lead={lead} contractorCompany={contractorCompany} onClose={() => setShowPreview(false)} t={t} />
+      <InvoicePreviewModal isOpen={showPreview} invoice={currentInvoice} lead={lead} contractorCompany={displayCompany} onClose={() => setShowPreview(false)} t={t} />
       <RecordPaymentModal isOpen={showPaymentModal} remainingBalance={balance} onClose={() => setShowPaymentModal(false)} onSave={savePayment} t={t} />
       <SendToCustomerModal isOpen={showSendModal} documentType="invoice" customer={{ name: currentInvoice.client, phone: lead?.phone, email: lead?.email }} projectTitle={currentInvoice.projectTitle} amountLabel={t('amountDue')} amountValue={currency.format(balance)} dueDate={currentInvoice.dueDate} onClose={() => setShowSendModal(false)} onSent={() => onInvoiceSent?.(currentInvoice.id)} t={t} />
     </div>

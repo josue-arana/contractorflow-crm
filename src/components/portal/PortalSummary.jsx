@@ -4,7 +4,10 @@ import { InfoCard } from '../ui/InfoCard'
 import { currency } from '../../utils/formatters'
 import { tStatus } from '../../translations'
 
-export function PortalSummary({ lead, portal, full = false, t = (key) => key }) {
+export function PortalSummary({ lead, portal, full = false, t = (key) => key, portalSettings = {} }) {
+  const showPayments = portalSettings.showPayments !== false
+  const showPhotos = portalSettings.showPhotos !== false
+  const showDocuments = portalSettings.showDocuments !== false
   return (
     <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
       <div className="space-y-5">
@@ -37,6 +40,7 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key }) 
           </div>
         </InfoCard>
 
+        {showPhotos && (
         <InfoCard title={t('uploadedPhotos')}>
           <div className="grid gap-3 sm:grid-cols-3">
             {portal.photos.map((photo) => (
@@ -50,16 +54,20 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key }) 
             ))}
           </div>
         </InfoCard>
+        )}
       </div>
 
       <div className="space-y-5">
+        {showPayments && (
         <InfoCard title={t('paymentProgress')}>
           <DetailRow label={t('depositRequired')} value={currency.format(portal.depositRequired)} />
           <DetailRow label={t('depositPaid')} value={currency.format(Math.min(portal.amountPaid, portal.depositRequired))} />
           <DetailRow label={t('outstandingBalance')} value={currency.format(portal.outstandingBalance)} />
           <DetailRow label={t('paymentStatus')} value={tStatus(t, portal.paymentStatus)} />
         </InfoCard>
+        )}
 
+        {showDocuments && (
         <InfoCard title={t('documents')}>
           <div className="space-y-3">
             {portal.documents.map((doc) => (
@@ -76,13 +84,16 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key }) 
             ))}
           </div>
         </InfoCard>
+        )}
 
+        {showDocuments && (
         <InfoCard title={t('estimateContract')}>
           <DetailRow label={t('estimate')} value={`${portal.estimate.number} · ${currency.format(portal.estimate.total)}`} />
           <p className="mb-4 text-sm leading-6 text-slate-600">{t(portal.estimate.summary)}</p>
           <DetailRow label={t('contract')} value={`${portal.contract.number} · ${tStatus(t, portal.contract.status)}`} />
           <DetailRow label={t('signedDate')} value={portal.contract.signedDate} />
         </InfoCard>
+        )}
 
         {full && (
           <InfoCard title={t('needHelp')}>

@@ -5,7 +5,7 @@ import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 
-export function CustomerPortalPage({ lead, onBack, t, language, setLanguage }) {
+export function CustomerPortalPage({ lead, onBack, t, language, setLanguage, companySettings }) {
   const portal = getPortalData(lead)
 
   return (
@@ -21,6 +21,13 @@ export function CustomerPortalPage({ lead, onBack, t, language, setLanguage }) {
         <div className="bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white sm:p-8">
           <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
             <div>
+              <div className="mb-4 flex items-center gap-3">
+                {companySettings?.company?.logo ? <img src={companySettings.company.logo} alt="" className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/20" /> : <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500 text-sm font-bold text-white">{t('brandInitials')}</div>}
+                <div>
+                  <p className="text-sm font-bold text-white">{companySettings?.company?.name || t('brandName')}</p>
+                  <p className="text-xs text-slate-300">{companySettings?.company?.phone || ''}</p>
+                </div>
+              </div>
               <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('customerPortal')}</p>
               <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">{lead.projectTitle || lead.projectType}</h1>
               <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
@@ -31,13 +38,15 @@ export function CustomerPortalPage({ lead, onBack, t, language, setLanguage }) {
 
         <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
           <PortalStat label={t('contractAmount')} value={currency.format(portal.contractAmount)} />
-          <PortalStat label={t('paidToDate')} value={currency.format(portal.amountPaid)} />
-          <PortalStat label={t('outstandingBalance')} value={currency.format(portal.outstandingBalance)} />
-          <PortalStat label={t('paymentStatus')} value={tStatus(t, portal.paymentStatus)} />
+          {companySettings?.portal?.showPayments !== false && <>
+            <PortalStat label={t('paidToDate')} value={currency.format(portal.amountPaid)} />
+            <PortalStat label={t('outstandingBalance')} value={currency.format(portal.outstandingBalance)} />
+            <PortalStat label={t('paymentStatus')} value={tStatus(t, portal.paymentStatus)} />
+          </>}
         </div>
       </section>
 
-      <PortalSummary lead={lead} portal={portal} full t={t} />
+      <PortalSummary lead={lead} portal={portal} full t={t} portalSettings={companySettings?.portal} />
     </div>
   )
 }

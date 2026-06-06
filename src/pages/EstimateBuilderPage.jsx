@@ -8,12 +8,12 @@ import { getPortalData } from '../utils/portal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 
-export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
   const [scope, setScope] = useState(t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
   const [total, setTotal] = useState(portal.estimate?.total || lead.value)
-  const [materialsIncluded, setMaterialsIncluded] = useState(true)
-  const [paymentTerms, setPaymentTerms] = useState(t('defaultPaymentTerms'))
+  const [materialsIncluded, setMaterialsIncluded] = useState(companySettings?.defaults?.materialsIncluded ?? true)
+  const [paymentTerms, setPaymentTerms] = useState(companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
   const [showLineItems, setShowLineItems] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showSendModal, setShowSendModal] = useState(false)
@@ -83,6 +83,8 @@ export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onCon
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
           <InfoCard title={t('previewEstimate')}>
+            <DocumentCompanyHeader company={companySettings?.company} t={t} />
+            <div className="my-4 border-t border-slate-200" />
             <p className="text-sm font-bold text-slate-900">{lead.client}</p>
             <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
             <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
@@ -114,7 +116,25 @@ export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onCon
 }
 
 
-export function EstimateBuilderRoute({ leads, archivedIds = [], onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
+function DocumentCompanyHeader({ company, t }) {
+  return (
+    <div className="flex items-center gap-3">
+      {company?.logo ? (
+        <img src={company.logo} alt="" className="h-12 w-12 rounded-2xl object-cover ring-1 ring-slate-200" />
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white">{t('brandInitials')}</div>
+      )}
+      <div>
+        <p className="text-sm font-bold text-slate-950">{company?.name || t('brandName')}</p>
+        <p className="text-xs text-slate-500">{company?.phone || ''}</p>
+        <p className="text-xs text-slate-500">{company?.email || ''}</p>
+      </div>
+    </div>
+  )
+}
+
+
+export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId

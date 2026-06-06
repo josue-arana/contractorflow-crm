@@ -12,16 +12,20 @@ const sidebarNavItems = [
   { labelKey: 'settings', path: '/settings', icon: Settings },
 ]
 
-export function Sidebar({ isOpen, onClose, t }) {
+export function Sidebar({ isOpen, onClose, t, companySettings }) {
   return (
     <>
       <div className={`fixed inset-0 z-40 bg-slate-950/50 lg:hidden ${isOpen ? 'block' : 'hidden'}`} onClick={onClose} />
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col bg-slate-950 px-5 py-6 text-white shadow-2xl transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="mb-8 flex items-center justify-between">
           <NavLink to="/dashboard" onClick={onClose} className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500 font-bold shadow-lg shadow-blue-500/30">{t('brandInitials')}</div>
+            {companySettings?.company?.logo ? (
+              <img src={companySettings.company.logo} alt="" className="h-11 w-11 rounded-2xl object-cover shadow-lg ring-1 ring-white/10" />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-500 font-bold shadow-lg shadow-blue-500/30">{t('brandInitials')}</div>
+            )}
             <div>
-              <p className="font-bold leading-tight">{t('brandName')}</p>
+              <p className="font-bold leading-tight">{companySettings?.company?.name || t('brandName')}</p>
               <p className="text-xs text-slate-400">{t('smallContractorCrm')}</p>
             </div>
           </NavLink>

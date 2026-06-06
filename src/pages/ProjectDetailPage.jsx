@@ -10,7 +10,7 @@ import { tStatus } from '../translations'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
-export function ProjectDetailPage({ lead, clients = [], scheduleEvents = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onScheduleEvent, onExportEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+export function ProjectDetailPage({ lead, companySettings, clients = [], scheduleEvents = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onScheduleEvent, onExportEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const portal = getPortalData(lead)
   const navigate = useNavigate()
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -146,7 +146,7 @@ export function ProjectDetailPage({ lead, clients = [], scheduleEvents = [], isA
             <p className="text-sm text-slate-500">{t('homeownerPortalPreviewHelp')}</p>
           </div>
         </div>
-        <PortalSummary lead={lead} portal={portal} t={t} />
+        <PortalSummary lead={lead} portal={portal} t={t} portalSettings={companySettings?.portal} />
       </section>
       <LeadFormModal
         isOpen={isEditOpen}
