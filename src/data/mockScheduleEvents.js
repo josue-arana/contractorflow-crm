@@ -6,6 +6,7 @@ export const scheduleEventTypes = [
   'Material Delivery',
   'Inspection',
   'Final Walkthrough',
+  'Other',
 ]
 
 export const mockScheduleEvents = [

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, MapPin, Package, PlayCircle } from 'lucide-react'
+import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, Download, MapPin, Package, PlayCircle } from 'lucide-react'
+import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import { mockScheduleEvents, scheduleEventTypes } from '../data/mockScheduleEvents'
+import { scheduleEventTypes } from '../data/mockScheduleEvents'
 import { tStatus } from '../translations'
 
 const today = '2026-06-04'
@@ -16,6 +17,7 @@ const typeIcons = {
   'Material Delivery': Package,
   Inspection: ClipboardCheck,
   'Final Walkthrough': CheckCircle2,
+  Other: CalendarDays,
 }
 
 function isInCurrentWeek(event) {
@@ -23,34 +25,44 @@ function isInCurrentWeek(event) {
 }
 
 function getMonthDays(events) {
-  const days = Array.from({ length: 30 }, (_, index) => {
+  return Array.from({ length: 30 }, (_, index) => {
     const day = index + 1
     const isoDay = String(day).padStart(2, '0')
     const date = `2026-06-${isoDay}`
-    return {
-      day,
-      date,
-      events: events.filter((event) => event.date === date),
-    }
+    return { day, date, events: events.filter((event) => event.date === date) }
   })
-
-  return days
 }
 
-export function CalendarPage({ leads, onViewProject, t }) {
+function formatDisplayDate(dateValue) {
+  if (!dateValue) return ''
+  const [year, month, day] = dateValue.split('-').map(Number)
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function formatEventTime(event) {
+  if (event.time) return event.time
+  if (!event.startTime) return ''
+  const start = event.startTime
+  return event.endTime ? `${start} - ${event.endTime}` : start
+}
+
+export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExportEvent, onViewProject, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [completedEventIds, setCompletedEventIds] = useState([])
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false)
 
-  const events = useMemo(() => mockScheduleEvents.map((event) => {
+  const events = useMemo(() => scheduleEvents.map((event) => {
     const lead = leads.find((item) => item.id === event.leadId)
     return {
       ...event,
       clientName: event.clientName || lead?.client || t('unknownClient'),
       projectTitle: event.projectTitle || lead?.projectTitle || lead?.projectType || t('unknownProject'),
       location: event.location || lead?.address || lead?.location || t('unknownAddress'),
+      displayDate: event.displayDate || formatDisplayDate(event.date),
+      time: formatEventTime(event),
       status: completedEventIds.includes(event.id) ? 'Complete' : event.status,
     }
-  }), [completedEventIds, leads, t])
+  }), [completedEventIds, leads, scheduleEvents, t])
 
   const filteredEvents = useMemo(() => {
     if (selectedFilter === 'All') return events
@@ -58,36 +70,11 @@ export function CalendarPage({ leads, onViewProject, t }) {
   }, [events, selectedFilter])
 
   const summaryCards = useMemo(() => [
-    {
-      label: t('calendarTodaysEvents'),
-      value: events.filter((event) => event.date === today).length,
-      helper: t('calendarTodaysEventsHelper'),
-      icon: CalendarDays,
-    },
-    {
-      label: t('calendarThisWeek'),
-      value: events.filter(isInCurrentWeek).length,
-      helper: t('calendarThisWeekHelper'),
-      icon: Clock,
-    },
-    {
-      label: t('calendarSiteVisits'),
-      value: events.filter((event) => event.type === 'Site Visit').length,
-      helper: t('calendarSiteVisitsHelper'),
-      icon: MapPin,
-    },
-    {
-      label: t('calendarPaymentDue'),
-      value: events.filter((event) => event.type === 'Payment Due').length,
-      helper: t('calendarPaymentDueHelper'),
-      icon: Clock,
-    },
-    {
-      label: t('calendarProjectStarts'),
-      value: events.filter((event) => event.type === 'Project Start').length,
-      helper: t('calendarProjectStartsHelper'),
-      icon: PlayCircle,
-    },
+    { label: t('calendarTodaysEvents'), value: events.filter((event) => event.date === today).length, helper: t('calendarTodaysEventsHelper'), icon: CalendarDays },
+    { label: t('calendarThisWeek'), value: events.filter(isInCurrentWeek).length, helper: t('calendarThisWeekHelper'), icon: Clock },
+    { label: t('calendarSiteVisits'), value: events.filter((event) => event.type === 'Site Visit').length, helper: t('calendarSiteVisitsHelper'), icon: MapPin },
+    { label: t('calendarPaymentDue'), value: events.filter((event) => event.type === 'Payment Due').length, helper: t('calendarPaymentDueHelper'), icon: Clock },
+    { label: t('calendarProjectStarts'), value: events.filter((event) => event.type === 'Project Start').length, helper: t('calendarProjectStartsHelper'), icon: PlayCircle },
   ], [events, t])
 
   const monthDays = useMemo(() => getMonthDays(events), [events])
@@ -105,16 +92,14 @@ export function CalendarPage({ leads, onViewProject, t }) {
             <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{t('calendarPageTitle')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">{t('calendarHeroText')}</p>
           </div>
-          <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+          <button onClick={() => setIsScheduleOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
             <CalendarDays className="h-4 w-4" /> {t('addScheduleEvent')}
           </button>
         </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {summaryCards.map((card) => (
-          <MetricCard key={card.label} {...card} />
-        ))}
+        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -123,26 +108,14 @@ export function CalendarPage({ leads, onViewProject, t }) {
             <h2 className="text-xl font-bold text-slate-950">{t('scheduleAgenda')}</h2>
             <p className="text-sm text-slate-500">{t('scheduleAgendaHelp')}</p>
           </div>
-          <SelectField
-            value={selectedFilter}
-            onChange={(event) => setSelectedFilter(event.target.value)}
-            containerClassName="w-full lg:w-72"
-            className="bg-slate-50"
-            aria-label={t('filterScheduleByType')}
-          >
-            {scheduleEventTypes.map((type) => (
-              <option key={type} value={type}>{type === 'All' ? t('all') : tStatus(t, type)}</option>
-            ))}
+          <SelectField value={selectedFilter} onChange={(event) => setSelectedFilter(event.target.value)} containerClassName="w-full lg:w-72" className="bg-slate-50" aria-label={t('filterScheduleByType')}>
+            {scheduleEventTypes.map((type) => <option key={type} value={type}>{type === 'All' ? t('all') : tStatus(t, type)}</option>)}
           </SelectField>
         </div>
 
         <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
           {scheduleEventTypes.map((type) => (
-            <button
-              key={type}
-              onClick={() => setSelectedFilter(type)}
-              className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${selectedFilter === type ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-            >
+            <button key={type} onClick={() => setSelectedFilter(type)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${selectedFilter === type ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               {type === 'All' ? t('all') : tStatus(t, type)}
             </button>
           ))}
@@ -155,9 +128,7 @@ export function CalendarPage({ leads, onViewProject, t }) {
               <article key={event.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex gap-4">
-                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                      <Icon className="h-6 w-6" />
-                    </div>
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600"><Icon className="h-6 w-6" /></div>
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-bold text-slate-950">{t(event.title)}</h3>
@@ -172,13 +143,10 @@ export function CalendarPage({ leads, onViewProject, t }) {
                       </div>
                     </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:w-72">
-                    <button onClick={() => onViewProject(event.leadId)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
-                      {t('viewProject')}
-                    </button>
-                    <button onClick={() => markComplete(event.id)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
-                      {t('markComplete')}
-                    </button>
+                  <div className="grid gap-2 sm:grid-cols-3 lg:w-[28rem]">
+                    <button onClick={() => onViewProject(event.leadId)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
+                    <button onClick={() => markComplete(event.id)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('markComplete')}</button>
+                    <button onClick={() => onExportEvent(event)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100"><Download className="mr-1 inline h-4 w-4" />{t('exportToCalendar')}</button>
                   </div>
                 </div>
               </article>
@@ -220,6 +188,8 @@ export function CalendarPage({ leads, onViewProject, t }) {
           ))}
         </div>
       </section>
+
+      <ScheduleEventModal isOpen={isScheduleOpen} leads={leads} onClose={() => setIsScheduleOpen(false)} onSave={onCreateEvent} t={t} />
     </div>
   )
 }
