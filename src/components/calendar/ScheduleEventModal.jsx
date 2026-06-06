@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, X } from 'lucide-react'
 import { SelectField } from '../ui/SelectField'
+import { ModalShell } from '../common/ModalShell'
 import { tStatus } from '../../translations'
 
 const eventTypes = [
@@ -84,8 +85,8 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onC
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 px-3 py-4 sm:items-center">
-      <form onSubmit={submitForm} className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-6">
+    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-3xl">
+      <form onSubmit={submitForm}>
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-blue-600">{t('schedule')}</p>
@@ -167,6 +168,6 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onC
           <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('saveEvent')}</button>
         </div>
       </form>
-    </div>
+    </ModalShell>
   )
 }

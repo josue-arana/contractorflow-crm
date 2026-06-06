@@ -6,6 +6,7 @@ import { DetailRow } from '../components/ui/DetailRow'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 
 export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
@@ -15,6 +16,7 @@ export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onCon
   const [paymentTerms, setPaymentTerms] = useState(t('defaultPaymentTerms'))
   const [showLineItems, setShowLineItems] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [showSendModal, setShowSendModal] = useState(false)
   const [lineItems, setLineItems] = useState([
     { name: t('laborAndProjectSetup'), amount: Math.round(lead.value * 0.35) },
     { name: t('materialsAndFinishWork'), amount: Math.round(lead.value * 0.65) },
@@ -93,6 +95,7 @@ export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onCon
           </InfoCard>
           <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
           <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewEstimate')}</button>
+          <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
           <button onClick={onConvert} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
           {isArchived ? (
             <>
@@ -105,6 +108,7 @@ export function EstimateBuilderPage({ lead, t, isArchived = false, onBack, onCon
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(total)} onClose={() => setShowSendModal(false)} t={t} />
     </div>
   )
 }

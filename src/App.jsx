@@ -2,10 +2,13 @@ import { useMemo, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
+import { ScrollToTop } from './components/layout/ScrollToTop'
 import { Topbar } from './components/layout/Topbar'
 import { initialLeads, pipelineStatuses } from './data/mockLeads'
 import { mockScheduleEvents } from './data/mockScheduleEvents'
+import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
+import { LeadFormModal } from './components/leads/LeadFormModal'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
@@ -38,6 +41,7 @@ const emptyArchiveState = {
 function App() {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <ContractorFlowApp />
     </BrowserRouter>
   )
@@ -47,8 +51,11 @@ function ContractorFlowApp() {
   const [leads, setLeads] = useState(initialLeads)
   const [customClients, setCustomClients] = useState([])
   const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
+  const [invoices, setInvoices] = useState(mockInvoices)
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false)
   const [scheduleInitialLeadId, setScheduleInitialLeadId] = useState('')
+  const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
+  const [dashboardSuccessMessage, setDashboardSuccessMessage] = useState('')
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
@@ -125,6 +132,14 @@ function ContractorFlowApp() {
       },
       ...current,
     ])
+    return id
+  }
+
+  function createLeadFromDashboard(lead) {
+    createLead(lead)
+    setIsDashboardLeadModalOpen(false)
+    setDashboardSuccessMessage(t('leadCreated'))
+    window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
   }
 
   function updateLead(leadId, updates) {
@@ -165,6 +180,66 @@ function ContractorFlowApp() {
 
   function moveLead(leadId, targetStatus) {
     setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, status: targetStatus } : lead)))
+  }
+
+
+  function getInvoiceStatus(invoice) {
+    if (invoice.status === 'Archived' || invoice.status === 'Canceled') return invoice.status
+    const amount = Number(invoice.amount || 0)
+    const paid = Number(invoice.amountPaid || 0)
+    if (amount > 0 && paid >= amount) return 'Paid'
+    if (paid > 0) return 'Partially Paid'
+    return invoice.status || 'Draft'
+  }
+
+  function updateInvoice(invoiceId, updates) {
+    setInvoices((current) => current.map((invoice) => {
+      if (invoice.id !== invoiceId) return invoice
+      const nextLineItems = updates.lineItems || invoice.lineItems || []
+      const nextAmount = updates.amount !== undefined ? Number(updates.amount || 0) : nextLineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0) || invoice.amount
+      const next = {
+        ...invoice,
+        ...updates,
+        amount: nextAmount,
+        amountPaid: Number(updates.amountPaid ?? invoice.amountPaid ?? 0),
+        paymentHistory: updates.paymentHistory || invoice.paymentHistory || [],
+      }
+      return { ...next, status: getInvoiceStatus(next) }
+    }))
+  }
+
+  function recordInvoicePayment(invoiceId, payment) {
+    setInvoices((current) => current.map((invoice) => {
+      if (invoice.id !== invoiceId) return invoice
+      const amount = Number(payment.amount || 0)
+      const amountPaid = Math.min(Number(invoice.amount || 0), Number(invoice.amountPaid || 0) + amount)
+      const next = {
+        ...invoice,
+        amountPaid,
+        paymentHistory: [
+          { id: `payment-${Date.now()}`, ...payment, amount },
+          ...(invoice.paymentHistory || []),
+        ],
+      }
+      return { ...next, status: getInvoiceStatus(next) }
+    }))
+  }
+
+  function markInvoicePaid(invoiceId) {
+    setInvoices((current) => current.map((invoice) => {
+      if (invoice.id !== invoiceId) return invoice
+      const amount = Number(invoice.amount || 0)
+      const alreadyPaid = Number(invoice.amountPaid || 0)
+      const remaining = Math.max(amount - alreadyPaid, 0)
+      const paymentHistory = remaining > 0
+        ? [{ id: `payment-${Date.now()}`, amount: remaining, date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }, ...(invoice.paymentHistory || [])]
+        : invoice.paymentHistory || []
+      return { ...invoice, amountPaid: amount, status: 'Paid', paymentHistory }
+    }))
+  }
+
+  function markInvoiceSent(invoiceId) {
+    setInvoices((current) => current.map((invoice) => invoice.id === invoiceId && invoice.status === 'Draft' ? { ...invoice, status: 'Sent' } : invoice))
   }
 
   function createScheduleEvent(event) {
@@ -238,6 +313,8 @@ function ContractorFlowApp() {
       setSelectedMobileStage={setSelectedMobileStage}
       moveLead={moveLead}
       onLeadClick={openProject}
+      onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
+      successMessage={dashboardSuccessMessage}
       t={t}
     />
   )
@@ -265,8 +342,8 @@ function ContractorFlowApp() {
             <Route path="/calendar" element={<CalendarPage leads={activeLeads} scheduleEvents={scheduleEvents} onCreateEvent={createScheduleEvent} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
             <Route path="/clients" element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
-            <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
-            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={visibleLeads} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
+            <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
+            <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
             <Route path="/settings" element={<ComingSoonPage title={t('settingsComingTitle')} description={t('settingsComingDescription')} icon={Settings} t={t} />} />
             <Route path="/projects/:id" element={<ProjectRoute leads={visibleLeads} clients={clients} scheduleEvents={scheduleEvents} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
             <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
@@ -277,6 +354,7 @@ function ContractorFlowApp() {
           </Routes>
         </main>
       </div>
+      <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
       <ScheduleEventModal isOpen={isScheduleModalOpen} leads={activeLeads} initialLeadId={scheduleInitialLeadId} onClose={() => setIsScheduleModalOpen(false)} onSave={createScheduleEvent} t={t} />
     </div>
   )

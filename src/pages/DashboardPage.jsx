@@ -12,6 +12,8 @@ export function DashboardPage({
   setSelectedMobileStage,
   moveLead,
   onLeadClick,
+  onCreateLeadClick,
+  successMessage,
   t,
 }) {
   return (
@@ -24,10 +26,16 @@ export function DashboardPage({
             {t('dashboardHeroText')}
           </p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
+        <button onClick={onCreateLeadClick} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-blue-50">
           <Zap className="h-4 w-4" /> {t('addLead')}
         </button>
       </section>
+
+      {successMessage && (
+        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+          {successMessage}
+        </div>
+      )}
 
       <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (

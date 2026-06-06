@@ -14,6 +14,9 @@ export const mockInvoices = [
     lineItems: [
       { description: 'Kitchen remodel deposit', amount: 9250 },
     ],
+    paymentHistory: [
+      { id: 'pay-1042-deposit', amount: 9250, date: 'June 3, 2026', method: 'Check', type: 'Deposit', notes: 'Deposit received before demolition started.' },
+    ],
   },
   {
     id: 'invoice-1042-final',
@@ -31,6 +34,7 @@ export const mockInvoices = [
       { description: 'Cabinet installation balance', amount: 5200 },
       { description: 'Backsplash, paint, and finish work', amount: 4050 },
     ],
+    paymentHistory: [],
   },
   {
     id: 'invoice-1048-progress',
@@ -48,6 +52,7 @@ export const mockInvoices = [
       { description: 'Deck board replacement', amount: 3900 },
       { description: 'Railing and stair repair labor', amount: 2300 },
     ],
+    paymentHistory: [],
   },
   {
     id: 'invoice-1051-deposit',
@@ -63,6 +68,9 @@ export const mockInvoices = [
     notes: 'Deposit received. Dumpster and material delivery scheduled.',
     lineItems: [
       { description: 'Roof replacement deposit', amount: 11000 },
+    ],
+    paymentHistory: [
+      { id: 'pay-1051-deposit', amount: 11000, date: 'June 16, 2026', method: 'Bank Transfer', type: 'Deposit', notes: 'Deposit received before material order.' },
     ],
   },
   {
@@ -80,6 +88,7 @@ export const mockInvoices = [
     lineItems: [
       { description: 'Final painting balance', amount: 1800 },
     ],
+    paymentHistory: [],
   },
   {
     id: 'invoice-1060-progress',
@@ -97,6 +106,9 @@ export const mockInvoices = [
       { description: 'Bathroom demo and rough-in labor', amount: 3600 },
       { description: 'Tile prep and installation progress', amount: 4300 },
     ],
+    paymentHistory: [
+      { id: 'pay-1060-progress', amount: 2500, date: 'June 24, 2026', method: 'Zelle', type: 'Progress Payment', notes: 'Partial progress payment received.' },
+    ],
   },
   {
     id: 'invoice-1028-canceled',
@@ -113,6 +125,7 @@ export const mockInvoices = [
     lineItems: [
       { description: 'Exterior paint prep deposit', amount: 1200 },
     ],
+    paymentHistory: [],
   },
 ]
 

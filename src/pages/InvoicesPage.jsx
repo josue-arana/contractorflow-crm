@@ -3,10 +3,10 @@ import { Archive, CheckCircle2, Clock, DollarSign, FileText, Send, Trash2, Undo2
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import { mockInvoices } from '../data/mockInvoices'
 import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 
 const invoiceFilters = ['All', 'Archived', 'Draft', 'Sent', 'Paid', 'Overdue', 'Canceled']
 
@@ -14,11 +14,12 @@ function remainingBalance(invoice) {
   return Math.max((invoice.amount || 0) - (invoice.amountPaid || 0), 0)
 }
 
-export function InvoicesPage({ leads, archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
+export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, onInvoiceSent, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
+  const [sendInvoice, setSendInvoice] = useState(null)
 
-  const invoices = useMemo(() => mockInvoices.filter((invoice) => !deletedIds.includes(invoice.id)).map((invoice) => {
+  const invoices = useMemo(() => invoiceRecords.filter((invoice) => !deletedIds.includes(invoice.id)).map((invoice) => {
     const lead = leads.find((item) => item.id === invoice.leadId)
     return {
       ...invoice,
@@ -26,7 +27,7 @@ export function InvoicesPage({ leads, archivedIds = [], deletedIds = [], onViewI
       projectTitle: invoice.projectTitle || lead?.projectTitle || lead?.projectType || t('project'),
       remainingBalance: remainingBalance(invoice),
     }
-  }), [leads, t, deletedIds])
+  }), [invoiceRecords, leads, t, deletedIds])
 
   const activeInvoices = invoices.filter((invoice) => !archivedIds.includes(invoice.id))
   const filteredInvoices = selectedFilter === 'All'
@@ -73,7 +74,7 @@ export function InvoicesPage({ leads, archivedIds = [], deletedIds = [], onViewI
       <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-3' : 'justify-end'}`}>
         <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
         <button onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
-        <button onClick={(event) => event.stopPropagation()} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
+        <button onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
         <button onClick={(event) => { event.stopPropagation(); confirmArchive(invoice) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
@@ -166,6 +167,18 @@ export function InvoicesPage({ leads, archivedIds = [], deletedIds = [], onViewI
         </div>
       </section>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
+      <SendToCustomerModal
+        isOpen={Boolean(sendInvoice)}
+        documentType="invoice"
+        customer={{ name: sendInvoice?.client, phone: leads.find((lead) => lead.id === sendInvoice?.leadId)?.phone, email: leads.find((lead) => lead.id === sendInvoice?.leadId)?.email }}
+        projectTitle={sendInvoice?.projectTitle || ''}
+        amountLabel={t('amountDue')}
+        amountValue={currency.format(sendInvoice?.remainingBalance ?? 0)}
+        dueDate={sendInvoice?.dueDate || ''}
+        onClose={() => setSendInvoice(null)}
+        onSent={() => onInvoiceSent?.(sendInvoice?.id)}
+        t={t}
+      />
     </div>
   )
 }

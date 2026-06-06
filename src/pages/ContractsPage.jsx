@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
+import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 
 export function ContractPreviewPage({ lead, t, onBack }) {
   const portal = getPortalData(lead)
+  const [showSendModal, setShowSendModal] = useState(false)
   const scope = t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)}.`
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -15,11 +18,12 @@ export function ContractPreviewPage({ lead, t, onBack }) {
         <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <div className="mb-6 grid gap-3 sm:grid-cols-4">
+        <div className="mb-6 grid gap-3 sm:grid-cols-5">
           <button className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
           <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
           <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
           <button className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
+          <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
         </div>
         <div className="space-y-5 text-sm leading-6 text-slate-700">
           <ContractSection title={t('projectScope')}>{scope}</ContractSection>
@@ -35,6 +39,7 @@ export function ContractPreviewPage({ lead, t, onBack }) {
           </div>
         </div>
       </section>
+      <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(lead.value)} onClose={() => setShowSendModal(false)} t={t} />
     </div>
   )
 }
