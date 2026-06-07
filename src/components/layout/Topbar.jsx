@@ -53,39 +53,41 @@ export function Topbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
-      <div className="flex items-center justify-between gap-4">
-        <button className="rounded-2xl border border-slate-200 p-2 lg:hidden" onClick={onMenuClick} aria-label={t('menu')}>
-          <Menu className="h-5 w-5" />
-        </button>
+    <>
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+        <div className="relative z-10 flex items-center justify-between gap-4">
+          <button className="rounded-2xl border border-slate-200 p-2 lg:hidden" onClick={onMenuClick} aria-label={t('menu')}>
+            <Menu className="h-5 w-5" />
+          </button>
 
-        <div className="hidden flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 md:flex">
-          <Search className="h-4 w-4 text-slate-400" />
-          <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder={t('searchPlaceholder')} />
-        </div>
+          <div className="hidden flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 md:flex">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder={t('searchPlaceholder')} />
+          </div>
 
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
-          <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50" aria-label={t('language')}>
-            {language === 'en' ? '🇪🇸 Español' : '🇺🇸 English'}
-          </button>
-          <button onClick={openNotifications} className="relative rounded-2xl border border-slate-200 p-3 hover:bg-slate-50" aria-label={t('notificationCenter')}>
-            <Bell className="h-5 w-5 text-slate-600" />
-            {unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-          <button onClick={() => { setIsAccountOpen((value) => !value); setIsNotificationsOpen(false); setAccountScreen(null) }} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 hover:bg-slate-50" aria-label={t('accountMenu')}>
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">{t('userInitials')}</div>
-            <div className="hidden text-left sm:block">
-              <p className="text-sm font-semibold">{userProfile?.name || t('userName')}</p>
-              <p className="text-xs text-slate-500">{t('ownerAdmin')}</p>
-            </div>
-            <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
-          </button>
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50" aria-label={t('language')}>
+              {language === 'en' ? '🇪🇸 Español' : '🇺🇸 English'}
+            </button>
+            <button onClick={openNotifications} className="relative rounded-2xl border border-slate-200 p-3 hover:bg-slate-50" aria-label={t('notificationCenter')}>
+              <Bell className="h-5 w-5 text-slate-600" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+            <button onClick={() => { setIsAccountOpen((value) => !value); setIsNotificationsOpen(false); setAccountScreen(null) }} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 hover:bg-slate-50" aria-label={t('accountMenu')}>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">{t('userInitials')}</div>
+              <div className="hidden text-left sm:block">
+                <p className="text-sm font-semibold">{userProfile?.name || t('userName')}</p>
+                <p className="text-xs text-slate-500">{t('ownerAdmin')}</p>
+              </div>
+              <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
       <NotificationCenter
         isOpen={isNotificationsOpen}
@@ -180,6 +182,6 @@ export function Topbar({
           <button onClick={closeAccountScreen} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700">{t('signOut')}</button>
         </div>
       </ModalShell>
-    </header>
+    </>
   )
 }
