@@ -25,26 +25,42 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
-export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onClose, onSave, t }) {
+export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', context = 'event', editingEvent = null, onClose, onSave, t }) {
   const dateRef = useRef(null)
   const defaultLead = useMemo(() => leads.find((lead) => lead.id === initialLeadId) || leads[0], [initialLeadId, leads])
-  const buildDefaultForm = () => ({
-    title: defaultLead ? `${defaultLead.projectTitle || defaultLead.projectType} ${t('siteVisit').toLowerCase()}` : '',
-    type: 'Site Visit',
-    leadId: defaultLead?.id || '',
-    date: todayIso(),
-    startTime: '09:00',
-    endTime: '10:00',
-    location: defaultLead?.address || defaultLead?.location || '',
-    notes: '',
-    reminder: 'none',
-  })
+  const buildDefaultForm = () => {
+    if (editingEvent) {
+      return {
+        title: editingEvent.title || '',
+        type: editingEvent.type || 'Site Visit',
+        leadId: editingEvent.leadId || defaultLead?.id || '',
+        date: editingEvent.date || todayIso(),
+        startTime: editingEvent.startTime || '09:00',
+        endTime: editingEvent.endTime || '10:00',
+        location: editingEvent.location || defaultLead?.address || defaultLead?.location || '',
+        notes: editingEvent.notes || '',
+        reminder: editingEvent.reminder || 'none',
+      }
+    }
+
+    return {
+      title: defaultLead ? `${defaultLead.projectTitle || defaultLead.projectType} ${t('siteVisit').toLowerCase()}` : '',
+      type: 'Site Visit',
+      leadId: defaultLead?.id || '',
+      date: todayIso(),
+      startTime: '09:00',
+      endTime: '10:00',
+      location: defaultLead?.address || defaultLead?.location || '',
+      notes: '',
+      reminder: 'none',
+    }
+  }
 
   const [form, setForm] = useState(buildDefaultForm)
 
   useEffect(() => {
     if (isOpen) setForm(buildDefaultForm())
-  }, [isOpen, initialLeadId, leads.length])
+  }, [editingEvent, initialLeadId, isOpen, leads.length])
 
   if (!isOpen) return null
 
@@ -73,11 +89,14 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onC
     event.preventDefault()
     const lead = leads.find((item) => item.id === form.leadId)
     onSave({
+      ...(editingEvent ? { id: editingEvent.id } : {}),
       ...form,
       title: form.title.trim() || tStatus(t, form.type),
       leadId: lead?.id || form.leadId,
       clientName: lead?.client || t('unknownClient'),
       projectTitle: lead?.projectTitle || lead?.projectType || t('unknownProject'),
+      time: '',
+      displayDate: '',
       location: form.location || lead?.address || lead?.location || '',
       status: 'Scheduled',
     })
@@ -90,8 +109,8 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onC
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-blue-600">{t('schedule')}</p>
-            <h2 className="mt-1 text-2xl font-bold text-slate-950">{t('scheduleEvent')}</h2>
-            <p className="mt-1 text-sm text-slate-500">{t('scheduleEventHelp')}</p>
+            <h2 className="mt-1 text-2xl font-bold text-slate-950">{t(context === 'job' ? 'scheduleJob' : 'scheduleEvent')}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t(context === 'job' ? 'scheduleJobHelp' : 'scheduleEventHelp')}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
             <X className="h-5 w-5" />
@@ -165,7 +184,7 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', onC
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('saveEvent')}</button>
+          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{editingEvent ? t('saveChanges') : t(context === 'job' ? 'saveJob' : 'saveEvent')}</button>
         </div>
       </form>
     </ModalShell>

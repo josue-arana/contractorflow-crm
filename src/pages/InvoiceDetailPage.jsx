@@ -7,9 +7,7 @@ import { currency } from '../utils/formatters'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
-
-const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
-const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
+import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 
 function getRemainingBalance(invoice) {
   return Math.max(Number(invoice.amount || 0) - Number(invoice.amountPaid || 0), 0)
@@ -254,24 +252,6 @@ function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose
         <div className="mt-6 ml-auto max-w-sm space-y-2 text-sm"><SummaryRow label={t('subtotal')} value={currency.format(subtotal)} /><SummaryRow label={t('paymentsReceived')} value={currency.format(invoice.amountPaid)} /><SummaryRow label={t('remainingBalance')} value={currency.format(balance)} strong /></div>
         <div className="mt-6 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('paymentTerms')}</p><p className="mt-2 text-sm text-slate-700">{invoice.paymentTerms}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('notes')}</p><p className="mt-2 text-sm text-slate-700">{invoice.notes}</p></div></div>
       </div>
-    </ModalShell>
-  )
-}
-
-function RecordPaymentModal({ isOpen, remainingBalance, onClose, onSave, t }) {
-  const [payment, setPayment] = useState({ amount: remainingBalance || 0, date: new Date().toISOString().slice(0, 10), method: 'Cash', type: 'Progress Payment', notes: '' })
-  if (!isOpen) return null
-  return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-lg">
-      <h2 className="text-xl font-bold text-slate-950">{t('recordPayment')}</h2>
-      <div className="mt-5 grid gap-4 sm:grid-cols-2">
-        <label className="text-sm font-bold text-slate-700">{t('amount')}<input type="number" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500" /></label>
-        <label className="text-sm font-bold text-slate-700">{t('paymentDate')}<input type="date" value={payment.date} onChange={(event) => setPayment({ ...payment, date: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500" /></label>
-        <label className="text-sm font-bold text-slate-700">{t('paymentMethod')}<select value={payment.method} onChange={(event) => setPayment({ ...payment, method: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500">{paymentMethods.map((method) => <option key={method} value={method}>{t(method)}</option>)}</select></label>
-        <label className="text-sm font-bold text-slate-700">{t('paymentType')}<select value={payment.type} onChange={(event) => setPayment({ ...payment, type: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500">{paymentTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}</select></label>
-      </div>
-      <label className="mt-4 block text-sm font-bold text-slate-700">{t('notes')}<textarea value={payment.notes} onChange={(event) => setPayment({ ...payment, notes: event.target.value })} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500" /></label>
-      <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button><button onClick={() => onSave(payment)} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('savePayment')}</button></div>
     </ModalShell>
   )
 }

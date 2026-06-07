@@ -1,38 +1,56 @@
+import { useEffect, useMemo, useState } from 'react'
 import { ModalShell } from './ModalShell'
-export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', onClose, onSent, t }) {
-  if (!isOpen) return null
+
+export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', onClose, onSent, t }) {
+  const [channel, setChannel] = useState('text')
+
+  useEffect(() => {
+    if (isOpen) setChannel('text')
+  }, [isOpen])
 
   const firstName = (customer.name || '').split(' ')[0] || t('customer')
   const phone = customer.phone || ''
   const email = customer.email || ''
   const typeLabel = t(documentType)
-  const subject = documentType === 'estimate'
-    ? t('sendEstimateSubject', { project: projectTitle })
-    : documentType === 'contract'
-      ? t('sendContractSubject', { project: projectTitle })
-      : t('sendInvoiceSubject', { project: projectTitle })
+  const messageContent = useMemo(() => {
+    const subject = documentType === 'estimate'
+      ? t('sendEstimateSubject', { project: projectTitle })
+      : documentType === 'contract'
+        ? t('sendContractSubject', { project: projectTitle })
+        : documentType === 'portalLink'
+          ? t('sendPortalSubject', { project: projectTitle })
+          : t('sendInvoiceSubject', { project: projectTitle })
 
-  const smsBody = documentType === 'estimate'
-    ? t('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
-    : documentType === 'contract'
-      ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
-      : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue })
+    const smsBody = documentType === 'estimate'
+      ? t('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
+      : documentType === 'contract'
+        ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
+        : documentType === 'portalLink'
+          ? t('portalSmsMessage', { name: firstName, project: projectTitle, link: portalUrl })
+          : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue })
 
-  const emailBody = documentType === 'estimate'
-    ? t('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue })
-    : documentType === 'contract'
-      ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue })
-      : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate })
+    const emailBody = documentType === 'estimate'
+      ? t('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue })
+      : documentType === 'contract'
+        ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue })
+        : documentType === 'portalLink'
+          ? t('portalEmailBody', { name: firstName, project: projectTitle, link: portalUrl })
+          : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate })
+
+    return { subject, smsBody, emailBody }
+  }, [amountValue, documentType, dueDate, firstName, portalUrl, projectTitle, t])
+
+  if (!isOpen) return null
 
   function sendText() {
     const separator = /Android/i.test(navigator.userAgent) ? '?' : '&'
-    onSent?.()
-    window.location.href = `sms:${encodeURIComponent(phone)}${separator}body=${encodeURIComponent(smsBody)}`
+    onSent?.('text')
+    window.location.href = `sms:${encodeURIComponent(phone)}${separator}body=${encodeURIComponent(messageContent.smsBody)}`
   }
 
   function sendEmail() {
-    onSent?.()
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`
+    onSent?.('email')
+    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(messageContent.subject)}&body=${encodeURIComponent(messageContent.emailBody)}`
   }
 
   return (
@@ -46,15 +64,56 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
         <div className="rounded-2xl border border-slate-200 p-4 text-sm">
           <p className="font-bold text-slate-950">{customer.name || t('customer')}</p>
           <p className="mt-1 text-slate-500">{projectTitle}</p>
-          <p className="mt-2 text-slate-700">{amountLabel}: <span className="font-bold">{amountValue}</span></p>
+          {amountLabel && amountValue && <p className="mt-2 text-slate-700">{amountLabel}: <span className="font-bold">{amountValue}</span></p>}
+          {portalUrl && <p className="mt-2 break-all text-slate-700">{t('shareUrl')}: <span className="font-bold">{portalUrl}</span></p>}
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <button disabled={!phone} onClick={sendText} className="rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300">
+          <button
+            type="button"
+            onClick={() => setChannel('text')}
+            className={`rounded-2xl px-4 py-3 text-sm font-bold ${channel === 'text' ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+          >
             {t('textMessage')}
           </button>
-          <button disabled={!email} onClick={sendEmail} className="rounded-2xl border border-slate-200 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300">
+          <button
+            type="button"
+            onClick={() => setChannel('email')}
+            className={`rounded-2xl px-4 py-3 text-sm font-bold ${channel === 'email' ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+          >
             {t('email')}
+          </button>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          {channel === 'email' && (
+            <>
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('subject')}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{messageContent.subject}</p>
+            </>
+          )}
+          <p className={`text-xs font-bold uppercase tracking-wide text-slate-400 ${channel === 'email' ? 'mt-4' : ''}`}>{t('messagePreview')}</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+            {channel === 'email' ? messageContent.emailBody : messageContent.smsBody}
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={!phone || channel !== 'text'}
+            onClick={sendText}
+            className="rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {phone ? t('sendTextNow') : t('noPhoneOnFile')}
+          </button>
+          <button
+            type="button"
+            disabled={!email || channel !== 'email'}
+            onClick={sendEmail}
+            className="rounded-2xl border border-slate-200 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          >
+            {email ? t('sendEmailNow') : t('noEmailOnFile')}
           </button>
         </div>
 

@@ -44,10 +44,14 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key, po
         <InfoCard title={t('uploadedPhotos')}>
           <div className="grid gap-3 sm:grid-cols-3">
             {portal.photos.map((photo) => (
-              <div key={photo.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="mb-3 flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-200 to-slate-100 text-slate-500">
-                  <Camera className="h-8 w-8" />
-                </div>
+              <div key={photo.id || photo.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                {photo.url ? (
+                  <img src={photo.url} alt={t(photo.label)} className="mb-3 h-28 w-full rounded-2xl object-cover" />
+                ) : (
+                  <div className="mb-3 flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-200 to-slate-100 text-slate-500">
+                    <Camera className="h-8 w-8" />
+                  </div>
+                )}
                 <h3 className="font-bold text-slate-900">{t(photo.label)}</h3>
                 <p className="mt-1 text-sm text-slate-500">{t(photo.description)}</p>
               </div>

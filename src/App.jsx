@@ -62,9 +62,19 @@ const emptyArchiveState = {
   leadIds: [],
   clientIds: [],
   invoiceIds: [],
+  scheduleEventIds: [],
   deletedLeadIds: [],
   deletedClientIds: [],
   deletedInvoiceIds: [],
+  deletedScheduleEventIds: [],
+}
+
+function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
+  if (amountPaid >= contractAmount && contractAmount > 0) return 'Paid in Full'
+  if (amountPaid <= 0) return 'Not Paid'
+  if (amountPaid < depositRequired) return 'Partially Paid'
+  if (amountPaid === depositRequired) return 'Deposit Paid'
+  return 'Progress Payment Paid'
 }
 
 function App() {
@@ -83,8 +93,7 @@ function ContractorFlowApp() {
   const [customClients, setCustomClients] = useState([])
   const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
   const [invoices, setInvoices] = useState(mockInvoices)
-  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false)
-  const [scheduleInitialLeadId, setScheduleInitialLeadId] = useState('')
+  const [scheduleModalState, setScheduleModalState] = useState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -101,6 +110,8 @@ function ContractorFlowApp() {
   const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
+  const visibleScheduleEvents = useMemo(() => scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id)), [scheduleEvents, archives.deletedScheduleEventIds])
+  const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id)), [visibleScheduleEvents, archives.scheduleEventIds])
 
   const metrics = useMemo(() => {
     const newLeads = activeLeads.filter((lead) => lead.status === 'New Lead').length
@@ -148,6 +159,7 @@ function ContractorFlowApp() {
     estimate: archiveLeadRecord,
     client: (id) => { updateArchiveList('clientIds', id, 'add'); showToast(t('itemArchived')) },
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'add'); showToast(t('itemArchived')) },
+    scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'add'); showToast(t('itemArchived')) },
   }
 
   const restoreRecord = {
@@ -157,6 +169,7 @@ function ContractorFlowApp() {
     estimate: restoreLeadRecord,
     client: (id) => { updateArchiveList('clientIds', id, 'remove'); showToast(t('itemRestored')) },
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'remove'); showToast(t('itemRestored')) },
+    scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'remove'); showToast(t('itemRestored')) },
   }
 
   const deleteRecord = {
@@ -166,6 +179,7 @@ function ContractorFlowApp() {
     estimate: deleteLeadRecord,
     client: (id) => { updateArchiveList('deletedClientIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
     invoice: (id) => { updateArchiveList('deletedInvoiceIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
+    scheduleEvent: (id) => { updateArchiveList('deletedScheduleEventIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
   }
 
   function createLead(lead) {
@@ -229,6 +243,46 @@ function ContractorFlowApp() {
 
   function moveLead(leadId, targetStatus) {
     setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, status: targetStatus } : lead)))
+  }
+
+  function recordProjectPayment(leadId, payment) {
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      const portal = lead.portal || {}
+      const contractAmount = Number(portal.contractAmount ?? lead.value ?? 0)
+      const depositRequired = Number(portal.depositRequired ?? Math.round(contractAmount * 0.5))
+      const amountPaid = Math.min(contractAmount, Number(portal.amountPaid || 0) + Number(payment.amount || 0))
+      const outstandingBalance = Math.max(contractAmount - amountPaid, 0)
+      const paymentEntry = { id: `payment-${Date.now()}`, ...payment, amount: Number(payment.amount || 0) }
+
+      return {
+        ...lead,
+        portal: {
+          ...portal,
+          contractAmount,
+          depositRequired,
+          amountPaid,
+          outstandingBalance,
+          paymentStatus: getProjectPaymentStatus(amountPaid, contractAmount, depositRequired),
+          paymentHistory: [paymentEntry, ...(portal.paymentHistory || [])],
+        },
+      }
+    }))
+    showToast(t('paymentRecorded'))
+  }
+
+  function uploadProjectPhotos(leadId, photos) {
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      return {
+        ...lead,
+        portal: {
+          ...lead.portal,
+          photos: [...photos, ...(lead.portal?.photos || [])],
+        },
+      }
+    }))
+    showToast(t('photosUploaded'))
   }
 
 
@@ -300,9 +354,17 @@ function ContractorFlowApp() {
     showToast(t(source === 'job' ? 'jobScheduled' : 'eventCreated'))
   }
 
-  function openScheduleModal(leadId = '') {
-    setScheduleInitialLeadId(leadId || '')
-    setIsScheduleModalOpen(true)
+  function updateScheduleEvent(eventId, updates) {
+    setScheduleEvents((current) => current.map((event) => (event.id === eventId ? { ...event, ...updates } : event)))
+    showToast(t('eventUpdated'))
+  }
+
+  function openScheduleModal({ leadId = '', context = 'event', event = null } = {}) {
+    setScheduleModalState({ isOpen: true, leadId: leadId || event?.leadId || '', context, editingEvent: event })
+  }
+
+  function closeScheduleModal() {
+    setScheduleModalState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   }
 
   function exportScheduleEvent(event) {
@@ -391,13 +453,13 @@ function ContractorFlowApp() {
             <Route path="/estimates" element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
             <Route path="/contracts" element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
             <Route path="/jobs" element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onScheduleJob={() => openScheduleModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
-            <Route path="/calendar" element={<CalendarPage leads={activeLeads} scheduleEvents={scheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
+            <Route path="/calendar" element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
             <Route path="/clients" element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/clients/:clientId" element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
             <Route path="/invoices" element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
             <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
             <Route path="/settings" element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
-            <Route path="/projects/:id" element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={scheduleEvents} archivedIds={archives.leadIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
+            <Route path="/projects/:id" element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
             <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
             <Route path="/projects/:id/contract" element={<ContractRoute companySettings={companySettings} leads={visibleLeads} t={t} />} />
             <Route path="/portal/:id" element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
@@ -407,12 +469,25 @@ function ContractorFlowApp() {
         </main>
       </div>
       <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
-      <ScheduleEventModal isOpen={isScheduleModalOpen} leads={activeLeads} initialLeadId={scheduleInitialLeadId} onClose={() => setIsScheduleModalOpen(false)} onSave={(event) => { createScheduleEvent(event, 'job'); setIsScheduleModalOpen(false) }} t={t} />
+      <ScheduleEventModal
+        isOpen={scheduleModalState.isOpen}
+        leads={activeLeads}
+        initialLeadId={scheduleModalState.leadId}
+        context={scheduleModalState.context}
+        editingEvent={scheduleModalState.editingEvent}
+        onClose={closeScheduleModal}
+        onSave={(event) => {
+          if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, event)
+          else createScheduleEvent(event, scheduleModalState.context)
+          closeScheduleModal()
+        }}
+        t={t}
+      />
     </div>
   )
 }
 
-function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], onBack, onOpenPortal, onUpdateLead, onScheduleEvent, onExportEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
@@ -430,9 +505,16 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onBack={onBack}
       onOpenPortal={() => onOpenPortal(lead.id)}
       onUpdateLead={onUpdateLead}
+      onRecordPayment={(payment) => onRecordPayment?.(lead.id, payment)}
+      onUploadPhotos={(photos) => onUploadPhotos?.(lead.id, photos)}
       scheduleEvents={scheduleEvents.filter((event) => event.leadId === lead.id)}
-      onScheduleEvent={() => onScheduleEvent?.(lead.id)}
+      archivedScheduleEventIds={archivedScheduleEventIds}
+      onScheduleEvent={() => onScheduleEvent?.({ leadId: lead.id, context: 'job' })}
+      onEditScheduleEvent={(event) => onScheduleEvent?.({ leadId: lead.id, context: 'job', event })}
       onExportEvent={onExportEvent}
+      onArchiveScheduleEvent={onArchiveScheduleEvent}
+      onRestoreScheduleEvent={onRestoreScheduleEvent}
+      onDeleteScheduleEvent={onDeleteScheduleEvent}
       onArchiveProject={() => onArchiveProject(lead.id)}
       onRestoreProject={() => onRestoreProject(lead.id)}
       onDeleteProject={() => onDeleteProject(lead.id)}
