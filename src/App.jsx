@@ -286,6 +286,112 @@ function ContractorFlowApp() {
   }
 
 
+
+  function saveEstimate(leadId, estimate) {
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      const portal = lead.portal || {}
+      const estimateNumber = portal.estimate?.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`
+      const nextEstimate = {
+        ...(portal.estimate || {}),
+        ...estimate,
+        number: estimate?.number || estimateNumber,
+        total: Number(estimate?.total ?? portal.estimate?.total ?? lead.value ?? 0),
+      }
+      const contractAmount = Number(nextEstimate.total || portal.contractAmount || lead.value || 0)
+      const amountPaid = Number(portal.amountPaid || 0)
+      const nextContract = estimate?.status === 'Converted to Contract'
+        ? {
+            ...(portal.contract || {}),
+            number: portal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+            status: portal.contract?.status || 'Draft',
+            total: contractAmount,
+            scope: portal.contract?.scope || nextEstimate.summary,
+            paymentTerms: portal.contract?.paymentTerms || nextEstimate.paymentTerms || companySettings.defaults.paymentTerms,
+            updatedAt: new Date().toISOString(),
+          }
+        : portal.contract
+
+      return {
+        ...lead,
+        value: Number(nextEstimate.total || lead.value || 0),
+        status: lead.status === 'New Lead' || lead.status === 'Contacted' ? 'Estimate Sent' : lead.status,
+        portal: {
+          ...portal,
+          estimate: nextEstimate,
+          ...(nextContract ? { contract: nextContract } : {}),
+          contractAmount,
+          outstandingBalance: Math.max(contractAmount - amountPaid, 0),
+        },
+      }
+    }))
+    showToast(t('estimateSaved'))
+  }
+
+  function saveContract(leadId, contract) {
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      const portal = lead.portal || {}
+      const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
+      const amountPaid = Number(portal.amountPaid || 0)
+      return {
+        ...lead,
+        portal: {
+          ...portal,
+          contractAmount,
+          outstandingBalance: Math.max(contractAmount - amountPaid, 0),
+          contract: {
+            ...(portal.contract || {}),
+            ...contract,
+            number: contract?.number || portal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+            status: contract?.status || portal.contract?.status || 'Draft',
+            total: contractAmount,
+          },
+        },
+      }
+    }))
+    showToast(t('contractSaved'))
+  }
+
+  function markContractSigned(leadId, contract) {
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      const portal = lead.portal || {}
+      const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
+      const signedDate = contract?.signedDate || new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+      const timeline = (portal.timeline || []).map((item) => item.title === 'Contract Signed'
+        ? { ...item, date: signedDate, status: 'Complete', note: item.note || 'Agreement approved and signed by homeowner.' }
+        : item)
+      const documents = portal.documents || []
+      const hasSignedContract = documents.some((doc) => doc.name === 'Signed Contract')
+      const nextDocuments = hasSignedContract
+        ? documents.map((doc) => doc.name === 'Signed Contract' ? { ...doc, status: 'Available' } : doc)
+        : [{ name: 'Signed Contract', type: 'PDF', status: 'Available' }, ...documents]
+      return {
+        ...lead,
+        status: 'Won',
+        projectStatus: 'Signed',
+        portal: {
+          ...portal,
+          contractAmount,
+          outstandingBalance: Math.max(contractAmount - Number(portal.amountPaid || 0), 0),
+          timeline,
+          documents: nextDocuments,
+          contract: {
+            ...(portal.contract || {}),
+            ...contract,
+            number: contract?.number || portal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+            status: 'Signed',
+            signedDate,
+            total: contractAmount,
+          },
+        },
+      }
+    }))
+    showToast(t('contractSigned'))
+  }
+
+
   function getInvoiceStatus(invoice) {
     if (invoice.status === 'Archived' || invoice.status === 'Canceled') return invoice.status
     const amount = Number(invoice.amount || 0)
@@ -460,8 +566,8 @@ function ContractorFlowApp() {
             <Route path="/invoices/:invoiceId" element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
             <Route path="/settings" element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
             <Route path="/projects/:id" element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
-            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
-            <Route path="/projects/:id/contract" element={<ContractRoute companySettings={companySettings} leads={visibleLeads} t={t} />} />
+            <Route path="/projects/:id/estimate" element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
+            <Route path="/projects/:id/contract" element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
             <Route path="/portal/:id" element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
             <Route path="/dev/translations" element={<TranslationAuditPage t={t} />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

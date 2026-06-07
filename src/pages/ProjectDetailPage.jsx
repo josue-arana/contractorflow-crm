@@ -29,7 +29,7 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
 
   const actionButtons = [
     { label: portal.estimate?.number && portal.estimate.number !== 'Draft' ? t('openEstimate') : t('createEstimate'), icon: ClipboardList, action: () => navigate(`/projects/${lead.id}/estimate`), primary: true },
-    { label: portal.contract?.status === 'Signed' ? t('openContract') : t('convertToContract'), icon: FileText, action: () => navigate(`/projects/${lead.id}/contract`) },
+    { label: portal.contract?.number ? t('openContract') : t('convertToContract'), icon: FileText, action: () => navigate(`/projects/${lead.id}/contract`) },
     { label: t('recordPayment'), icon: DollarSign, action: () => setShowPaymentModal(true) },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },

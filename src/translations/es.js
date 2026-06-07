@@ -760,5 +760,10 @@ export const es = {
   "savePhotos": "Guardar fotos",
   "photosUploaded": "Fotos subidas",
   "projectPhoto": "Foto del proyecto",
-  "uploadedFromPhone": "Subido desde el dispositivo"
+  "uploadedFromPhone": "Subido desde el dispositivo",
+  "estimateSaved": "Estimado guardado",
+  "contractSaved": "Contrato guardado",
+  "contractSigned": "Contrato firmado",
+  "doneEditing": "Terminar edición",
+  "pdfPreview": "Vista previa PDF"
 }

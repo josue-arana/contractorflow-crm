@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { InfoCard } from '../components/ui/InfoCard'
@@ -7,22 +7,57 @@ import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import { ModalShell } from '../components/common/ModalShell'
 
-export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
-  const [scope, setScope] = useState(t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
-  const [total, setTotal] = useState(portal.estimate?.total || lead.value)
-  const [materialsIncluded, setMaterialsIncluded] = useState(companySettings?.defaults?.materialsIncluded ?? true)
-  const [paymentTerms, setPaymentTerms] = useState(companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
-  const [showLineItems, setShowLineItems] = useState(false)
+  const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+  const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
+  const [total, setTotal] = useState(Number(savedEstimate.total || lead.value || 0))
+  const [materialsIncluded, setMaterialsIncluded] = useState(savedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
+  const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
+  const [showLineItems, setShowLineItems] = useState(Boolean(savedEstimate.lineItems?.length))
   const [confirmAction, setConfirmAction] = useState(null)
   const [showSendModal, setShowSendModal] = useState(false)
-  const [lineItems, setLineItems] = useState([
-    { name: t('laborAndProjectSetup'), amount: Math.round(lead.value * 0.35) },
-    { name: t('materialsAndFinishWork'), amount: Math.round(lead.value * 0.65) },
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [isEditing, setIsEditing] = useState(true)
+  const [lineItems, setLineItems] = useState(savedEstimate.lineItems?.length ? savedEstimate.lineItems : [
+    { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
+    { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
   ])
 
+  useEffect(() => {
+    const nextSavedEstimate = lead.portal?.estimate || {}
+    if (nextSavedEstimate.summary) setScope(nextSavedEstimate.summary)
+    if (nextSavedEstimate.total) setTotal(Number(nextSavedEstimate.total))
+    if (nextSavedEstimate.materialsIncluded !== undefined) setMaterialsIncluded(nextSavedEstimate.materialsIncluded)
+    if (nextSavedEstimate.paymentTerms) setPaymentTerms(nextSavedEstimate.paymentTerms)
+    if (nextSavedEstimate.lineItems?.length) {
+      setLineItems(nextSavedEstimate.lineItems)
+      setShowLineItems(true)
+    }
+  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.id, lead.portal?.estimate?.updatedAt, t])
+
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  const estimateTotal = Number(showLineItems && lineTotal > 0 ? lineTotal : total || 0)
+
+  function getEstimatePayload() {
+    return {
+      number: savedEstimate.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+      total: estimateTotal,
+      summary: scope,
+      lineItems,
+      materialsIncluded,
+      paymentTerms,
+      updatedAt: new Date().toISOString(),
+      status: 'Draft',
+    }
+  }
+
+  function saveEstimate() {
+    onSaveEstimate?.(getEstimatePayload())
+    setIsEditing(false)
+  }
 
   function updateLineItem(index, field, value) {
     setLineItems((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item))
@@ -30,6 +65,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
   function addLineItem() {
     setLineItems((items) => [...items, { name: '', amount: 0 }])
+    setShowLineItems(true)
   }
 
   return (
@@ -45,36 +81,63 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <section className="space-y-5">
           <InfoCard title={t('scopeOfWork')}>
-            <textarea value={scope} onChange={(event) => setScope(event.target.value)} rows={8} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            {isEditing ? (
+              <textarea value={scope} onChange={(event) => setScope(event.target.value)} rows={8} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            ) : (
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+            )}
           </InfoCard>
 
           <InfoCard title={t('totalAmount')}>
-            <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            {isEditing ? (
+              <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            ) : (
+              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold text-slate-900">{currency.format(estimateTotal)}</div>
+            )}
           </InfoCard>
 
           <InfoCard title={t('materialsIncluded')}>
-            <button onClick={() => setMaterialsIncluded((current) => !current)} className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
-              {materialsIncluded ? `${t('materialsIncluded')}: ${t('yes')}` : `${t('materialsIncluded')}: ${t('no')}`}
-            </button>
+            {isEditing ? (
+              <button onClick={() => setMaterialsIncluded((current) => !current)} className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
+                {materialsIncluded ? `${t('materialsIncluded')}: ${t('yes')}` : `${t('materialsIncluded')}: ${t('no')}`}
+              </button>
+            ) : (
+              <div className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
+                {materialsIncluded ? `${t('materialsIncluded')}: ${t('yes')}` : `${t('materialsIncluded')}: ${t('no')}`}
+              </div>
+            )}
           </InfoCard>
 
           <InfoCard title={t('paymentTerms')}>
-            <textarea value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            {isEditing ? (
+              <textarea value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+            ) : (
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{paymentTerms}</div>
+            )}
           </InfoCard>
 
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <button onClick={() => setShowLineItems((current) => !current)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-white">
+            <button disabled={!isEditing} onClick={() => setShowLineItems((current) => !current)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
               {showLineItems ? t('hideLineItems') : t('addLineItems')}
             </button>
             {showLineItems && (
               <div className="mt-4 space-y-3">
                 {lineItems.map((item, index) => (
                   <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_150px]">
-                    <input value={item.name} onChange={(event) => updateLineItem(index, 'name', event.target.value)} placeholder={t('item')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
-                    <input type="number" value={item.amount} onChange={(event) => updateLineItem(index, 'amount', Number(event.target.value))} placeholder={t('amount')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
+                    {isEditing ? (
+                      <>
+                        <input value={item.name} onChange={(event) => updateLineItem(index, 'name', event.target.value)} placeholder={t('item')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
+                        <input type="number" value={item.amount} onChange={(event) => updateLineItem(index, 'amount', Number(event.target.value))} placeholder={t('amount')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
+                      </>
+                    ) : (
+                      <>
+                        <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700">{item.name || t('item')}</div>
+                        <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
+                      </>
+                    )}
                   </div>
                 ))}
-                <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>
+                {isEditing && <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>}
                 <p className="text-sm font-bold text-slate-700">{t('lineItems')}: {currency.format(lineTotal)}</p>
               </div>
             )}
@@ -82,23 +145,12 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
         </section>
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <InfoCard title={t('previewEstimate')}>
-            <DocumentCompanyHeader company={companySettings?.company} t={t} />
-            <div className="my-4 border-t border-slate-200" />
-            <p className="text-sm font-bold text-slate-900">{lead.client}</p>
-            <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
-            <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
-            <DetailRow label={t('materialsIncluded')} value={materialsIncluded ? t('yes') : t('no')} />
-            <DetailRow label={t('paymentTerms')} value={paymentTerms} />
-            <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-center text-blue-700">
-              <p className="text-xs font-bold uppercase tracking-wide">{t('totalAmount')}</p>
-              <p className="text-3xl font-bold">{currency.format(total)}</p>
-            </div>
-          </InfoCard>
-          <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
-          <button className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewEstimate')}</button>
+          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={showLineItems ? lineItems : []} t={t} />
+          <button onClick={() => setIsEditing((current) => !current)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{isEditing ? t('doneEditing') : t('editEstimate')}</button>
+          <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
+          <button onClick={() => setShowPreviewModal(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-          <button onClick={onConvert} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
+          <button onClick={() => { saveEstimate(); onConvert?.(getEstimatePayload()) }} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
           {isArchived ? (
             <>
               <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
@@ -110,11 +162,54 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(total)} onClose={() => setShowSendModal(false)} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={t} />
+      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-3xl">
+        <div className="rounded-3xl bg-white text-slate-950">
+          <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+            <DocumentCompanyHeader company={companySettings?.company} t={t} />
+            <div className="text-right">
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('estimate')}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{savedEstimate.number || getEstimatePayload().number}</p>
+            </div>
+          </div>
+          <EstimatePreviewBody lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={showLineItems ? lineItems : []} t={t} />
+          <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
+        </div>
+      </ModalShell>
     </div>
   )
 }
 
+function EstimatePreviewCard(props) {
+  return <InfoCard title={props.t('previewEstimate')}><EstimatePreviewBody {...props} /></InfoCard>
+}
+
+function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentTerms, total, lineItems = [], t }) {
+  return (
+    <>
+      {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
+      <p className="text-sm font-bold text-slate-900">{lead.client}</p>
+      <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
+      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+      {lineItems.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-slate-200">
+          {lineItems.map((item, index) => (
+            <div key={index} className="flex justify-between gap-4 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0">
+              <span className="text-slate-600">{item.name || t('item')}</span>
+              <span className="font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <DetailRow label={t('materialsIncluded')} value={materialsIncluded ? t('yes') : t('no')} />
+      <DetailRow label={t('paymentTerms')} value={paymentTerms} />
+      <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-center text-blue-700">
+        <p className="text-xs font-bold uppercase tracking-wide">{t('totalAmount')}</p>
+        <p className="text-3xl font-bold">{currency.format(total)}</p>
+      </div>
+    </>
+  )
+}
 
 function DocumentCompanyHeader({ company, t }) {
   return (
@@ -133,8 +228,7 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
-
-export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
+export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId
@@ -156,9 +250,14 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     <EstimateBuilderPage
       lead={lead}
       t={t}
+      companySettings={companySettings}
       onBack={() => navigate(`/projects/${lead.id}`)}
       isArchived={archivedIds.includes(lead.id)}
-      onConvert={() => navigate(`/projects/${lead.id}/contract`)}
+      onSaveEstimate={(estimate) => onSaveEstimate?.(lead.id, estimate)}
+      onConvert={(estimate) => {
+        onSaveEstimate?.(lead.id, { ...estimate, status: 'Converted to Contract' })
+        navigate(`/projects/${lead.id}/contract`)
+      }}
       onArchiveEstimate={() => onArchiveEstimate?.(lead.id)}
       onRestoreEstimate={() => onRestoreEstimate?.(lead.id)}
       onDeleteEstimate={() => onDeleteEstimate?.(lead.id)}

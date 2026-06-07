@@ -1,14 +1,68 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import { ModalShell } from '../components/common/ModalShell'
 
-export function ContractPreviewPage({ lead, t, companySettings, onBack }) {
+export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned }) {
   const portal = getPortalData(lead)
+  const savedContract = lead.portal?.contract || portal.contract || {}
+  const estimate = lead.portal?.estimate || portal.estimate || {}
   const [showSendModal, setShowSendModal] = useState(false)
-  const scope = t(portal.estimate?.summary) || `${t('scopeOfWork')} - ${t(lead.projectType)}.`
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [scope, setScope] = useState(savedContract.scope || estimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`)
+  const [paymentTerms, setPaymentTerms] = useState(savedContract.paymentTerms || t('contractTermsText'))
+  const [materials, setMaterials] = useState(savedContract.materials || t('materialsText'))
+  const [timeline, setTimeline] = useState(savedContract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`)
+  const [changeOrders, setChangeOrders] = useState(savedContract.changeOrders || t('changeOrdersText'))
+  const [clientResponsibilities, setClientResponsibilities] = useState(savedContract.clientResponsibilities || t('clientResponsibilitiesText'))
+  const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(savedContract.warrantyDisclaimer || t('warrantyDisclaimerText'))
+  const contractTotal = Number(lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
+
+  useEffect(() => {
+    const contract = lead.portal?.contract || {}
+    const latestEstimate = lead.portal?.estimate || {}
+    setScope(contract.scope || latestEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`)
+    setPaymentTerms(contract.paymentTerms || t('contractTermsText'))
+    setMaterials(contract.materials || t('materialsText'))
+    setTimeline(contract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`)
+    setChangeOrders(contract.changeOrders || t('changeOrdersText'))
+    setClientResponsibilities(contract.clientResponsibilities || t('clientResponsibilitiesText'))
+    setWarrantyDisclaimer(contract.warrantyDisclaimer || t('warrantyDisclaimerText'))
+  }, [lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate, t])
+
+  function getContractPayload(extra = {}) {
+    return {
+      number: savedContract.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+      status: savedContract.status || 'Draft',
+      signedDate: savedContract.signedDate || '',
+      scope,
+      paymentTerms,
+      materials,
+      timeline,
+      changeOrders,
+      clientResponsibilities,
+      warrantyDisclaimer,
+      total: contractTotal,
+      updatedAt: new Date().toISOString(),
+      ...extra,
+    }
+  }
+
+  function saveContract() {
+    onSaveContract?.(getContractPayload())
+    setIsEditing(false)
+  }
+
+  function markSigned() {
+    const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    onMarkSigned?.(getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today }))
+    setIsEditing(false)
+  }
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('estimateBuilder')}</button>
@@ -21,27 +75,81 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack }) {
         <DocumentCompanyHeader company={companySettings?.company} t={t} />
         <div className="my-6 border-t border-slate-200" />
         <div className="mb-6 grid gap-3 sm:grid-cols-5">
-          <button className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
-          <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
-          <button className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
-          <button className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
+          <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
+          <button onClick={() => setIsEditing((current) => !current)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{isEditing ? t('doneEditing') : t('editContract')}</button>
+          <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
+          <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
           <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
         </div>
-        <div className="space-y-5 text-sm leading-6 text-slate-700">
-          <ContractSection title={t('projectScope')}>{scope}</ContractSection>
-          <ContractSection title={t('paymentTerms')}>{t('contractTermsText')}</ContractSection>
-          <ContractSection title={t('materials')}>{t('materialsText')}</ContractSection>
-          <ContractSection title={t('timeline')}>{t('timelineTextPrefix')} {portal.startDate}. {t('estimatedCompletion')} {portal.estimatedCompletion}.</ContractSection>
-          <ContractSection title={t('changeOrders')}>{t('changeOrdersText')}</ContractSection>
-          <ContractSection title={t('clientResponsibilities')}>{t('clientResponsibilitiesText')}</ContractSection>
-          <ContractSection title={t('warrantyDisclaimer')}>{t('warrantyDisclaimerText')}</ContractSection>
-          <div className="grid gap-4 pt-4 sm:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('contractorSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
-            <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('clientSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
-          </div>
-        </div>
+        <ContractDocument
+          isEditing={isEditing}
+          lead={lead}
+          contractTotal={contractTotal}
+          scope={scope}
+          setScope={setScope}
+          paymentTerms={paymentTerms}
+          setPaymentTerms={setPaymentTerms}
+          materials={materials}
+          setMaterials={setMaterials}
+          timeline={timeline}
+          setTimeline={setTimeline}
+          changeOrders={changeOrders}
+          setChangeOrders={setChangeOrders}
+          clientResponsibilities={clientResponsibilities}
+          setClientResponsibilities={setClientResponsibilities}
+          warrantyDisclaimer={warrantyDisclaimer}
+          setWarrantyDisclaimer={setWarrantyDisclaimer}
+          t={t}
+        />
       </section>
-      <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(lead.value)} onClose={() => setShowSendModal(false)} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={t} />
+      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
+        <div className="rounded-3xl bg-white text-slate-950">
+          <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
+            <DocumentCompanyHeader company={companySettings?.company} t={t} />
+            <div className="text-right">
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('contract')}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{savedContract.number || getContractPayload().number}</p>
+            </div>
+          </div>
+          <ContractDocument
+            isEditing={false}
+            lead={lead}
+            contractTotal={contractTotal}
+            scope={scope}
+            paymentTerms={paymentTerms}
+            materials={materials}
+            timeline={timeline}
+            changeOrders={changeOrders}
+            clientResponsibilities={clientResponsibilities}
+            warrantyDisclaimer={warrantyDisclaimer}
+            t={t}
+          />
+          <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
+        </div>
+      </ModalShell>
+    </div>
+  )
+}
+
+function ContractDocument({ isEditing, lead, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
+  return (
+    <div className="space-y-5 text-sm leading-6 text-slate-700">
+      <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} />
+      <ContractSection title={t('paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} isEditing={isEditing} />
+      <ContractSection title={t('materials')} value={materials} onChange={setMaterials} isEditing={isEditing} />
+      <ContractSection title={t('timeline')} value={timeline} onChange={setTimeline} isEditing={isEditing} />
+      <ContractSection title={t('changeOrders')} value={changeOrders} onChange={setChangeOrders} isEditing={isEditing} />
+      <ContractSection title={t('clientResponsibilities')} value={clientResponsibilities} onChange={setClientResponsibilities} isEditing={isEditing} />
+      <ContractSection title={t('warrantyDisclaimer')} value={warrantyDisclaimer} onChange={setWarrantyDisclaimer} isEditing={isEditing} />
+      <div className="rounded-2xl bg-slate-50 p-4">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('projectTotal')}</p>
+        <p className="mt-1 text-2xl font-bold text-slate-950">{currency.format(contractTotal)}</p>
+      </div>
+      <div className="grid gap-4 pt-4 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('contractorSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
+        <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('clientSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
+      </div>
     </div>
   )
 }
@@ -64,13 +172,20 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
-
-function ContractSection({ title, children }) {
-  return <section><h2 className="mb-2 text-base font-bold text-slate-950">{title}</h2><p>{children}</p></section>
+function ContractSection({ title, value, onChange, isEditing }) {
+  return (
+    <section>
+      <h2 className="mb-2 text-base font-bold text-slate-950">{title}</h2>
+      {isEditing ? (
+        <textarea value={value} onChange={(event) => onChange?.(event.target.value)} rows={3} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+      ) : (
+        <p>{value}</p>
+      )}
+    </section>
+  )
 }
 
-
-export function ContractRoute({ companySettings, leads, t }) {
+export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId
@@ -88,7 +203,16 @@ export function ContractRoute({ companySettings, leads, t }) {
     )
   }
 
-  return <ContractPreviewPage lead={lead} t={t} companySettings={companySettings} onBack={() => navigate(`/projects/${lead.id}/estimate`)} />
+  return (
+    <ContractPreviewPage
+      lead={lead}
+      t={t}
+      companySettings={companySettings}
+      onBack={() => navigate(`/projects/${lead.id}/estimate`)}
+      onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
+      onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
+    />
+  )
 }
 
 export function ContractsPage({ leads, onViewContract, t }) {
@@ -108,6 +232,7 @@ export function ContractsPage({ leads, onViewContract, t }) {
               <div>
                 <p className="font-bold text-slate-950">{lead.client}</p>
                 <p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p>
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">{lead.portal?.contract?.status || t('draft')}</p>
               </div>
               <button onClick={() => onViewContract(lead.id)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
                 {t('openContract')}

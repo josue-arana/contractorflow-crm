@@ -760,5 +760,10 @@ export const en = {
   "savePhotos": "Save Photos",
   "photosUploaded": "Photos uploaded",
   "projectPhoto": "Project Photo",
-  "uploadedFromPhone": "Uploaded from device"
+  "uploadedFromPhone": "Uploaded from device",
+  "estimateSaved": "Estimate saved",
+  "contractSaved": "Contract saved",
+  "contractSigned": "Contract signed",
+  "doneEditing": "Done editing",
+  "pdfPreview": "PDF Preview"
 }
