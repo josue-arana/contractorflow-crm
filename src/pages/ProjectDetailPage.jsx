@@ -113,7 +113,6 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         </InfoCard>
       </section>
 
-
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>

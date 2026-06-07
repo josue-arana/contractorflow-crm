@@ -132,7 +132,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   )
 }
 
-function ContractDocument({ isEditing, lead, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
+function ContractDocument({ isEditing, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
   return (
     <div className="space-y-5 text-sm leading-6 text-slate-700">
       <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} />
