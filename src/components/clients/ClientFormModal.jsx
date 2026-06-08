@@ -30,7 +30,7 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-2xl">
+    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="max-w-2xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">{t('clients')}</p>

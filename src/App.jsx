@@ -31,7 +31,6 @@ import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
 
-
 const defaultCompanySettings = {
   appLanguage: 'en',
   company: {
@@ -77,6 +76,24 @@ function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
   return 'Progress Payment Paid'
 }
 
+const defaultUserProfile = {
+  name: 'Josue Arana',
+  email: 'josue@contractorflow.example',
+  phone: '(410) 555-0188',
+  preferredLanguage: 'en',
+  timezone: 'America/New_York',
+}
+
+const initialNotifications = [
+  { id: 'notif-lead-created', titleKey: 'notificationLeadCreatedTitle', messageKey: 'notificationLeadCreatedMessage', timeKey: 'justNow', read: false },
+  { id: 'notif-client-created', titleKey: 'notificationClientCreatedTitle', messageKey: 'notificationClientCreatedMessage', timeKey: 'today', read: false },
+  { id: 'notif-estimate-saved', titleKey: 'notificationEstimateSavedTitle', messageKey: 'notificationEstimateSavedMessage', timeKey: 'today', read: true },
+  { id: 'notif-contract-signed', titleKey: 'notificationContractSignedTitle', messageKey: 'notificationContractSignedMessage', timeKey: 'yesterday', read: true },
+  { id: 'notif-payment-recorded', titleKey: 'notificationPaymentRecordedTitle', messageKey: 'notificationPaymentRecordedMessage', timeKey: 'yesterday', read: true },
+  { id: 'notif-event-scheduled', titleKey: 'notificationEventScheduledTitle', messageKey: 'notificationEventScheduledMessage', timeKey: 'thisWeek', read: true },
+  { id: 'notif-invoice-paid', titleKey: 'notificationInvoicePaidTitle', messageKey: 'notificationInvoicePaidMessage', timeKey: 'thisWeek', read: true },
+]
+
 function App() {
   return (
     <BrowserRouter>
@@ -95,6 +112,7 @@ function ContractorFlowApp() {
   const [invoices, setInvoices] = useState(mockInvoices)
   const [scheduleModalState, setScheduleModalState] = useState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
+  const [dashboardSuccessMessage, setDashboardSuccessMessage] = useState('')
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
@@ -102,6 +120,8 @@ function ContractorFlowApp() {
   const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
   const [companySettings, setCompanySettings] = useState(() => ({ ...defaultCompanySettings, appLanguage: language, portal: { ...defaultCompanySettings.portal, defaultLanguage: portalLanguage } }))
+  const [notifications, setNotifications] = useState(initialNotifications)
+  const [userProfile, setUserProfile] = useState(defaultUserProfile)
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
@@ -126,6 +146,21 @@ function ContractorFlowApp() {
       { label: t('metricRevenuePipeline'), value: currency.format(pipelineValue), helper: t('metricRevenuePipelineHelper'), icon: DollarSign },
     ]
   }, [activeLeads, t])
+
+  function addNotification(titleKey, messageKey) {
+    setNotifications((current) => [
+      { id: `notif-${Date.now()}`, titleKey, messageKey, timeKey: 'justNow', read: false },
+      ...current,
+    ])
+  }
+
+  function markAllNotificationsRead() {
+    setNotifications((current) => current.map((notification) => ({ ...notification, read: true })))
+  }
+
+  function clearNotifications() {
+    setNotifications([])
+  }
 
   function updateArchiveList(listName, id, mode) {
     setArchives((current) => {
@@ -194,16 +229,28 @@ function ContractorFlowApp() {
       ...current,
     ])
     showToast(t('leadCreated'))
+    addNotification('notificationLeadCreatedTitle', 'notificationLeadCreatedMessage')
     return id
   }
 
   function createLeadFromDashboard(lead) {
     createLead(lead)
     setIsDashboardLeadModalOpen(false)
+    setDashboardSuccessMessage(t('leadCreated'))
+    window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
   }
 
   function updateLead(leadId, updates) {
-    setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, ...updates, id: lead.id, value: Number(updates.value) || 0 } : lead)))
+    setLeads((current) => current.map((lead) => (
+      lead.id === leadId
+        ? {
+            ...lead,
+            ...updates,
+            id: lead.id,
+            value: updates.value !== undefined ? Number(updates.value) || 0 : lead.value,
+          }
+        : lead
+    )))
     showToast(t('leadUpdated'))
   }
 
@@ -217,6 +264,7 @@ function ContractorFlowApp() {
       return [{ id, ...client }, ...current]
     })
     showToast(t('clientCreated'))
+    addNotification('notificationClientCreatedTitle', 'notificationClientCreatedMessage')
   }
 
   function updateClient(clientId, updates) {
@@ -239,6 +287,7 @@ function ContractorFlowApp() {
       }
     }))
     showToast(t('clientUpdated'))
+    addNotification('notificationClientUpdatedTitle', 'notificationClientUpdatedMessage')
   }
 
   function moveLead(leadId, targetStatus) {
@@ -269,6 +318,7 @@ function ContractorFlowApp() {
       }
     }))
     showToast(t('paymentRecorded'))
+    addNotification('notificationPaymentRecordedTitle', 'notificationPaymentRecordedMessage')
   }
 
   function uploadProjectPhotos(leadId, photos) {
@@ -284,8 +334,6 @@ function ContractorFlowApp() {
     }))
     showToast(t('photosUploaded'))
   }
-
-
 
   function saveEstimate(leadId, estimate) {
     setLeads((current) => current.map((lead) => {
@@ -326,6 +374,7 @@ function ContractorFlowApp() {
       }
     }))
     showToast(t('estimateSaved'))
+    addNotification('notificationEstimateSavedTitle', 'notificationEstimateSavedMessage')
   }
 
   function saveContract(leadId, contract) {
@@ -359,13 +408,15 @@ function ContractorFlowApp() {
       const portal = lead.portal || {}
       const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
       const signedDate = contract?.signedDate || new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
-      const timeline = (portal.timeline || []).map((item) => item.title === 'Contract Signed'
-        ? { ...item, date: signedDate, status: 'Complete', note: item.note || 'Agreement approved and signed by homeowner.' }
-        : item)
+      const timeline = (portal.timeline || []).map((item) => (
+        item.title === 'Contract Signed'
+          ? { ...item, date: signedDate, status: 'Complete', note: item.note || 'Agreement approved and signed by homeowner.' }
+          : item
+      ))
       const documents = portal.documents || []
       const hasSignedContract = documents.some((doc) => doc.name === 'Signed Contract')
       const nextDocuments = hasSignedContract
-        ? documents.map((doc) => doc.name === 'Signed Contract' ? { ...doc, status: 'Available' } : doc)
+        ? documents.map((doc) => (doc.name === 'Signed Contract' ? { ...doc, status: 'Available' } : doc))
         : [{ name: 'Signed Contract', type: 'PDF', status: 'Available' }, ...documents]
       return {
         ...lead,
@@ -389,8 +440,8 @@ function ContractorFlowApp() {
       }
     }))
     showToast(t('contractSigned'))
+    addNotification('notificationContractSignedTitle', 'notificationContractSignedMessage')
   }
-
 
   function getInvoiceStatus(invoice) {
     if (invoice.status === 'Archived' || invoice.status === 'Canceled') return invoice.status
@@ -416,6 +467,7 @@ function ContractorFlowApp() {
       return { ...next, status: getInvoiceStatus(next) }
     }))
     showToast(t('invoiceSaved'))
+    addNotification('notificationInvoiceSavedTitle', 'notificationInvoiceSavedMessage')
   }
 
   function recordInvoicePayment(invoiceId, payment) {
@@ -434,6 +486,7 @@ function ContractorFlowApp() {
       return { ...next, status: getInvoiceStatus(next) }
     }))
     showToast(t('paymentRecorded'))
+    addNotification('notificationPaymentRecordedTitle', 'notificationPaymentRecordedMessage')
   }
 
   function markInvoicePaid(invoiceId) {
@@ -448,6 +501,7 @@ function ContractorFlowApp() {
       return { ...invoice, amountPaid: amount, status: 'Paid', paymentHistory }
     }))
     showToast(t('paymentRecorded'))
+    addNotification('notificationInvoicePaidTitle', 'notificationInvoicePaidMessage')
   }
 
   function markInvoiceSent(invoiceId) {
@@ -458,6 +512,7 @@ function ContractorFlowApp() {
     const id = `evt-${Date.now()}`
     setScheduleEvents((current) => [{ id, ...event }, ...current])
     showToast(t(source === 'job' ? 'jobScheduled' : 'eventCreated'))
+    addNotification('notificationEventScheduledTitle', 'notificationEventScheduledMessage')
   }
 
   function updateScheduleEvent(eventId, updates) {
@@ -508,7 +563,6 @@ function ContractorFlowApp() {
     URL.revokeObjectURL(url)
   }
 
-
   function openProject(leadId) {
     navigate(`/projects/${leadId}`)
     setSidebarOpen(false)
@@ -535,6 +589,7 @@ function ContractorFlowApp() {
       moveLead={moveLead}
       onLeadClick={openProject}
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
+      successMessage={dashboardSuccessMessage}
       t={t}
     />
   )
@@ -544,14 +599,20 @@ function ContractorFlowApp() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} />
 
       <div className="lg:pl-72">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} language={language} setLanguage={setLanguage} t={t} />
+        <Topbar
+          onMenuClick={() => setSidebarOpen(true)}
+          language={language}
+          setLanguage={setLanguage}
+          t={t}
+          notifications={notifications}
+          onMarkAllNotificationsRead={markAllNotificationsRead}
+          onClearNotifications={clearNotifications}
+          userProfile={userProfile}
+          onSaveUserProfile={setUserProfile}
+          onOpenSettings={() => navigate('/settings')}
+        />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">
-          {/**
-            Developer QA checklist for route stability:
-            Tested routes: /, /dashboard, /jobs, /projects/:id, /estimates,
-            /clients, /invoices, /calendar, and /settings.
-          */}
           <Routes>
             <Route path="/" element={dashboardPage} />
             <Route path="/dashboard" element={dashboardPage} />
