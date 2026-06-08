@@ -91,8 +91,13 @@ create type photo_category as enum (
 create type member_role as enum (
   'owner',
   'admin',
-  'member',
-  'viewer'
+  'member'
+);
+
+create type member_status as enum (
+  'invited',
+  'active',
+  'disabled'
 );
 
 -- -----------------------------------------------------------------------------
@@ -135,21 +140,25 @@ comment on column contractors.contractor_id is 'Reserved for consistent tenant i
 create table contractor_members (
   id uuid primary key default gen_random_uuid(),
   contractor_id uuid not null references contractors(id) on delete cascade,
-  auth_user_id uuid,
+  user_id uuid,
   name text not null,
   email text not null,
   phone text,
   role member_role not null default 'owner',
+  status member_status not null default 'invited',
   preferred_language text not null default 'en' check (preferred_language in ('en', 'es')),
   timezone text,
-  invited_at timestamptz,
-  accepted_at timestamptz,
+  invited_at timestamptz default now(),
+  joined_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
 );
 
-comment on column contractor_members.auth_user_id is 'Future Supabase Auth user id. Left nullable during local-state beta preparation.';
+comment on table contractor_members is 'Contractor membership table prepared for future Supabase Auth integration. During the local-state beta, user_id may remain null until Auth is connected.';
+comment on column contractor_members.user_id is 'Future relationship target: auth.users(id). Kept as a nullable uuid for now so local development and schema planning do not require Supabase Auth wiring yet.';
+comment on column contractor_members.role is 'Allowed roles for the beta: owner, admin, member.';
+comment on column contractor_members.status is 'Allowed membership statuses: invited, active, disabled. Future RLS should only allow access for active members.';
 
 -- -----------------------------------------------------------------------------
 -- CRM records
@@ -437,7 +446,8 @@ create index idx_project_photos_created_at on project_photos(created_at);
 create index idx_company_settings_created_at on company_settings(created_at);
 
 -- Useful beta lookup indexes
-create index idx_contractor_members_auth_user_id on contractor_members(auth_user_id) where auth_user_id is not null;
+create index idx_contractor_members_user_id on contractor_members(user_id) where user_id is not null;
+create index idx_contractor_members_status on contractor_members(status);
 create index idx_clients_email on clients(email) where email is not null;
 create index idx_invoices_due_date on invoices(due_date) where due_date is not null;
 create index idx_events_starts_at on events(starts_at);
@@ -490,7 +500,7 @@ create trigger set_company_settings_updated_at before update on company_settings
 -- 1. Enable RLS on every contractor-owned table.
 -- 2. Add a helper function that checks whether auth.uid() belongs to contractor_members.
 -- 3. Allow users to select/insert/update/archive rows only when their contractor_members
---    row matches the record contractor_id.
+--    row matches the record contractor_id and has status = active.
 -- 4. Keep project_photos storage paths contractor-scoped, for example:
 --    contractor_id/project_id/photo_id/original.jpg
 -- 5. Add Storage bucket policies that use the same contractor membership check.
@@ -502,6 +512,7 @@ create trigger set_company_settings_updated_at before update on company_settings
 --   using (exists (
 --     select 1 from contractor_members cm
 --     where cm.contractor_id = clients.contractor_id
---       and cm.auth_user_id = auth.uid()
+--       and cm.user_id = auth.uid()
+--       and cm.status = 'active'
 --       and cm.archived_at is null
 --   ));
