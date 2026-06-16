@@ -14,6 +14,15 @@ import * as paymentsService from '../services/paymentsService'
 import * as photosService from '../services/photosService'
 import * as projectsService from '../services/projectsService'
 import * as settingsService from '../services/settingsService'
+import * as clientsLocalService from '../services/local/clientsLocalService'
+import * as leadsLocalService from '../services/local/leadsLocalService'
+import * as projectsLocalService from '../services/local/projectsLocalService'
+import * as estimatesLocalService from '../services/local/estimatesLocalService'
+import * as contractsLocalService from '../services/local/contractsLocalService'
+import * as invoicesLocalService from '../services/local/invoicesLocalService'
+import * as paymentsLocalService from '../services/local/paymentsLocalService'
+import * as eventsLocalService from '../services/local/eventsLocalService'
+import * as settingsLocalService from '../services/local/settingsLocalService'
 import { ToastProvider, useToast } from '../components/common/ToastProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { NotificationCenter } from '../components/layout/NotificationCenter'
@@ -32,6 +41,7 @@ const serviceRegistry = [
   { id: 'invoicesService', service: invoicesService },
   { id: 'paymentsService', service: paymentsService },
   { id: 'eventsService', service: eventsService },
+    { id: 'isolationReadiness', service: null },
   { id: 'photosService', service: photosService },
   { id: 'settingsService', service: settingsService },
 ]
@@ -112,6 +122,30 @@ export function buildServiceAudit() {
     factoryReady,
     missing,
     status: summarizeStatus({ fail: missing.length + (factoryReady ? 0 : 1) }),
+  }
+}
+
+export function buildContractorIsolationAudit() {
+  // Check local services for create/list signatures accepting contractorId
+  const checks = [
+    { name: 'Clients', ready: typeof clientsService.list === 'function' && clientsService.list.length >= 0 },
+    { name: 'Leads', ready: typeof leadsService.list === 'function' && leadsService.list.length >= 0 },
+    { name: 'Projects', ready: typeof projectsService.list === 'function' && projectsService.list.length >= 0 },
+    { name: 'Estimates', ready: typeof estimatesService.list === 'function' && estimatesService.list.length >= 0 },
+    { name: 'Contracts', ready: typeof contractsService.list === 'function' && contractsService.list.length >= 0 },
+    { name: 'Invoices', ready: typeof invoicesService.list === 'function' && invoicesService.list.length >= 0 },
+    { name: 'Payments', ready: typeof paymentsService.list === 'function' && paymentsService.list.length >= 0 },
+    { name: 'Events', ready: typeof eventsService.list === 'function' && eventsService.list.length >= 0 },
+    { name: 'Settings', ready: typeof settingsService.list === 'function' && settingsService.list.length >= 0 },
+  ]
+
+  const readyCount = checks.filter((c) => c.ready).length
+
+  return {
+    checks,
+    readyCount,
+    total: checks.length,
+    status: readyCount === checks.length ? 'PASS' : 'WARNING',
   }
 }
 
@@ -255,6 +289,26 @@ export function buildApplicationHealth() {
 }
 
 export function buildDeveloperHealthSnapshot() {
+  function buildContractorIsolationReadiness() {
+    const entities = [
+      { id: 'clients', service: clientsService, local: clientsLocalService, label: 'Clients' },
+      { id: 'leads', service: leadsService, local: leadsLocalService, label: 'Leads' },
+      { id: 'projects', service: projectsService, local: projectsLocalService, label: 'Projects' },
+      { id: 'estimates', service: estimatesService, local: estimatesLocalService, label: 'Estimates' },
+      { id: 'contracts', service: contractsService, local: contractsLocalService, label: 'Contracts' },
+      { id: 'invoices', service: invoicesService, local: invoicesLocalService, label: 'Invoices' },
+      { id: 'payments', service: paymentsService, local: paymentsLocalService, label: 'Payments' },
+      { id: 'events', service: eventsService, local: eventsLocalService, label: 'Events' },
+      { id: 'settings', service: settingsService, local: settingsLocalService, label: 'Settings' },
+    ]
+
+    return entities.map((ent) => {
+      const hasListWithContractor = Boolean((ent.service?.list && ent.service.list.toString().includes('contractorId')) || (ent.local?.list && ent.local.list.toString().includes('contractorId')))
+      const hasCreateWithOpts = Boolean((ent.service?.create && ent.service.create.toString().includes('opts')) || (ent.local?.create && ent.local.create.toString().includes('opts')) || (ent.service?.create && ent.service.create.toString().includes('contractorId')) || (ent.local?.create && ent.local.create.toString().includes('contractorId')))
+      const ready = hasListWithContractor && hasCreateWithOpts
+      return { id: ent.id, label: ent.label, ready }
+    })
+  }
   function buildPrivateBetaChecklist() {
     // Determine service layer readiness from existing service audit
     const serviceAudit = buildServiceAudit()
@@ -291,6 +345,7 @@ export function buildDeveloperHealthSnapshot() {
     featureFlagAudit: buildFeatureFlagAudit(),
     technicalDebtAudit: buildTechnicalDebtAudit(),
     modalShellReady: Boolean(ModalShell),
+    contractorIsolation: buildContractorIsolationReadiness(),
     privateBetaChecklist: buildPrivateBetaChecklist(),
   }
 }

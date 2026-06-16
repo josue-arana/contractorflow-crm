@@ -2,7 +2,8 @@
 // Methods mirror the backend service shape but return skipped responses
 // so the App's in-memory state remains authoritative.
 
-export async function list({ includeArchived = false, clientId, projectId, type, status } = {}) {
+export async function list({ includeArchived = false, clientId, projectId, type, status, contractorId } = {}) {
+  // contractorId accepted for future contractor isolation (local mode ignores)
   return { data: [], skipped: true, message: 'Local mode: events are sourced from App state' }
 }
 
@@ -10,7 +11,8 @@ export async function getById(id) {
   return { data: null, skipped: true, message: 'Local mode: events are sourced from App state' }
 }
 
-export async function create(eventData) {
+export async function create(eventData, opts = {}) {
+  // opts.contractorId supported for future contractor isolation.
   return { data: eventData, skipped: true, message: 'Local mode: event created in App state' }
 }
 

@@ -2,7 +2,8 @@
 // Methods mirror the Supabase-ready service shape but return skipped
 // responses so the App's in-memory state remains the source-of-truth.
 
-export async function list({ includeArchived = false, clientId, projectId, invoiceId, status } = {}) {
+export async function list({ includeArchived = false, clientId, projectId, invoiceId, status, contractorId } = {}) {
+  // contractorId accepted for future isolation (ignored in local mode)
   return { data: [], skipped: true, message: 'Local mode: payments are sourced from App state' }
 }
 
@@ -10,7 +11,8 @@ export async function getById(id) {
   return { data: null, skipped: true, message: 'Local mode: payments are sourced from App state' }
 }
 
-export async function create(paymentData) {
+export async function create(paymentData, opts = {}) {
+  // opts.contractorId supported for future contractor isolation.
   return { data: paymentData, skipped: true, message: 'Local mode: payment created in App state' }
 }
 

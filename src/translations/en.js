@@ -944,4 +944,7 @@ export const en = {
   "authSupabaseReady": "Supabase auth is configured and ready.",
   "authSupabaseNotConfigured": "Supabase auth is enabled but not fully configured.",
   "contractor": "Contractor"
+  ,"contractorIsolationReadiness": "Contractor Isolation Readiness"
+  ,"ready": "Ready"
+  ,"notReady": "Not Ready"
 }

@@ -1,13 +1,15 @@
 // Local settings service used while the app runs in local/mock mode.
 // Provides a simple API that mirrors the eventual backend service shape.
 
-export async function getSettings() {
+export async function getSettings(opts = {}) {
+  // opts.contractorId is accepted for future multi-contractor scoping (ignored locally)
   // Local mode: no centralized persistence yet. Return null to signal
   // that callers should fall back to in-memory props/state provided by App.jsx.
   return { data: null, skipped: true, message: 'Local mode: settings are in App state' }
 }
 
-export async function updateSettings(settings) {
+export async function updateSettings(settings, opts = {}) {
+  // opts.contractorId supported for future contractor isolation.
   // Local mode: do not persist centrally. Return the settings as a skipped
   // response so UI can continue to update App state (via onSaveSettings).
   return { data: settings, skipped: true, message: 'Local mode: settings not persisted centrally' }

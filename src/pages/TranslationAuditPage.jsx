@@ -94,6 +94,21 @@ export function TranslationAuditPage({ t }) {
         </div>
       </SectionCard>
 
+      <SectionCard title={t('contractorIsolationReadiness')}>
+        <div className="grid gap-3">
+          {snapshot.contractorIsolation.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <div>
+                <p className="font-bold text-slate-950">{item.label}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                {item.ready ? t('ready') : t('notReady')}
+              </span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
       <section className="grid gap-4 xl:grid-cols-2">
         <SectionCard title={t('buttonAudit')}>
           <div className="grid gap-4 sm:grid-cols-3">

@@ -1,7 +1,8 @@
 // Local projects service for local/mock mode. Methods return skipped responses
 // so App.jsx remains the single source-of-truth during the beta.
 
-export async function list({ includeArchived = false, status, clientId } = {}) {
+export async function list({ includeArchived = false, status, clientId, contractorId } = {}) {
+  // contractorId optional for future multi-contractor filtering (local mode ignores)
   return { data: [], skipped: true, message: 'Local mode: projects are sourced from App state' }
 }
 
@@ -9,7 +10,8 @@ export async function getById(id) {
   return { data: null, skipped: true, message: 'Local mode: projects are sourced from App state' }
 }
 
-export async function create(projectData) {
+export async function create(projectData, opts = {}) {
+  // opts.contractorId supported for future contractor isolation.
   return { data: projectData, skipped: true, message: 'Local mode: project created in App state' }
 }
 

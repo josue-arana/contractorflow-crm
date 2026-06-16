@@ -1,19 +1,20 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { USE_AUTH } from '../config/backendConfig'
+import { MOCK_CONTRACTOR } from '../constants/mockContractor'
 import { getAuthServiceStatus, getCurrentUser, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
 
 const AuthContext = createContext(null)
 
 const mockContractor = {
-  id: 'mock-contractor-001',
-  fullName: 'Josue Arana',
+  id: MOCK_CONTRACTOR.id,
+  fullName: MOCK_CONTRACTOR.name,
   email: 'josue@contractorflow.example',
   role: 'Owner Admin',
 }
 
 const mockCompany = {
   id: 'mock-company-001',
-  name: 'ContractorFlow Remodeling LLC',
+  name: MOCK_CONTRACTOR.name,
   plan: 'Private Beta',
   locale: 'en-US',
 }
