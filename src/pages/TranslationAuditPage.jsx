@@ -168,6 +168,19 @@ export function TranslationAuditPage({ t }) {
         </SectionCard>
       </section>
 
+      <SectionCard title={t('privateBetaBackendChecklist')}>
+        <div className="space-y-2">
+          {snapshot.privateBetaChecklist.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t(item.labelKey)}</p>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.status === 'Complete' ? 'bg-emerald-100 text-emerald-800' : item.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
+                {t(`checkStatus.${item.status === 'Complete' ? 'complete' : item.status === 'Pending' ? 'pending' : 'notStarted'}`)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
       <section className="grid gap-4 xl:grid-cols-2">
         <AuditList
           title={t('buttonsPending')}
