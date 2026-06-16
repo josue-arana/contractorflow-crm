@@ -34,6 +34,7 @@ import contractsLocalService from './local/contractsLocalService'
 import * as invoicesService from './invoicesService'
 import invoicesLocalService from './local/invoicesLocalService'
 import * as paymentsService from './paymentsService'
+import paymentsLocalService from './local/paymentsLocalService'
 import * as eventsService from './eventsService'
 import * as settingsService from './settingsService'
 import settingsLocalService from './local/settingsLocalService'
@@ -110,7 +111,7 @@ const localImpl = {
   estimates: estimatesLocalService,
   contracts: contractsLocalService,
   invoices: invoicesLocalService,
-  payments: paymentsService,
+  payments: paymentsLocalService,
   events: eventsService,
   // Local implementation uses a small local settings service. It intentionally
   // returns skipped responses so the App's in-memory state remains the

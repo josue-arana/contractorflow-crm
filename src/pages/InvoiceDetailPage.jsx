@@ -91,6 +91,8 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
   async function savePayment(payment) {
     try {
       const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
+      // create payment in provider (no-op in local mode)
+      await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
       const nextAmountPaid = Math.min(Number(currentInvoice.amount || 0), Number(currentInvoice.amountPaid || 0) + Number(payment.amount || 0))
       await dataProvider.invoices.update(currentInvoice.id, { amountPaid: nextAmountPaid, paymentHistory: nextPaymentHistory })
@@ -110,6 +112,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     }
     try {
       const paymentEntry = { id: `payment-${Date.now()}`, amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+      await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
       await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
     } catch (err) {
@@ -131,6 +134,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
       }
       if (confirmAction?.mode === 'markPaid') {
         const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+        await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
         const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
         await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
         onMarkInvoicePaid?.(currentInvoice.id)

@@ -227,7 +227,16 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         isOpen={showPaymentModal}
         remainingBalance={portal.outstandingBalance}
         onClose={() => setShowPaymentModal(false)}
-        onSave={(payment) => { onRecordPayment?.(payment); setShowPaymentModal(false) }}
+        onSave={async (payment) => {
+          try {
+            const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
+            await dataProvider.payments.create({ ...paymentEntry, projectId: lead.id, leadId: lead.id })
+          } catch (err) {
+            // ignore in local mode
+          }
+          onRecordPayment?.(payment)
+          setShowPaymentModal(false)
+        }}
         t={t}
       />
       <PhotoUploadModal
