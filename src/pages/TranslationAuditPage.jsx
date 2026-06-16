@@ -1,4 +1,5 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
+import { useAuth } from '../contexts/AuthContext'
 
 function StatusBadge({ status }) {
   const classes = {
@@ -52,6 +53,7 @@ function AuditList({ title, items, emptyLabel, renderItem }) {
 
 export function TranslationAuditPage({ t }) {
   const snapshot = buildDeveloperHealthSnapshot()
+  const { authMode, authServiceStatus, contractor, company, user } = useAuth()
 
   return (
     <div className="space-y-6">
@@ -141,6 +143,27 @@ export function TranslationAuditPage({ t }) {
                 </span>
               </div>
             ))}
+          </div>
+        </SectionCard>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <SectionCard title={t('authReadiness')}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SummaryCard label={t('authMode')} value={authMode === 'mock' ? t('mockAuth') : t('supabaseAuth')} />
+            <SummaryCard label={t('authServiceStatus')} value={authServiceStatus.configured || authMode === 'mock' ? 'PASS' : 'WARNING'} />
+            <SummaryCard label={t('currentMockUser')} value={user?.email || t('notAvailable')} />
+            <SummaryCard label={t('currentMockCompany')} value={company?.name || t('notAvailable')} />
+          </div>
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('contractor')}</p>
+              <p className="text-sm font-semibold text-slate-600">{contractor?.fullName || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('authServiceStatus')}</p>
+              <p className="text-sm font-semibold text-slate-600">{authServiceStatus.mode === 'mock' ? t('authMockServiceReady') : authServiceStatus.configured ? t('authSupabaseReady') : t('authSupabaseNotConfigured')}</p>
+            </div>
           </div>
         </SectionCard>
       </section>

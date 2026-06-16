@@ -18,6 +18,7 @@ import { ToastProvider, useToast } from '../components/common/ToastProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { NotificationCenter } from '../components/layout/NotificationCenter'
 import { ScrollToTop } from '../components/layout/ScrollToTop'
+import { getSupabaseConfigStatus } from '../lib/supabaseClient'
 import { auditTranslations } from '../translations'
 
 const requiredServiceMethods = ['list', 'getById', 'create', 'update', 'archive', 'restore', 'deletePermanently']
@@ -227,6 +228,25 @@ export function buildApplicationHealth() {
       status: ScrollToTop ? 'PASS' : 'FAIL',
       detail: ScrollToTop ? 'Scroll restoration component is mounted in the app shell.' : 'Scroll restoration component is missing.',
     },
+    // Supabase environment checks
+    (() => {
+      const supa = getSupabaseConfigStatus()
+      return {
+        id: 'supabaseUrl',
+        labelKey: 'supabaseUrlConfigured',
+        status: supa.urlPresent ? 'PASS' : 'FAIL',
+        detail: supa.urlPresent ? 'VITE_SUPABASE_URL is set.' : 'VITE_SUPABASE_URL is not set.',
+      }
+    })(),
+    (() => {
+      const supa = getSupabaseConfigStatus()
+      return {
+        id: 'supabaseAnonKey',
+        labelKey: 'supabaseAnonKeyConfigured',
+        status: supa.anonKeyPresent ? 'PASS' : 'FAIL',
+        detail: supa.anonKeyPresent ? 'VITE_SUPABASE_ANON_KEY is set.' : 'VITE_SUPABASE_ANON_KEY is not set.',
+      }
+    })(),
   ]
 
   return healthChecks
