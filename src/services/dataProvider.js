@@ -22,6 +22,7 @@
 import { USE_SUPABASE } from '../config/backendConfig'
 
 import * as clientsService from './clientsService'
+import clientsLocalService from './local/clientsLocalService'
 import * as leadsService from './leadsService'
 import * as projectsService from './projectsService'
 import * as estimatesService from './estimatesService'
@@ -40,7 +41,15 @@ import * as photosService from './photosService'
 // migrating to a real backend later only requires changing this file.
 
 const supabaseImpl = {
-  clients: clientsService,
+  clients: {
+    list: clientsService.list,
+    getById: clientsService.getById,
+    create: clientsService.create,
+    update: clientsService.update,
+    archive: clientsService.archive,
+    restore: clientsService.restore,
+    deletePermanently: clientsService.deletePermanently,
+  },
   leads: leadsService,
   projects: projectsService,
   estimates: estimatesService,
@@ -71,7 +80,10 @@ const supabaseImpl = {
 // App-level React state or mocks), swap the imports here without touching the
 // rest of the codebase.
 const localImpl = {
-  clients: clientsService,
+  // Local implementation uses a lightweight local service that signals
+  // operations are handled by App state. Pages will call the dataProvider
+  // then invoke App callbacks to update in-memory state.
+  clients: clientsLocalService,
   leads: leadsService,
   projects: projectsService,
   estimates: estimatesService,

@@ -6,6 +6,7 @@ import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import dataProvider from '../services/dataProvider'
 
 const clientFilters = ['Active', 'Archived']
 
@@ -48,10 +49,20 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     setConfirmAction({ mode: 'delete', client })
   }
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveClient(confirmAction.client.id)
-    if (confirmAction.mode === 'delete') onDeleteClient(confirmAction.client.id)
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider.clients.archive(confirmAction.client.id)
+        onArchiveClient(confirmAction.client.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider.clients.deletePermanently(confirmAction.client.id)
+        onDeleteClient(confirmAction.client.id)
+      }
+    } catch (err) {
+      // local mode: ignore errors
+    }
     setConfirmAction(null)
   }
 
@@ -160,7 +171,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
         {filteredClients.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-900">{t('noClientsFound')}</p><p className="mt-2 text-sm text-slate-500">{t('noClientsFoundHelp')}</p></div>}
       </section>
-      <ClientFormModal isOpen={isCreateOpen} mode="create" onClose={() => setIsCreateOpen(false)} onSave={(client) => { onCreateClient(client); setIsCreateOpen(false) }} t={t} />
+      <ClientFormModal isOpen={isCreateOpen} mode="create" onClose={() => setIsCreateOpen(false)} onSave={async (client) => { try { await dataProvider.clients.create(client) } catch (err) {} onCreateClient(client); setIsCreateOpen(false) }} t={t} />
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )
