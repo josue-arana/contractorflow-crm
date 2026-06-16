@@ -30,6 +30,7 @@ import * as invoicesService from './invoicesService'
 import * as paymentsService from './paymentsService'
 import * as eventsService from './eventsService'
 import * as settingsService from './settingsService'
+import settingsLocalService from './local/settingsLocalService'
 import * as photosService from './photosService'
 
 // NOTE: Currently `USE_SUPABASE` is false and the UI continues to use local
@@ -47,7 +48,21 @@ const supabaseImpl = {
   invoices: invoicesService,
   payments: paymentsService,
   events: eventsService,
-  settings: settingsService,
+  // In a Supabase-backed implementation these would be wrappers around the
+  // CRUD methods (list/getById/update). For now we expose the existing
+  // `settingsService` which is Supabase-ready.
+  settings: {
+    // getSettings should return the singular company settings record when
+    // backend is enabled; map to `list` for future compatibility.
+    getSettings: async (opts) => {
+      const res = await settingsService.list(opts)
+      return res
+    },
+    updateSettings: async (payload, opts) => {
+      const res = await settingsService.update(payload?.id, payload, opts)
+      return res
+    },
+  },
   photos: photosService,
 }
 
@@ -64,7 +79,10 @@ const localImpl = {
   invoices: invoicesService,
   payments: paymentsService,
   events: eventsService,
-  settings: settingsService,
+  // Local implementation uses a small local settings service. It intentionally
+  // returns skipped responses so the App's in-memory state remains the
+  // source-of-truth while the UI continues to function exactly as before.
+  settings: settingsLocalService,
   photos: photosService,
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Building2, FileText, Globe2, ImageUp, Languages, Save } from 'lucide-react'
 import { InfoCard } from '../components/ui/InfoCard'
+import dataProvider from '../services/dataProvider'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const [draft, setDraft] = useState(settings)
@@ -9,6 +10,29 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
   useEffect(() => {
     setDraft(settings)
   }, [settings])
+
+  // Try to load canonical settings from the data provider (no-op in local
+  // mode). If the data provider returns a value, use it; otherwise keep the
+  // `settings` prop provided by App.jsx as the source of truth.
+  useEffect(() => {
+    let mounted = true
+    async function loadSettings() {
+      if (!dataProvider?.settings?.getSettings) return
+      try {
+        const res = await dataProvider.settings.getSettings()
+        if (!mounted) return
+        if (res && res.data) {
+          setDraft(res.data)
+        }
+      } catch (err) {
+        // Swallow errors for now; local mode should remain unaffected.
+      }
+    }
+    loadSettings()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   function updateSection(section, field, value) {
     setDraft((current) => ({
@@ -43,7 +67,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     reader.readAsDataURL(file)
   }
 
-  function saveSettings() {
+  async function saveSettings() {
     const nextSettings = {
       ...draft,
       portal: {
@@ -52,6 +76,14 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
       },
       appLanguage: language,
     }
+    // Persist through the data provider (no-op in local mode) and then
+    // update App state so the visible company settings refresh immediately.
+    try {
+      await dataProvider?.settings?.updateSettings?.(nextSettings)
+    } catch (err) {
+      // ignore local-mode persistence errors
+    }
+
     onSaveSettings?.(nextSettings)
     setSuccessMessage(t('settingsSaved'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
