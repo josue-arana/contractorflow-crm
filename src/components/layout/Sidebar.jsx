@@ -1,15 +1,16 @@
 import { BriefcaseBusiness, CalendarDays, ClipboardList, DollarSign, Home, Settings, Users, X } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
+import { appRoutes } from '../../config/appRoutes'
 
 const sidebarNavItems = [
-  { labelKey: 'dashboard', path: '/dashboard', icon: Home },
-  { labelKey: 'leads', path: '/leads', icon: Users },
-  { labelKey: 'estimates', path: '/estimates', icon: ClipboardList },
-  { labelKey: 'jobs', path: '/jobs', icon: BriefcaseBusiness },
-  { labelKey: 'calendar', path: '/calendar', icon: CalendarDays },
-  { labelKey: 'clients', path: '/clients', icon: Users },
-  { labelKey: 'invoices', path: '/invoices', icon: DollarSign },
-  { labelKey: 'settings', path: '/settings', icon: Settings },
+  { labelKey: 'dashboard', path: appRoutes.dashboard, icon: Home },
+  { labelKey: 'leads', path: appRoutes.leads, icon: Users },
+  { labelKey: 'estimates', path: appRoutes.estimates, icon: ClipboardList },
+  { labelKey: 'jobs', path: appRoutes.jobs, icon: BriefcaseBusiness },
+  { labelKey: 'calendar', path: appRoutes.calendar, icon: CalendarDays },
+  { labelKey: 'clients', path: appRoutes.clients, icon: Users },
+  { labelKey: 'invoices', path: appRoutes.invoices, icon: DollarSign },
+  { labelKey: 'settings', path: appRoutes.settings, icon: Settings },
 ]
 
 export function Sidebar({ isOpen, onClose, t, companySettings }) {
@@ -18,7 +19,7 @@ export function Sidebar({ isOpen, onClose, t, companySettings }) {
       <div className={`fixed inset-0 z-40 bg-slate-950/50 lg:hidden ${isOpen ? 'block' : 'hidden'}`} onClick={onClose} />
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col bg-slate-950 px-5 py-6 text-white shadow-2xl transition-transform duration-300 lg:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="mb-8 flex items-center justify-between">
-          <NavLink to="/dashboard" onClick={onClose} className="flex items-center gap-3">
+          <NavLink to={appRoutes.dashboard} onClick={onClose} className="flex items-center gap-3">
             {companySettings?.company?.logo ? (
               <img src={companySettings.company.logo} alt="" className="h-11 w-11 rounded-2xl object-cover shadow-lg ring-1 ring-white/10" />
             ) : (
@@ -65,4 +66,3 @@ export function Sidebar({ isOpen, onClose, t, companySettings }) {
     </>
   )
 }
-
