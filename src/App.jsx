@@ -10,6 +10,7 @@ import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
 import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { LeadFormModal } from './components/leads/LeadFormModal'
+import dataProvider from './services/dataProvider'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
@@ -242,7 +243,12 @@ function ContractorFlowApp() {
     return id
   }
 
-  function createLeadFromDashboard(lead) {
+  async function createLeadFromDashboard(lead) {
+    try {
+      await dataProvider?.leads?.create?.(lead)
+    } catch (err) {
+      // ignore local-mode persistence errors
+    }
     createLead(lead)
     setIsDashboardLeadModalOpen(false)
     setDashboardSuccessMessage(t('leadCreated'))

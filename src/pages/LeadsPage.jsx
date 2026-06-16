@@ -7,6 +7,7 @@ import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
+import dataProvider from '../services/dataProvider'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -46,7 +47,12 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     { label: t('leadPipelineValue'), value: currency.format(totalValue), helper: t('leadPipelineValueHelper'), icon: WalletCards },
   ]
 
-  function handleCreateLead(lead) {
+  async function handleCreateLead(lead) {
+    try {
+      await dataProvider?.leads?.create?.(lead)
+    } catch (err) {
+      // ignore local-mode persistence errors
+    }
     onCreateLead(lead)
     setIsCreateOpen(false)
   }
@@ -59,10 +65,20 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     setConfirmAction({ mode: 'delete', lead })
   }
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveLead(confirmAction.lead.id)
-    if (confirmAction.mode === 'delete') onDeleteLead(confirmAction.lead.id)
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider?.leads?.archive?.(confirmAction.lead.id)
+        onArchiveLead(confirmAction.lead.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider?.leads?.deletePermanently?.(confirmAction.lead.id)
+        onDeleteLead(confirmAction.lead.id)
+      }
+    } catch (err) {
+      // ignore local-mode persistence errors
+    }
     setConfirmAction(null)
   }
 
@@ -71,7 +87,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreLead(lead.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={async (event) => { event.stopPropagation(); try { await dataProvider?.leads?.restore?.(lead.id) } catch (err) {} onRestoreLead(lead.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(lead) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )

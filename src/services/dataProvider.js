@@ -24,6 +24,7 @@ import { USE_SUPABASE } from '../config/backendConfig'
 import * as clientsService from './clientsService'
 import clientsLocalService from './local/clientsLocalService'
 import * as leadsService from './leadsService'
+import leadsLocalService from './local/leadsLocalService'
 import * as projectsService from './projectsService'
 import * as estimatesService from './estimatesService'
 import * as contractsService from './contractsService'
@@ -50,7 +51,15 @@ const supabaseImpl = {
     restore: clientsService.restore,
     deletePermanently: clientsService.deletePermanently,
   },
-  leads: leadsService,
+  leads: {
+    list: leadsService.list,
+    getById: leadsService.getById,
+    create: leadsService.create,
+    update: leadsService.update,
+    archive: leadsService.archive,
+    restore: leadsService.restore,
+    deletePermanently: leadsService.deletePermanently,
+  },
   projects: projectsService,
   estimates: estimatesService,
   contracts: contractsService,
@@ -84,7 +93,7 @@ const localImpl = {
   // operations are handled by App state. Pages will call the dataProvider
   // then invoke App callbacks to update in-memory state.
   clients: clientsLocalService,
-  leads: leadsService,
+  leads: leadsLocalService,
   projects: projectsService,
   estimates: estimatesService,
   contracts: contractsService,
