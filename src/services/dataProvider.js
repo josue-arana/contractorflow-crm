@@ -30,6 +30,7 @@ import projectsLocalService from './local/projectsLocalService'
 import * as estimatesService from './estimatesService'
 import estimatesLocalService from './local/estimatesLocalService'
 import * as contractsService from './contractsService'
+import contractsLocalService from './local/contractsLocalService'
 import * as invoicesService from './invoicesService'
 import * as paymentsService from './paymentsService'
 import * as eventsService from './eventsService'
@@ -106,7 +107,7 @@ const localImpl = {
   leads: leadsLocalService,
   projects: projectsLocalService,
   estimates: estimatesLocalService,
-  contracts: contractsService,
+  contracts: contractsLocalService,
   invoices: invoicesService,
   payments: paymentsService,
   events: eventsService,
