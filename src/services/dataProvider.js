@@ -26,6 +26,7 @@ import clientsLocalService from './local/clientsLocalService'
 import * as leadsService from './leadsService'
 import leadsLocalService from './local/leadsLocalService'
 import * as projectsService from './projectsService'
+import projectsLocalService from './local/projectsLocalService'
 import * as estimatesService from './estimatesService'
 import * as contractsService from './contractsService'
 import * as invoicesService from './invoicesService'
@@ -60,7 +61,15 @@ const supabaseImpl = {
     restore: leadsService.restore,
     deletePermanently: leadsService.deletePermanently,
   },
-  projects: projectsService,
+  projects: {
+    list: projectsService.list,
+    getById: projectsService.getById,
+    create: projectsService.create,
+    update: projectsService.update,
+    archive: projectsService.archive,
+    restore: projectsService.restore,
+    deletePermanently: projectsService.deletePermanently,
+  },
   estimates: estimatesService,
   contracts: contractsService,
   invoices: invoicesService,
@@ -94,7 +103,7 @@ const localImpl = {
   // then invoke App callbacks to update in-memory state.
   clients: clientsLocalService,
   leads: leadsLocalService,
-  projects: projectsService,
+  projects: projectsLocalService,
   estimates: estimatesService,
   contracts: contractsService,
   invoices: invoicesService,
