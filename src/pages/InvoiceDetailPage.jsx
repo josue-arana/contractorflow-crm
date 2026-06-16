@@ -7,6 +7,7 @@ import { currency } from '../utils/formatters'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
+import dataProvider from '../services/dataProvider'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -71,39 +72,76 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     setDraftInvoice((current) => ({ ...current, lineItems: [...(current.lineItems || []), { description: '', amount: 0 }] }))
   }
 
-  function saveInvoice() {
+  async function saveInvoice() {
+    try {
+      const payload = { ...currentInvoice }
+      if (currentInvoice && currentInvoice.id) {
+        await dataProvider.invoices.update(currentInvoice.id, payload)
+      } else {
+        await dataProvider.invoices.create({ ...payload, leadId: lead?.id })
+      }
+    } catch (err) {
+      console.warn('Invoice save failed', err)
+    }
     onUpdateInvoice?.(currentInvoice.id, currentInvoice)
     setSuccessMessage(t('invoiceSaved'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
-  function savePayment(payment) {
+  async function savePayment(payment) {
+    try {
+      const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
+      const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
+      const nextAmountPaid = Math.min(Number(currentInvoice.amount || 0), Number(currentInvoice.amountPaid || 0) + Number(payment.amount || 0))
+      await dataProvider.invoices.update(currentInvoice.id, { amountPaid: nextAmountPaid, paymentHistory: nextPaymentHistory })
+    } catch (err) {
+      console.warn('Record payment failed', err)
+    }
     onRecordInvoicePayment?.(currentInvoice.id, payment)
     setShowPaymentModal(false)
     setSuccessMessage(t('paymentRecorded'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
-  function confirmMarkPaid() {
+  async function confirmMarkPaid() {
     if (balance > 0) {
       setConfirmAction({ mode: 'markPaid' })
       return
     }
+    try {
+      const paymentEntry = { id: `payment-${Date.now()}`, amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+      const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
+      await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
+    } catch (err) {
+      console.warn('Mark paid failed', err)
+    }
     onMarkInvoicePaid?.(currentInvoice.id)
   }
 
-  function runConfirmAction() {
-    if (confirmAction?.mode === 'archive') onArchiveInvoice?.(currentInvoice.id)
-    if (confirmAction?.mode === 'delete') {
-      onDeleteInvoice?.(currentInvoice.id)
-      navigate('/invoices')
+  async function runConfirmAction() {
+    try {
+      if (confirmAction?.mode === 'archive') {
+        await dataProvider.invoices.archive(currentInvoice.id)
+        onArchiveInvoice?.(currentInvoice.id)
+      }
+      if (confirmAction?.mode === 'delete') {
+        await dataProvider.invoices.deletePermanently(currentInvoice.id)
+        onDeleteInvoice?.(currentInvoice.id)
+        navigate('/invoices')
+      }
+      if (confirmAction?.mode === 'markPaid') {
+        const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+        const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
+        await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
+        onMarkInvoicePaid?.(currentInvoice.id)
+        setSuccessMessage(t('invoiceMarkedPaid'))
+        window.setTimeout(() => setSuccessMessage(''), 2500)
+      }
+    } catch (err) {
+      console.warn('Confirm invoice action failed', err)
+    } finally {
+      setConfirmAction(null)
     }
-    if (confirmAction?.mode === 'markPaid') {
-      onMarkInvoicePaid?.(currentInvoice.id)
-      setSuccessMessage(t('invoiceMarkedPaid'))
-      window.setTimeout(() => setSuccessMessage(''), 2500)
-    }
-    setConfirmAction(null)
   }
 
   return (

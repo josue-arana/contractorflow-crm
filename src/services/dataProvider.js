@@ -32,6 +32,7 @@ import estimatesLocalService from './local/estimatesLocalService'
 import * as contractsService from './contractsService'
 import contractsLocalService from './local/contractsLocalService'
 import * as invoicesService from './invoicesService'
+import invoicesLocalService from './local/invoicesLocalService'
 import * as paymentsService from './paymentsService'
 import * as eventsService from './eventsService'
 import * as settingsService from './settingsService'
@@ -108,7 +109,7 @@ const localImpl = {
   projects: projectsLocalService,
   estimates: estimatesLocalService,
   contracts: contractsLocalService,
-  invoices: invoicesService,
+  invoices: invoicesLocalService,
   payments: paymentsService,
   events: eventsService,
   // Local implementation uses a small local settings service. It intentionally
