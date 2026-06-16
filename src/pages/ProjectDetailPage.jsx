@@ -287,9 +287,19 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         message={scheduleConfirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')}
         confirmLabel={scheduleConfirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')}
         onCancel={() => setScheduleConfirmAction(null)}
-        onConfirm={() => {
-          if (scheduleConfirmAction?.mode === 'archive') onArchiveScheduleEvent?.(scheduleConfirmAction.event.id)
-          if (scheduleConfirmAction?.mode === 'delete') onDeleteScheduleEvent?.(scheduleConfirmAction.event.id)
+        onConfirm={async () => {
+          try {
+            if (scheduleConfirmAction?.mode === 'archive') {
+              await dataProvider.events.archive?.(scheduleConfirmAction.event.id)
+              onArchiveScheduleEvent?.(scheduleConfirmAction.event.id)
+            }
+            if (scheduleConfirmAction?.mode === 'delete') {
+              await dataProvider.events.deletePermanently?.(scheduleConfirmAction.event.id)
+              onDeleteScheduleEvent?.(scheduleConfirmAction.event.id)
+            }
+          } catch (err) {
+            // ignore local-mode persistence errors
+          }
           setScheduleConfirmAction(null)
         }}
         t={t}

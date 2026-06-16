@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, Download, MapPin, Package, PlayCircle } from 'lucide-react'
 import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
+import dataProvider from '../services/dataProvider'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -189,7 +190,14 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
         </div>
       </section>
 
-      <ScheduleEventModal isOpen={isScheduleOpen} leads={leads} onClose={() => setIsScheduleOpen(false)} onSave={onCreateEvent} t={t} />
+      <ScheduleEventModal isOpen={isScheduleOpen} leads={leads} onClose={() => setIsScheduleOpen(false)} onSave={async (event) => {
+        try {
+          await dataProvider.events.create?.(event)
+        } catch (err) {
+          // ignore local-mode persistence errors
+        }
+        onCreateEvent?.(event)
+      }} t={t} />
     </div>
   )
 }

@@ -668,7 +668,16 @@ function ContractorFlowApp() {
         context={scheduleModalState.context}
         editingEvent={scheduleModalState.editingEvent}
         onClose={closeScheduleModal}
-        onSave={(event) => {
+        onSave={async (event) => {
+          try {
+            if (scheduleModalState.editingEvent?.id) {
+              await dataProvider.events.update?.(scheduleModalState.editingEvent.id, event)
+            } else {
+              await dataProvider.events.create?.(event)
+            }
+          } catch (err) {
+            // ignore local-mode persistence errors
+          }
           if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, event)
           else createScheduleEvent(event, scheduleModalState.context)
           closeScheduleModal()
