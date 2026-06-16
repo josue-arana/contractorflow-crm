@@ -1,0 +1,33 @@
+export const appRoutes = {
+  root: '/',
+  dashboard: '/dashboard',
+  leads: '/leads',
+  estimates: '/estimates',
+  contracts: '/contracts',
+  jobs: '/jobs',
+  calendar: '/calendar',
+  clients: '/clients',
+  clientProfile: '/clients/:clientId',
+  invoices: '/invoices',
+  invoiceDetail: '/invoices/:invoiceId',
+  settings: '/settings',
+  projects: '/projects/:id',
+  projectEstimate: '/projects/:id/estimate',
+  projectContract: '/projects/:id/contract',
+  portal: '/portal/:id',
+  developerHealth: '/dev/health',
+  developerTranslations: '/dev/translations',
+}
+
+export const routeAuditRegistry = [
+  { id: 'dashboard', labelKey: 'dashboard', path: appRoutes.dashboard },
+  { id: 'leads', labelKey: 'leads', path: appRoutes.leads },
+  { id: 'jobs', labelKey: 'jobs', path: appRoutes.jobs },
+  { id: 'projects', labelKey: 'projects', path: appRoutes.projects },
+  { id: 'estimates', labelKey: 'estimates', path: appRoutes.estimates },
+  { id: 'contracts', labelKey: 'contracts', path: appRoutes.contracts },
+  { id: 'invoices', labelKey: 'invoices', path: appRoutes.invoices },
+  { id: 'clients', labelKey: 'clients', path: appRoutes.clients },
+  { id: 'calendar', labelKey: 'calendar', path: appRoutes.calendar },
+  { id: 'settings', labelKey: 'settings', path: appRoutes.settings },
+]
