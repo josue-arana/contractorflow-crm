@@ -1,11 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Building2, FileText, Globe2, ImageUp, Languages, Save } from 'lucide-react'
 import { InfoCard } from '../components/ui/InfoCard'
+import { BETA_CONTRACTOR_ID, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
+  const { contractor, company: authCompany, session } = useAuth()
   const [draft, setDraft] = useState(settings)
   const [successMessage, setSuccessMessage] = useState('')
+
+  const contractorId = useMemo(() => (
+    contractor?.contractorId
+    || authCompany?.contractorId
+    || session?.user?.user_metadata?.contractor_id
+    || (USE_SUPABASE_SETTINGS ? BETA_CONTRACTOR_ID : '')
+  ), [authCompany?.contractorId, contractor?.contractorId, session?.user?.user_metadata?.contractor_id])
 
   useEffect(() => {
     setDraft(settings)
@@ -19,10 +29,16 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     async function loadSettings() {
       if (!dataProvider?.settings?.getSettings) return
       try {
-        const res = await dataProvider.settings.getSettings()
+        const res = await dataProvider.settings.getSettings({ contractorId })
         if (!mounted) return
         if (res && res.data) {
           setDraft(res.data)
+          if (res.data.appLanguage) {
+            setLanguage(res.data.appLanguage)
+          }
+          if (res.data.portal?.defaultLanguage) {
+            setPortalLanguage(res.data.portal.defaultLanguage)
+          }
         }
       } catch (err) {
         // Swallow errors for now; local mode should remain unaffected.
@@ -32,7 +48,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     return () => {
       mounted = false
     }
-  }, [])
+  }, [contractorId, setLanguage, setPortalLanguage])
 
   function updateSection(section, field, value) {
     setDraft((current) => ({
@@ -79,12 +95,24 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     // Persist through the data provider (no-op in local mode) and then
     // update App state so the visible company settings refresh immediately.
     try {
-      await dataProvider?.settings?.updateSettings?.(nextSettings)
-    } catch (err) {
-      // ignore local-mode persistence errors
-    }
+      const res = await dataProvider?.settings?.updateSettings?.(nextSettings, { contractorId })
+      const persistedSettings = res?.data || nextSettings
 
-    onSaveSettings?.(nextSettings)
+      setDraft(persistedSettings)
+      if (persistedSettings.appLanguage) {
+        setLanguage(persistedSettings.appLanguage)
+      }
+      if (persistedSettings.portal?.defaultLanguage) {
+        setPortalLanguage(persistedSettings.portal.defaultLanguage)
+      }
+
+      onSaveSettings?.(persistedSettings)
+    } catch (err) {
+      onSaveSettings?.(nextSettings)
+      setSuccessMessage(t('settingsSaved'))
+      window.setTimeout(() => setSuccessMessage(''), 2500)
+      return
+    }
     setSuccessMessage(t('settingsSaved'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
   }

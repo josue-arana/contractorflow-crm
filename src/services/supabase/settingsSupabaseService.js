@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 import { createDefaultCompanySettings } from '../../data/defaultCompanySettings'
 import { supabaseClient } from '../../lib/supabaseClient'
 
@@ -144,8 +144,8 @@ function handleMissingContractorId(methodName) {
 }
 
 export async function getSettings(contractorId) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase settings service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE_SETTINGS) {
+    return createSkippedResponse('Supabase settings service skipped because USE_SUPABASE_SETTINGS=false')
   }
 
   if (!contractorId) {
@@ -175,8 +175,8 @@ export async function getSettings(contractorId) {
 }
 
 export async function updateSettings(contractorId, settings) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase settings service skipped because USE_SUPABASE=false', settings ?? null)
+  if (!USE_SUPABASE_SETTINGS) {
+    return createSkippedResponse('Supabase settings service skipped because USE_SUPABASE_SETTINGS=false', settings ?? null)
   }
 
   if (!contractorId) {

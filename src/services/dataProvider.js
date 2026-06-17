@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { USE_SUPABASE } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -53,6 +53,19 @@ function readContractorId(value) {
   return ''
 }
 
+function warnDev(message, meta) {
+  if (!import.meta.env.DEV) return
+
+  if (meta === undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(message)
+    return
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn(message, meta)
+}
+
 function normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOptions) {
   if (typeof contractorIdOrSettings === 'string') {
     return {
@@ -67,6 +80,23 @@ function normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOpti
   }
 }
 
+function resolveSettingsContractorId(value) {
+  const contractorId = readContractorId(value)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if (USE_SUPABASE_SETTINGS && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.settings did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
 const supabaseImpl = {
   clients: clientsSupabaseService,
   leads: leadsSupabaseService,
@@ -76,16 +106,6 @@ const supabaseImpl = {
   invoices: invoicesSupabaseService,
   payments: paymentsSupabaseService,
   events: eventsSupabaseService,
-  settings: {
-    getSettings: async (contractorIdOrOptions) => {
-      const contractorId = readContractorId(contractorIdOrOptions)
-      return settingsSupabaseService.getSettings(contractorId)
-    },
-    updateSettings: async (contractorIdOrSettings, maybeSettingsOrOptions) => {
-      const { contractorId, settings } = normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOptions)
-      return settingsSupabaseService.updateSettings(contractorId, settings)
-    },
-  },
   photos: photosService,
 }
 
@@ -108,10 +128,36 @@ const localImpl = {
   // Local implementation uses a small local settings service. It intentionally
   // returns skipped responses so the App's in-memory state remains the
   // source-of-truth while the UI continues to function exactly as before.
-  settings: settingsLocalService,
   photos: photosService,
 }
 
-export const dataProvider = USE_SUPABASE ? supabaseImpl : localImpl
+const settingsDataProvider = {
+  getSettings: async (contractorIdOrOptions) => {
+    const contractorId = resolveSettingsContractorId(contractorIdOrOptions)
+
+    if (!USE_SUPABASE_SETTINGS) {
+      return settingsLocalService.getSettings(contractorIdOrOptions)
+    }
+
+    return settingsSupabaseService.getSettings(contractorId)
+  },
+  updateSettings: async (contractorIdOrSettings, maybeSettingsOrOptions) => {
+    const { contractorId, settings } = normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOptions)
+    const resolvedContractorId = resolveSettingsContractorId(maybeSettingsOrOptions || contractorId)
+
+    if (!USE_SUPABASE_SETTINGS) {
+      return settingsLocalService.updateSettings(contractorIdOrSettings, maybeSettingsOrOptions)
+    }
+
+    return settingsSupabaseService.updateSettings(resolvedContractorId, settings)
+  },
+}
+
+const entityProvider = USE_SUPABASE ? supabaseImpl : localImpl
+
+export const dataProvider = {
+  ...entityProvider,
+  settings: settingsDataProvider,
+}
 
 export default dataProvider

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { USE_AUTH } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_AUTH } from '../config/backendConfig'
 import { MOCK_CONTRACTOR } from '../constants/mockContractor'
 import { getAuthServiceStatus, getCurrentUser, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
 
@@ -7,6 +7,7 @@ const AuthContext = createContext(null)
 
 const mockContractor = {
   id: MOCK_CONTRACTOR.id,
+  contractorId: BETA_CONTRACTOR_ID,
   fullName: MOCK_CONTRACTOR.name,
   email: 'josue@contractorflow.example',
   role: 'Owner Admin',
@@ -14,6 +15,7 @@ const mockContractor = {
 
 const mockCompany = {
   id: 'mock-company-001',
+  contractorId: BETA_CONTRACTOR_ID,
   name: MOCK_CONTRACTOR.name,
   plan: 'Private Beta',
   locale: 'en-US',
@@ -31,6 +33,7 @@ const mockSession = {
     user_metadata: {
       full_name: mockContractor.fullName,
       company_name: mockCompany.name,
+      contractor_id: BETA_CONTRACTOR_ID,
       role: mockContractor.role,
     },
   },
@@ -66,12 +69,14 @@ export function AuthProvider({ children }) {
         setUser(result.session.user)
         setContractor({
           id: result.session.user.id,
+          contractorId: result.session.user.user_metadata?.contractor_id || '',
           fullName: result.session.user.user_metadata?.full_name || '',
           email: result.session.user.email || '',
           role: result.session.user.user_metadata?.role || 'Owner Admin',
         })
         setCompany((current) => ({
           ...current,
+          contractorId: result.session.user.user_metadata?.contractor_id || current.contractorId || '',
           name: result.session.user.user_metadata?.company_name || current.name,
         }))
       } else {
@@ -92,12 +97,14 @@ export function AuthProvider({ children }) {
       setContractor((current) => ({
         ...current,
         id: nextUser?.id || '',
+        contractorId: nextUser?.user_metadata?.contractor_id || current.contractorId || '',
         fullName: nextUser?.user_metadata?.full_name || '',
         email: nextUser?.email || '',
         role: nextUser?.user_metadata?.role || current.role,
       }))
       setCompany((current) => ({
         ...current,
+        contractorId: nextUser?.user_metadata?.contractor_id || current.contractorId || '',
         name: nextUser?.user_metadata?.company_name || current.name,
       }))
     })
@@ -132,6 +139,7 @@ export function AuthProvider({ children }) {
             ...mockSession.user.user_metadata,
             full_name: payload.fullName || mockContractor.fullName,
             company_name: payload.companyName || mockCompany.name,
+            contractor_id: BETA_CONTRACTOR_ID,
           },
         },
       })
@@ -142,10 +150,11 @@ export function AuthProvider({ children }) {
           ...(current?.user_metadata || mockSession.user.user_metadata),
           full_name: payload.fullName || mockContractor.fullName,
           company_name: payload.companyName || mockCompany.name,
+          contractor_id: BETA_CONTRACTOR_ID,
         },
       }))
-      setCompany((current) => ({ ...current, name: payload.companyName || current.name }))
-      setContractor((current) => ({ ...current, fullName: payload.fullName || current.fullName, email: payload.email }))
+      setCompany((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, name: payload.companyName || current.name }))
+      setContractor((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, fullName: payload.fullName || current.fullName, email: payload.email }))
     }
 
     return result
@@ -179,11 +188,13 @@ export function AuthProvider({ children }) {
           ...(current?.user_metadata || mockSession.user.user_metadata),
           ...(updates?.fullName !== undefined ? { full_name: updates.fullName } : {}),
           ...(updates?.companyName !== undefined ? { company_name: updates.companyName } : {}),
+          contractor_id: current?.user_metadata?.contractor_id || mockSession.user.user_metadata.contractor_id,
         },
       }))
-      setCompany((current) => ({ ...current, name: updates?.companyName || current.name }))
+      setCompany((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, name: updates?.companyName || current.name }))
       setContractor((current) => ({
         ...current,
+        contractorId: current.contractorId || BETA_CONTRACTOR_ID,
         fullName: updates?.fullName || current.fullName,
         email: updates?.email || current.email,
       }))

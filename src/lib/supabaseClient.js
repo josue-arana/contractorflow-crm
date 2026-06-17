@@ -1,14 +1,15 @@
-import { backendConfig, USE_SUPABASE } from '../config/backendConfig'
+import { backendConfig, isSupabaseDataEnabled, USE_SUPABASE } from '../config/backendConfig'
 import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from '../services/system/environmentService'
 
 // Lightweight Supabase REST client for ContractorFlow CRM.
 //
 // This avoids adding @supabase/supabase-js until the beta is ready to connect
-// real authentication and database access. While USE_SUPABASE=false, the UI
-// remains fully local-state driven and these calls are not used by the app.
+// real authentication and database access. While the backend flags are off, the
+// UI remains local-state driven and these calls are not used by the app.
 //
-// When USE_SUPABASE=true and VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are set,
-// the service layer can use this client against Supabase PostgREST endpoints.
+// When USE_SUPABASE=true, or when USE_SUPABASE_SETTINGS=true for the
+// Settings-first beta path, the service layer can use this client against
+// Supabase PostgREST endpoints.
 
 function buildQueryString(query = {}) {
   const params = new URLSearchParams()
@@ -37,12 +38,12 @@ function warnDisabledRequest() {
 
   if (!environmentStatus.hasSupabaseUrl || !environmentStatus.hasAnonKey) {
     // eslint-disable-next-line no-console
-    console.warn('[dev] Supabase request skipped: USE_SUPABASE=false and Vite env is incomplete.')
+    console.warn('[dev] Supabase request skipped: Supabase data flags are disabled and Vite env is incomplete.')
     return
   }
 
   // eslint-disable-next-line no-console
-  console.warn('[dev] Supabase request called while USE_SUPABASE=false; skipping network call.')
+  console.warn('[dev] Supabase request called while Supabase data flags are disabled; skipping network call.')
 }
 
 function createSupabaseRestClient() {
@@ -83,7 +84,7 @@ function createSupabaseRestClient() {
 
   return {
     async request(tableName, { method = 'GET', query, body, prefer = 'return=representation' } = {}) {
-      if (!USE_SUPABASE) {
+      if (!isSupabaseDataEnabled()) {
         warnDisabledRequest()
         return null
       }
@@ -127,7 +128,7 @@ export function getSupabaseConfigStatus() {
   const environmentStatus = getEnvironmentStatus()
 
   return {
-    enabled: USE_SUPABASE,
+    enabled: isSupabaseDataEnabled(),
     configured: environmentStatus.supabaseConfigured,
     urlPresent: environmentStatus.hasSupabaseUrl,
     anonKeyPresent: environmentStatus.hasAnonKey,
@@ -136,10 +137,10 @@ export function getSupabaseConfigStatus() {
 }
 
 export function assertSupabaseReady() {
-  if (!USE_SUPABASE) {
+  if (!isSupabaseDataEnabled()) {
     // During local development, don't throw — only warn.
     // eslint-disable-next-line no-console
-    console.warn('[dev] assertSupabaseReady called while USE_SUPABASE=false')
+    console.warn('[dev] assertSupabaseReady called while Supabase data flags are disabled')
     return false
   }
 
