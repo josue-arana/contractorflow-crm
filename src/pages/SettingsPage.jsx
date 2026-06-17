@@ -1,14 +1,58 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Building2, FileText, Globe2, ImageUp, Languages, Save } from 'lucide-react'
+import { useToast } from '../components/common/ToastProvider'
 import { InfoCard } from '../components/ui/InfoCard'
+import { USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
+import dataProvider from '../services/dataProvider'
+import { getSettingsContractorId } from '../services/system/settingsRuntimeService'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
+  const { contractor, company: authCompany, session } = useAuth()
+  const { showToast } = useToast()
   const [draft, setDraft] = useState(settings)
   const [successMessage, setSuccessMessage] = useState('')
+
+  const contractorId = useMemo(() => (
+    getSettingsContractorId({
+      contractor,
+      company: authCompany,
+      session,
+    })
+  ), [authCompany, contractor, session])
 
   useEffect(() => {
     setDraft(settings)
   }, [settings])
+
+  // Try to load canonical settings from the data provider (no-op in local
+  // mode). If the data provider returns a value, use it; otherwise keep the
+  // `settings` prop provided by App.jsx as the source of truth.
+  useEffect(() => {
+    let mounted = true
+    async function loadSettings() {
+      if (!dataProvider?.settings?.getSettings) return
+      try {
+        const res = await dataProvider.settings.getSettings({ contractorId })
+        if (!mounted) return
+        if (res && res.data) {
+          setDraft(res.data)
+          if (res.data.appLanguage) {
+            setLanguage(res.data.appLanguage)
+          }
+          if (res.data.portal?.defaultLanguage) {
+            setPortalLanguage(res.data.portal.defaultLanguage)
+          }
+        }
+      } catch (err) {
+        // Swallow errors for now; local mode should remain unaffected.
+      }
+    }
+    loadSettings()
+    return () => {
+      mounted = false
+    }
+  }, [contractorId, setLanguage, setPortalLanguage])
 
   function updateSection(section, field, value) {
     setDraft((current) => ({
@@ -43,7 +87,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     reader.readAsDataURL(file)
   }
 
-  function saveSettings() {
+  async function saveSettings() {
     const nextSettings = {
       ...draft,
       portal: {
@@ -52,7 +96,57 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
       },
       appLanguage: language,
     }
-    onSaveSettings?.(nextSettings)
+    // Persist through the data provider (no-op in local mode) and then
+    // update App state so the visible company settings refresh immediately.
+    try {
+      const res = await dataProvider?.settings?.updateSettings?.(nextSettings, { contractorId })
+
+      if (USE_SUPABASE_SETTINGS && res?.error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.error('[dev] Settings Supabase save failed.', {
+            contractorId,
+            error: res.error,
+            response: res,
+          })
+        }
+
+        setSuccessMessage('')
+        showToast(res.error.message || t('settingsSaveFailed'), 'error')
+        return
+      }
+
+      const persistedSettings = res?.data || nextSettings
+
+      setDraft(persistedSettings)
+      if (persistedSettings.appLanguage) {
+        setLanguage(persistedSettings.appLanguage)
+      }
+      if (persistedSettings.portal?.defaultLanguage) {
+        setPortalLanguage(persistedSettings.portal.defaultLanguage)
+      }
+
+      onSaveSettings?.(persistedSettings)
+    } catch (err) {
+      if (USE_SUPABASE_SETTINGS) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.error('[dev] Settings Supabase save threw an unexpected error.', {
+            contractorId,
+            error: err,
+          })
+        }
+
+        setSuccessMessage('')
+        showToast(err?.message || t('settingsSaveFailed'), 'error')
+        return
+      }
+
+      onSaveSettings?.(nextSettings)
+      setSuccessMessage(t('settingsSaved'))
+      window.setTimeout(() => setSuccessMessage(''), 2500)
+      return
+    }
     setSuccessMessage(t('settingsSaved'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
   }

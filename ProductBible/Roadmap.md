@@ -10,6 +10,12 @@
 - Tighten mobile UX, consistency, translations, navigation, empty states, toasts, and archive behavior.
 - Prepare backend-ready services without changing the local-state experience.
 
+## Phase 1.95: Private Beta
+
+- Goal: get 1–3 real contractors using ContractorFlow.
+- Must-have before beta: auth, real CRUD, company isolation, storage, and basic backups.
+- Postponed: Stripe, AI, advanced analytics, and change orders.
+
 ## Phase 2: Supabase Backend
 
 - Connect authenticated data storage, persistence, and contractor-scoped records through the services layer.

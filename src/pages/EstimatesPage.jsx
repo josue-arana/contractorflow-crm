@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import dataProvider from '../services/dataProvider'
 
 const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
 
@@ -59,11 +60,23 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
     setConfirmAction({ mode: 'delete', estimate })
   }
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveEstimate(confirmAction.estimate.id)
-    if (confirmAction.mode === 'delete') onDeleteEstimate(confirmAction.estimate.id)
-    setConfirmAction(null)
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider.estimates.archive(confirmAction.estimate.id)
+        onArchiveEstimate(confirmAction.estimate.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider.estimates.deletePermanently(confirmAction.estimate.id)
+        onDeleteEstimate(confirmAction.estimate.id)
+      }
+    } catch (err) {
+      // Swallow errors in local mode; App callbacks will still update UI.
+      console.warn('Estimate action failed', err)
+    } finally {
+      setConfirmAction(null)
+    }
   }
 
   function renderEstimateActions(estimate, compact = false) {

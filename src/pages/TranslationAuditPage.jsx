@@ -1,4 +1,7 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
+import { USE_AUTH, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
+import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
 
 function StatusBadge({ status }) {
   const classes = {
@@ -52,6 +55,48 @@ function AuditList({ title, items, emptyLabel, renderItem }) {
 
 export function TranslationAuditPage({ t }) {
   const snapshot = buildDeveloperHealthSnapshot()
+  const { authMode, authServiceStatus, contractor, company, user, session } = useAuth()
+  const settingsContractorId = getSettingsContractorId({ contractor, company, session })
+  const hasSettingsSupabaseUser = hasAuthenticatedSupabaseSettingsUser({
+    authMode,
+    user,
+    session,
+  })
+  const settingsBackendWarning = USE_SUPABASE_SETTINGS && !hasSettingsSupabaseUser
+  const settingsBackendStatus = settingsBackendWarning ? 'WARNING' : snapshot.settingsBackend.status
+  const settingsBackendReadinessKey = settingsBackendWarning ? 'notReady' : 'ready'
+  const settingsBackendRows = [
+    {
+      id: 'settingsReadiness',
+      label: t('settingsSupabaseReadiness'),
+      value: t(settingsBackendReadinessKey),
+    },
+    {
+      id: 'useSupabaseSettings',
+      label: t('backendEnvironmentUseSupabaseSettings'),
+      value: t(USE_SUPABASE_SETTINGS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'useAuth',
+      label: t('backendEnvironmentUseAuth'),
+      value: t(USE_AUTH ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'authMode',
+      label: t('authMode'),
+      value: authMode === 'mock' ? t('mockAuth') : t('supabaseAuth'),
+    },
+    {
+      id: 'currentUserId',
+      label: t('currentUserId'),
+      value: user?.id || t('notAvailable'),
+    },
+    {
+      id: 'settingsContractorId',
+      label: t('settingsCurrentContractorId'),
+      value: settingsContractorId || t('notAvailable'),
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -88,6 +133,149 @@ export function TranslationAuditPage({ t }) {
                 {check.id === 'scrollRestoration' && t('scrollRestorationPassDetail')}
               </p>
             </article>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('backendEnvironment')}>
+        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+          {t(snapshot.backendEnvironment.helperKey)}
+        </div>
+        {snapshot.backendEnvironment.warningKey ? (
+          <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t(snapshot.backendEnvironment.warningKey)}
+          </p>
+        ) : null}
+        <div className="mt-4 space-y-3">
+          {snapshot.backendEnvironment.items.map((item) => (
+            <div key={item.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-slate-950">{t(item.labelKey)}</p>
+                <p className="mt-1 text-sm text-slate-600">{t(item.detailKey)}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="text-sm font-semibold text-slate-700">{t(item.valueKey)}</p>
+                <StatusBadge status={item.status} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('settingsBackend')}>
+        {settingsBackendWarning ? (
+          <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t('settingsSupabaseAuthRequiredWarning')}
+          </p>
+        ) : null}
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.settingsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.settingsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={settingsBackendStatus} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {settingsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('clientsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.clientsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.clientsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.clientsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('leadsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.leadsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.leadsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.leadsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('projectsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.projectsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.projectsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.projectsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('estimatesBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.estimatesBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.estimatesBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.estimatesBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('contractsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.contractsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.contractsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.contractsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('invoicesBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.invoicesBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.invoicesBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.invoicesBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('paymentsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.paymentsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.paymentsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.paymentsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('eventsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.eventsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.eventsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.eventsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('contractorIsolationReadiness')}>
+        <div className="grid gap-3">
+          {snapshot.contractorIsolation.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <div>
+                <p className="font-bold text-slate-950">{item.label}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.ready ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                {item.ready ? t('ready') : t('notReady')}
+              </span>
+            </div>
           ))}
         </div>
       </SectionCard>
@@ -144,6 +332,40 @@ export function TranslationAuditPage({ t }) {
           </div>
         </SectionCard>
       </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <SectionCard title={t('authReadiness')}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SummaryCard label={t('authMode')} value={authMode === 'mock' ? t('mockAuth') : t('supabaseAuth')} />
+            <SummaryCard label={t('authServiceStatus')} value={authServiceStatus.configured || authMode === 'mock' ? 'PASS' : 'WARNING'} />
+            <SummaryCard label={t('currentMockUser')} value={user?.email || t('notAvailable')} />
+            <SummaryCard label={t('currentMockCompany')} value={company?.name || t('notAvailable')} />
+          </div>
+          <div className="mt-4 space-y-2">
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('contractor')}</p>
+              <p className="text-sm font-semibold text-slate-600">{contractor?.fullName || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('authServiceStatus')}</p>
+              <p className="text-sm font-semibold text-slate-600">{authServiceStatus.mode === 'mock' ? t('authMockServiceReady') : authServiceStatus.configured ? t('authSupabaseReady') : t('authSupabaseNotConfigured')}</p>
+            </div>
+          </div>
+        </SectionCard>
+      </section>
+
+      <SectionCard title={t('privateBetaBackendChecklist')}>
+        <div className="space-y-2">
+          {snapshot.privateBetaChecklist.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t(item.labelKey)}</p>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.status === 'Complete' ? 'bg-emerald-100 text-emerald-800' : item.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>
+                {t(`checkStatus.${item.status === 'Complete' ? 'complete' : item.status === 'Pending' ? 'pending' : 'notStarted'}`)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
 
       <section className="grid gap-4 xl:grid-cols-2">
         <AuditList

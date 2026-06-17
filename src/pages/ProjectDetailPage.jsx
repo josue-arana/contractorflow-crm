@@ -12,6 +12,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
+import dataProvider from '../services/dataProvider'
 
 export function ProjectDetailPage({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const portal = getPortalData(lead)
@@ -226,7 +227,16 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         isOpen={showPaymentModal}
         remainingBalance={portal.outstandingBalance}
         onClose={() => setShowPaymentModal(false)}
-        onSave={(payment) => { onRecordPayment?.(payment); setShowPaymentModal(false) }}
+        onSave={async (payment) => {
+          try {
+            const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
+            await dataProvider.payments.create({ ...paymentEntry, projectId: lead.id, leadId: lead.id })
+          } catch (err) {
+            // ignore in local mode
+          }
+          onRecordPayment?.(payment)
+          setShowPaymentModal(false)
+        }}
         t={t}
       />
       <PhotoUploadModal
@@ -252,9 +262,20 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')}
         confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')}
         onCancel={() => setConfirmAction(null)}
-        onConfirm={() => {
-          if (confirmAction?.mode === 'archive') onArchiveProject?.()
-          if (confirmAction?.mode === 'delete') { onDeleteProject?.(); onBack?.() }
+        onConfirm={async () => {
+          try {
+            if (confirmAction?.mode === 'archive') {
+              await dataProvider?.projects?.archive?.(lead.id)
+              onArchiveProject?.()
+            }
+            if (confirmAction?.mode === 'delete') {
+              await dataProvider?.projects?.deletePermanently?.(lead.id)
+              onDeleteProject?.()
+              onBack?.()
+            }
+          } catch (err) {
+            // ignore in local mode
+          }
           setConfirmAction(null)
         }}
         t={t}
@@ -266,9 +287,19 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         message={scheduleConfirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')}
         confirmLabel={scheduleConfirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')}
         onCancel={() => setScheduleConfirmAction(null)}
-        onConfirm={() => {
-          if (scheduleConfirmAction?.mode === 'archive') onArchiveScheduleEvent?.(scheduleConfirmAction.event.id)
-          if (scheduleConfirmAction?.mode === 'delete') onDeleteScheduleEvent?.(scheduleConfirmAction.event.id)
+        onConfirm={async () => {
+          try {
+            if (scheduleConfirmAction?.mode === 'archive') {
+              await dataProvider.events.archive?.(scheduleConfirmAction.event.id)
+              onArchiveScheduleEvent?.(scheduleConfirmAction.event.id)
+            }
+            if (scheduleConfirmAction?.mode === 'delete') {
+              await dataProvider.events.deletePermanently?.(scheduleConfirmAction.event.id)
+              onDeleteScheduleEvent?.(scheduleConfirmAction.event.id)
+            }
+          } catch (err) {
+            // ignore local-mode persistence errors
+          }
           setScheduleConfirmAction(null)
         }}
         t={t}

@@ -8,6 +8,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
+import dataProvider from '../services/dataProvider'
 
 export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
@@ -65,10 +66,20 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, on
     setConfirmAction({ mode: 'delete', job })
   }
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveJob(confirmAction.job.id)
-    if (confirmAction.mode === 'delete') onDeleteJob(confirmAction.job.id)
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider?.projects?.archive?.(confirmAction.job.id)
+        onArchiveJob(confirmAction.job.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id)
+        onDeleteJob(confirmAction.job.id)
+      }
+    } catch (err) {
+      // ignore in local mode
+    }
     setConfirmAction(null)
   }
 
@@ -77,7 +88,7 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, on
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreJob(job.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={async (event) => { event.stopPropagation(); try { await dataProvider?.projects?.restore?.(job.id) } catch (err) {} onRestoreJob(job.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(job) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )

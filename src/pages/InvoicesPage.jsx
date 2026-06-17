@@ -7,6 +7,7 @@ import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import dataProvider from '../services/dataProvider'
 
 const invoiceFilters = ['All', 'Archived', 'Draft', 'Sent', 'Paid', 'Overdue', 'Canceled']
 
@@ -53,11 +54,22 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
     setConfirmAction({ mode: 'delete', invoice })
   }
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveInvoice(confirmAction.invoice.id)
-    if (confirmAction.mode === 'delete') onDeleteInvoice(confirmAction.invoice.id)
-    setConfirmAction(null)
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider.invoices.archive(confirmAction.invoice.id)
+        onArchiveInvoice(confirmAction.invoice.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider.invoices.deletePermanently(confirmAction.invoice.id)
+        onDeleteInvoice(confirmAction.invoice.id)
+      }
+    } catch (err) {
+      console.warn('Invoice action failed', err)
+    } finally {
+      setConfirmAction(null)
+    }
   }
 
   function renderInvoiceActions(invoice, compact = false) {
@@ -176,7 +188,14 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         amountValue={currency.format(sendInvoice?.remainingBalance ?? 0)}
         dueDate={sendInvoice?.dueDate || ''}
         onClose={() => setSendInvoice(null)}
-        onSent={() => onInvoiceSent?.(sendInvoice?.id)}
+        onSent={async () => {
+          try {
+            await dataProvider.invoices.update(sendInvoice.id, { status: 'Sent' })
+          } catch (err) {
+            console.warn('Mark invoice sent failed', err)
+          }
+          onInvoiceSent?.(sendInvoice?.id)
+        }}
         t={t}
       />
     </div>

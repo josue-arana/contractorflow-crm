@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
+import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
 export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
@@ -28,10 +29,21 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
 
   const isArchived = archivedClientIds.includes(client.id)
 
-  function runConfirmAction() {
+  async function runConfirmAction() {
     if (!confirmAction) return
-    if (confirmAction.mode === 'archive') onArchiveClient(client.id)
-    if (confirmAction.mode === 'delete') { onDeleteClient(client.id); onBack() }
+    try {
+      if (confirmAction.mode === 'archive') {
+        await dataProvider.clients.archive(client.id)
+        onArchiveClient(client.id)
+      }
+      if (confirmAction.mode === 'delete') {
+        await dataProvider.clients.deletePermanently(client.id)
+        onDeleteClient(client.id)
+        onBack()
+      }
+    } catch (err) {
+      // ignore in local mode
+    }
     setConfirmAction(null)
   }
 
@@ -141,7 +153,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         mode="edit"
         client={client}
         onClose={() => setIsEditOpen(false)}
-        onSave={(updatedClient) => { onUpdateClient(client.id, updatedClient); setIsEditOpen(false) }}
+        onSave={async (updatedClient) => { try { await dataProvider.clients.update(client.id, updatedClient) } catch (err) {} onUpdateClient(client.id, updatedClient); setIsEditOpen(false) }}
         t={t}
       />
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />

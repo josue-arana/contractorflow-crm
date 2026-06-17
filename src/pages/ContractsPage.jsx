@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import dataProvider from '../services/dataProvider'
 import { ModalShell } from '../components/common/ModalShell'
 
 export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned }) {
@@ -52,14 +53,37 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     }
   }
 
-  function saveContract() {
-    onSaveContract?.(getContractPayload())
+  async function saveContract() {
+    const payload = getContractPayload()
+    try {
+      // If contract already exists in portal, attempt update; otherwise create.
+      const existing = savedContract || {}
+      if (existing && existing.id) {
+        await dataProvider.contracts.update(existing.id, payload)
+      } else {
+        await dataProvider.contracts.create({ ...payload, projectId: lead.id })
+      }
+    } catch (err) {
+      console.warn('Contract save via dataProvider failed', err)
+    }
+    onSaveContract?.(payload)
     setIsEditing(false)
   }
 
-  function markSigned() {
+  async function markSigned() {
     const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
-    onMarkSigned?.(getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today }))
+    const payload = getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today })
+    try {
+      const existing = savedContract || {}
+      if (existing && existing.id) {
+        await dataProvider.contracts.update(existing.id, payload)
+      } else {
+        await dataProvider.contracts.create({ ...payload, projectId: lead.id })
+      }
+    } catch (err) {
+      console.warn('Mark signed via dataProvider failed', err)
+    }
+    onMarkSigned?.(payload)
     setIsEditing(false)
   }
 
