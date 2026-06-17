@@ -28,13 +28,13 @@ import estimatesLocalService from './local/estimatesLocalService'
 import contractsLocalService from './local/contractsLocalService'
 import invoicesLocalService from './local/invoicesLocalService'
 import paymentsLocalService from './local/paymentsLocalService'
-import * as eventsService from './eventsService'
 import eventsLocalService from './local/eventsLocalService'
 import settingsLocalService from './local/settingsLocalService'
 import * as photosService from './photosService'
 import clientsSupabaseService from './supabase/clientsSupabaseService'
 import contractsSupabaseService from './supabase/contractsSupabaseService'
 import estimatesSupabaseService from './supabase/estimatesSupabaseService'
+import eventsSupabaseService from './supabase/eventsSupabaseService'
 import invoicesSupabaseService from './supabase/invoicesSupabaseService'
 import leadsSupabaseService from './supabase/leadsSupabaseService'
 import paymentsSupabaseService from './supabase/paymentsSupabaseService'
@@ -75,7 +75,7 @@ const supabaseImpl = {
   contracts: contractsSupabaseService,
   invoices: invoicesSupabaseService,
   payments: paymentsSupabaseService,
-  events: eventsService,
+  events: eventsSupabaseService,
   settings: {
     getSettings: async (contractorIdOrOptions) => {
       const contractorId = readContractorId(contractorIdOrOptions)

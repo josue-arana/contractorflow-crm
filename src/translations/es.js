@@ -846,6 +846,7 @@ export const es = {
   "contractsBackend": "Backend de contratos",
   "invoicesBackend": "Backend de facturas",
   "paymentsBackend": "Backend de pagos",
+  "eventsBackend": "Backend de eventos",
   "routing": "Rutas",
   "translations": "Traducciones",
   "services": "Servicios",
@@ -989,6 +990,8 @@ export const es = {
   "invoicesBackendSupabaseDetail": "Facturas pueden cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
   "paymentsBackendLocalDetail": "Pagos siguen usando la ruta actual de estado local de la app mientras USE_SUPABASE sea false.",
   "paymentsBackendSupabaseDetail": "Pagos pueden cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
+  "eventsBackendLocalDetail": "Eventos siguen usando la ruta actual de estado local de la app mientras USE_SUPABASE sea false.",
+  "eventsBackendSupabaseDetail": "Eventos pueden cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
   "contractor": "Contratista"
   ,"contractorIsolationReadiness": "Preparación de aislamiento de contratistas"
   ,"ready": "Listo"

@@ -122,6 +122,15 @@ export function getPaymentsBackendStatus() {
   }
 }
 
+export function getEventsBackendStatus() {
+  return {
+    mode: USE_SUPABASE ? 'supabase' : 'local',
+    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
+    detailKey: USE_SUPABASE ? 'eventsBackendSupabaseDetail' : 'eventsBackendLocalDetail',
+    status: 'PASS',
+  }
+}
+
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
 
