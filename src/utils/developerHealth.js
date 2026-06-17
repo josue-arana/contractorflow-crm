@@ -27,7 +27,7 @@ import { ToastProvider, useToast } from '../components/common/ToastProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { NotificationCenter } from '../components/layout/NotificationCenter'
 import { ScrollToTop } from '../components/layout/ScrollToTop'
-import { getBackendEnvironmentStatus, getClientsBackendStatus, getEstimatesBackendStatus, getLeadsBackendStatus, getProjectsBackendStatus, getSettingsBackendStatus } from '../services/healthService'
+import { getBackendEnvironmentStatus, getClientsBackendStatus, getContractsBackendStatus, getEstimatesBackendStatus, getLeadsBackendStatus, getProjectsBackendStatus, getSettingsBackendStatus } from '../services/healthService'
 import { auditTranslations } from '../translations'
 
 const requiredServiceMethods = ['list', 'getById', 'create', 'update', 'archive', 'restore', 'deletePermanently']
@@ -332,6 +332,7 @@ export function buildDeveloperHealthSnapshot() {
     leadsBackend: getLeadsBackendStatus(),
     projectsBackend: getProjectsBackendStatus(),
     estimatesBackend: getEstimatesBackendStatus(),
+    contractsBackend: getContractsBackendStatus(),
     settingsBackend: getSettingsBackendStatus(),
     privateBetaChecklist: buildPrivateBetaChecklist(),
   }

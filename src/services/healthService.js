@@ -95,6 +95,15 @@ export function getEstimatesBackendStatus() {
   }
 }
 
+export function getContractsBackendStatus() {
+  return {
+    mode: USE_SUPABASE ? 'supabase' : 'local',
+    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
+    detailKey: USE_SUPABASE ? 'contractsBackendSupabaseDetail' : 'contractsBackendLocalDetail',
+    status: 'PASS',
+  }
+}
+
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
 
