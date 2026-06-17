@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Building2, FileText, Globe2, ImageUp, Languages, Save } from 'lucide-react'
+import { useToast } from '../components/common/ToastProvider'
 import { InfoCard } from '../components/ui/InfoCard'
-import { BETA_CONTRACTOR_ID, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
+import { getSettingsContractorId } from '../services/system/settingsRuntimeService'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const { contractor, company: authCompany, session } = useAuth()
+  const { showToast } = useToast()
   const [draft, setDraft] = useState(settings)
   const [successMessage, setSuccessMessage] = useState('')
 
   const contractorId = useMemo(() => (
-    contractor?.contractorId
-    || authCompany?.contractorId
-    || session?.user?.user_metadata?.contractor_id
-    || (USE_SUPABASE_SETTINGS ? BETA_CONTRACTOR_ID : '')
-  ), [authCompany?.contractorId, contractor?.contractorId, session?.user?.user_metadata?.contractor_id])
+    getSettingsContractorId({
+      contractor,
+      company: authCompany,
+      session,
+    })
+  ), [authCompany, contractor, session])
 
   useEffect(() => {
     setDraft(settings)
@@ -96,6 +100,22 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     // update App state so the visible company settings refresh immediately.
     try {
       const res = await dataProvider?.settings?.updateSettings?.(nextSettings, { contractorId })
+
+      if (USE_SUPABASE_SETTINGS && res?.error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.error('[dev] Settings Supabase save failed.', {
+            contractorId,
+            error: res.error,
+            response: res,
+          })
+        }
+
+        setSuccessMessage('')
+        showToast(res.error.message || t('settingsSaveFailed'), 'error')
+        return
+      }
+
       const persistedSettings = res?.data || nextSettings
 
       setDraft(persistedSettings)
@@ -108,6 +128,20 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
 
       onSaveSettings?.(persistedSettings)
     } catch (err) {
+      if (USE_SUPABASE_SETTINGS) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.error('[dev] Settings Supabase save threw an unexpected error.', {
+            contractorId,
+            error: err,
+          })
+        }
+
+        setSuccessMessage('')
+        showToast(err?.message || t('settingsSaveFailed'), 'error')
+        return
+      }
+
       onSaveSettings?.(nextSettings)
       setSuccessMessage(t('settingsSaved'))
       window.setTimeout(() => setSuccessMessage(''), 2500)

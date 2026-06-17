@@ -1,5 +1,7 @@
-import { backendConfig, isSupabaseDataEnabled, USE_SUPABASE } from '../config/backendConfig'
+import { backendConfig, isSupabaseAuthEnabled, isSupabaseDataEnabled } from '../config/backendConfig'
 import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from '../services/system/environmentService'
+
+const AUTH_STORAGE_KEY = 'contractorflow.auth.session'
 
 // Lightweight Supabase REST client for ContractorFlow CRM.
 //
@@ -30,7 +32,51 @@ function buildQueryString(query = {}) {
 }
 
 function getSupabaseConfigError() {
-  return new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+  const error = new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+  error.code = 'SUPABASE_ENV_MISSING'
+  error.details = 'Both VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be present before Supabase requests can run.'
+  return error
+}
+
+function parseJsonSafely(text) {
+  if (!text) return null
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return text
+  }
+}
+
+function createSupabaseHttpError(data, fallbackMessage, status) {
+  const error = new Error(
+    data?.msg
+      || data?.message
+      || data?.error_description
+      || data?.error
+      || fallbackMessage
+  )
+
+  error.code = data?.code || data?.error_code || `SUPABASE_HTTP_${status}`
+  error.details = data?.details || data?.hint || data?.error || null
+  error.status = status
+  error.raw = data
+
+  return error
+}
+
+function getStoredAccessToken() {
+  if (typeof window === 'undefined') return ''
+
+  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY)
+  if (!rawValue) return ''
+
+  try {
+    const parsed = JSON.parse(rawValue)
+    return parsed?.access_token || ''
+  } catch {
+    return ''
+  }
 }
 
 function warnDisabledRequest() {
@@ -48,7 +94,7 @@ function warnDisabledRequest() {
 
 function createSupabaseRestClient() {
   async function requestAuth(path, { method = 'GET', body, headers = {} } = {}) {
-    if (!USE_SUPABASE) {
+    if (!isSupabaseAuthEnabled()) {
       warnDisabledRequest()
       return null
     }
@@ -72,11 +118,10 @@ function createSupabaseRestClient() {
     })
 
     const text = await response.text()
-    const data = text ? JSON.parse(text) : null
+    const data = parseJsonSafely(text)
 
     if (!response.ok) {
-      const message = data?.msg || data?.message || data?.error_description || data?.error || `Supabase auth request failed with status ${response.status}`
-      throw new Error(message)
+      throw createSupabaseHttpError(data, `Supabase auth request failed with status ${response.status}`, response.status)
     }
 
     return data
@@ -90,6 +135,7 @@ function createSupabaseRestClient() {
       }
 
       const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
+      const accessToken = getStoredAccessToken()
 
       if (!supabaseUrl || !supabaseAnonKey) {
         throw getSupabaseConfigError()
@@ -101,7 +147,7 @@ function createSupabaseRestClient() {
         method,
         headers: {
           apikey: supabaseAnonKey,
-          Authorization: `Bearer ${supabaseAnonKey}`,
+          Authorization: `Bearer ${accessToken || supabaseAnonKey}`,
           'Content-Type': 'application/json',
           Prefer: prefer,
         },
@@ -109,11 +155,10 @@ function createSupabaseRestClient() {
       })
 
       const text = await response.text()
-      const data = text ? JSON.parse(text) : null
+      const data = parseJsonSafely(text)
 
       if (!response.ok) {
-        const message = data?.message || data?.error_description || data?.error || `Supabase request failed with status ${response.status}`
-        throw new Error(message)
+        throw createSupabaseHttpError(data, `Supabase request failed with status ${response.status}`, response.status)
       }
 
       return data

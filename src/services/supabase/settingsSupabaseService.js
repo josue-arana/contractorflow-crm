@@ -30,11 +30,12 @@ function createSkippedResponse(message, data = null) {
   }
 }
 
-function createErrorResult(message, details = null) {
+function createErrorResult(message, details = null, code = null) {
   return {
     data: null,
     error: {
       message,
+      code,
       details,
     },
     skipped: false,
@@ -140,7 +141,14 @@ async function createDefaultSettingsRecord(contractorId, seedSettings = {}) {
 function handleMissingContractorId(methodName) {
   warnDev(`[dev] settingsSupabaseService.${methodName} called without contractorId`)
 
-  return createErrorResult('contractorId is required for company settings operations.')
+  return createErrorResult(
+    'contractorId is required for company settings operations.',
+    {
+      methodName,
+      reason: 'No contractorId was provided to the Settings Supabase service.',
+    },
+    'MISSING_CONTRACTOR_ID'
+  )
 }
 
 export async function getSettings(contractorId) {

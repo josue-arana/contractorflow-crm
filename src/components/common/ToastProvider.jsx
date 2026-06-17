@@ -22,7 +22,14 @@ export function ToastProvider({ children }) {
       {toasts.length > 0 && (
         <div className="pointer-events-none fixed left-0 right-0 top-20 z-[120] flex flex-col items-center gap-2 px-4 sm:top-6">
           {toasts.map((toast) => (
-            <div key={toast.id} className="pointer-events-auto w-full max-w-md rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 shadow-lg shadow-emerald-950/10">
+            <div
+              key={toast.id}
+              className={`pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 text-sm font-bold shadow-lg ${
+                toast.type === 'error'
+                  ? 'border border-rose-200 bg-rose-50 text-rose-800 shadow-rose-950/10'
+                  : 'border border-emerald-200 bg-emerald-50 text-emerald-800 shadow-emerald-950/10'
+              }`}
+            >
               {toast.message}
             </div>
           ))}

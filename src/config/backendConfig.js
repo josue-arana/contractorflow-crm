@@ -15,8 +15,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
 
 export const USE_SUPABASE = false
-export const USE_SUPABASE_SETTINGS = false
-export const USE_AUTH = false
+export const USE_SUPABASE_SETTINGS = true
+export const USE_AUTH = true
 export const USE_STORAGE = false
 export const USE_REAL_EMAIL = false
 export const USE_REAL_SMS = false
@@ -46,11 +46,15 @@ export function isSupabaseConfigured() {
 }
 
 export function isSupabaseAuthConfigured() {
-  return Boolean(USE_SUPABASE && USE_AUTH && SUPABASE_URL && SUPABASE_ANON_KEY)
+  return Boolean(USE_AUTH && SUPABASE_URL && SUPABASE_ANON_KEY)
 }
 
 export function isSupabaseDataEnabled() {
   return USE_SUPABASE === true || USE_SUPABASE_SETTINGS === true
+}
+
+export function isSupabaseAuthEnabled() {
+  return USE_AUTH === true
 }
 
 export function isBackendEnabled() {

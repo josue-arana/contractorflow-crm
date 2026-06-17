@@ -1,4 +1,4 @@
-import { USE_AUTH, USE_SUPABASE } from '../config/backendConfig'
+import { isSupabaseAuthConfigured, USE_AUTH, USE_SUPABASE } from '../config/backendConfig'
 import { supabaseClient } from '../lib/supabaseClient'
 import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from './system/environmentService'
 
@@ -68,11 +68,11 @@ function buildAuthHeaders(includeJson = true) {
 }
 
 async function authRequest(path, { method = 'GET', body, accessToken } = {}) {
-  if (!USE_SUPABASE || !USE_AUTH) {
+  if (!USE_AUTH) {
     throw createAuthDisabledError()
   }
 
-  if (!getEnvironmentStatus().authConfigured) {
+  if (!isSupabaseAuthConfigured()) {
     throw new Error('Supabase Auth is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before enabling auth.')
   }
 
@@ -118,12 +118,15 @@ export function subscribeToAuthChanges(listener) {
 
 export function getAuthServiceStatus() {
   const environmentStatus = getEnvironmentStatus()
+  const storedSession = readStoredSession()
 
   return {
     authEnabled: USE_AUTH,
     supabaseEnabled: USE_SUPABASE,
-    configured: Boolean(USE_SUPABASE && USE_AUTH && environmentStatus.authConfigured),
-    hasStoredSession: Boolean(readStoredSession()),
+    configured: Boolean(USE_AUTH && environmentStatus.authConfigured),
+    hasStoredSession: Boolean(storedSession),
+    session: storedSession,
+    userId: storedSession?.user?.id || '',
     mode: USE_AUTH ? 'supabase' : 'mock',
     clientReady: Boolean(supabaseClient),
   }
@@ -145,14 +148,17 @@ export async function getCurrentUser() {
       accessToken: session.access_token,
     })
 
+    const nextSession = {
+      ...session,
+      user: data,
+    }
+    writeStoredSession(nextSession)
+
     return {
       data,
       error: null,
       skipped: false,
-      session: {
-        ...session,
-        user: data,
-      },
+      session: nextSession,
     }
   } catch (error) {
     return { data: null, error: normalizeAuthError(error, 'Unable to load current user.'), skipped: false, session: null }

@@ -1,5 +1,7 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
+import { USE_AUTH, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
 
 function StatusBadge({ status }) {
   const classes = {
@@ -53,7 +55,48 @@ function AuditList({ title, items, emptyLabel, renderItem }) {
 
 export function TranslationAuditPage({ t }) {
   const snapshot = buildDeveloperHealthSnapshot()
-  const { authMode, authServiceStatus, contractor, company, user } = useAuth()
+  const { authMode, authServiceStatus, contractor, company, user, session } = useAuth()
+  const settingsContractorId = getSettingsContractorId({ contractor, company, session })
+  const hasSettingsSupabaseUser = hasAuthenticatedSupabaseSettingsUser({
+    authMode,
+    user,
+    session,
+  })
+  const settingsBackendWarning = USE_SUPABASE_SETTINGS && !hasSettingsSupabaseUser
+  const settingsBackendStatus = settingsBackendWarning ? 'WARNING' : snapshot.settingsBackend.status
+  const settingsBackendReadinessKey = settingsBackendWarning ? 'notReady' : 'ready'
+  const settingsBackendRows = [
+    {
+      id: 'settingsReadiness',
+      label: t('settingsSupabaseReadiness'),
+      value: t(settingsBackendReadinessKey),
+    },
+    {
+      id: 'useSupabaseSettings',
+      label: t('backendEnvironmentUseSupabaseSettings'),
+      value: t(USE_SUPABASE_SETTINGS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'useAuth',
+      label: t('backendEnvironmentUseAuth'),
+      value: t(USE_AUTH ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'authMode',
+      label: t('authMode'),
+      value: authMode === 'mock' ? t('mockAuth') : t('supabaseAuth'),
+    },
+    {
+      id: 'currentUserId',
+      label: t('currentUserId'),
+      value: user?.id || t('notAvailable'),
+    },
+    {
+      id: 'settingsContractorId',
+      label: t('settingsCurrentContractorId'),
+      value: settingsContractorId || t('notAvailable'),
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -120,12 +163,25 @@ export function TranslationAuditPage({ t }) {
       </SectionCard>
 
       <SectionCard title={t('settingsBackend')}>
+        {settingsBackendWarning ? (
+          <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t('settingsSupabaseAuthRequiredWarning')}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-bold text-slate-950">{t(snapshot.settingsBackend.valueKey)}</p>
             <p className="mt-1 text-sm text-slate-600">{t(snapshot.settingsBackend.detailKey)}</p>
           </div>
-          <StatusBadge status={snapshot.settingsBackend.status} />
+          <StatusBadge status={settingsBackendStatus} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {settingsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

@@ -68,14 +68,18 @@ export function getBackendEnvironmentStatus() {
 export function getSettingsBackendStatus() {
   const environmentStatus = getEnvironmentStatus()
   const usesSupabase = USE_SUPABASE_SETTINGS
-  const hasWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
 
   return {
     mode: usesSupabase ? 'supabase' : 'local',
     valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
     detailKey: usesSupabase
-      ? hasWarning
+      ? hasMissingEnvWarning
         ? 'settingsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'settingsBackendSupabaseAuthRequiredDetail'
         : 'settingsBackendSupabaseDetail'
       : 'settingsBackendLocalDetail',
     status: hasWarning ? 'WARNING' : 'PASS',

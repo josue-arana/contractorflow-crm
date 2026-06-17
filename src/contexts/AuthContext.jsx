@@ -39,6 +39,41 @@ const mockSession = {
   },
 }
 
+function getResolvedContractorId() {
+  return BETA_CONTRACTOR_ID
+}
+
+function normalizeAuthenticatedUser(user) {
+  if (!user) return null
+
+  return {
+    ...user,
+    user_metadata: {
+      ...(user.user_metadata || {}),
+      contractor_id: getResolvedContractorId(),
+    },
+  }
+}
+
+function buildContractorState(nextUser, currentContractor = mockContractor) {
+  return {
+    ...currentContractor,
+    id: nextUser?.id || currentContractor.id,
+    contractorId: getResolvedContractorId(),
+    fullName: nextUser?.user_metadata?.full_name || currentContractor.fullName,
+    email: nextUser?.email || currentContractor.email,
+    role: nextUser?.user_metadata?.role || currentContractor.role,
+  }
+}
+
+function buildCompanyState(nextUser, currentCompany = mockCompany) {
+  return {
+    ...currentCompany,
+    contractorId: getResolvedContractorId(),
+    name: nextUser?.user_metadata?.company_name || currentCompany.name,
+  }
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(USE_AUTH ? null : mockSession)
   const [user, setUser] = useState(USE_AUTH ? null : mockSession.user)
@@ -65,20 +100,16 @@ export function AuthProvider({ children }) {
       if (!isMounted) return
 
       if (result.session?.user) {
-        setSession(result.session)
-        setUser(result.session.user)
-        setContractor({
-          id: result.session.user.id,
-          contractorId: result.session.user.user_metadata?.contractor_id || '',
-          fullName: result.session.user.user_metadata?.full_name || '',
-          email: result.session.user.email || '',
-          role: result.session.user.user_metadata?.role || 'Owner Admin',
-        })
-        setCompany((current) => ({
-          ...current,
-          contractorId: result.session.user.user_metadata?.contractor_id || current.contractorId || '',
-          name: result.session.user.user_metadata?.company_name || current.name,
-        }))
+        const nextUser = normalizeAuthenticatedUser(result.session.user)
+        const nextSession = {
+          ...result.session,
+          user: nextUser,
+        }
+
+        setSession(nextSession)
+        setUser(nextUser)
+        setContractor((current) => buildContractorState(nextUser, current))
+        setCompany((current) => buildCompanyState(nextUser, current))
       } else {
         setSession(null)
         setUser(null)
@@ -92,21 +123,18 @@ export function AuthProvider({ children }) {
     const unsubscribe = subscribeToAuthChanges(({ session: nextSession, user: nextUser }) => {
       if (!isMounted) return
 
-      setSession(nextSession)
-      setUser(nextUser)
-      setContractor((current) => ({
-        ...current,
-        id: nextUser?.id || '',
-        contractorId: nextUser?.user_metadata?.contractor_id || current.contractorId || '',
-        fullName: nextUser?.user_metadata?.full_name || '',
-        email: nextUser?.email || '',
-        role: nextUser?.user_metadata?.role || current.role,
-      }))
-      setCompany((current) => ({
-        ...current,
-        contractorId: nextUser?.user_metadata?.contractor_id || current.contractorId || '',
-        name: nextUser?.user_metadata?.company_name || current.name,
-      }))
+      const normalizedUser = normalizeAuthenticatedUser(nextUser)
+      const normalizedSession = nextSession
+        ? {
+            ...nextSession,
+            user: normalizedUser,
+          }
+        : null
+
+      setSession(normalizedSession)
+      setUser(normalizedUser)
+      setContractor((current) => buildContractorState(normalizedUser, current))
+      setCompany((current) => buildCompanyState(normalizedUser, current))
     })
 
     return () => {
