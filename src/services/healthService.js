@@ -113,6 +113,15 @@ export function getInvoicesBackendStatus() {
   }
 }
 
+export function getPaymentsBackendStatus() {
+  return {
+    mode: USE_SUPABASE ? 'supabase' : 'local',
+    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
+    detailKey: USE_SUPABASE ? 'paymentsBackendSupabaseDetail' : 'paymentsBackendLocalDetail',
+    status: 'PASS',
+  }
+}
+
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
 
