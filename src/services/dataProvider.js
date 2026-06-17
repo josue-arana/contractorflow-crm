@@ -24,7 +24,6 @@ import { USE_SUPABASE } from '../config/backendConfig'
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
 import projectsLocalService from './local/projectsLocalService'
-import * as estimatesService from './estimatesService'
 import estimatesLocalService from './local/estimatesLocalService'
 import * as contractsService from './contractsService'
 import contractsLocalService from './local/contractsLocalService'
@@ -37,6 +36,7 @@ import eventsLocalService from './local/eventsLocalService'
 import settingsLocalService from './local/settingsLocalService'
 import * as photosService from './photosService'
 import clientsSupabaseService from './supabase/clientsSupabaseService'
+import estimatesSupabaseService from './supabase/estimatesSupabaseService'
 import leadsSupabaseService from './supabase/leadsSupabaseService'
 import projectsSupabaseService from './supabase/projectsSupabaseService'
 import settingsSupabaseService from './supabase/settingsSupabaseService'
@@ -71,7 +71,7 @@ const supabaseImpl = {
   clients: clientsSupabaseService,
   leads: leadsSupabaseService,
   projects: projectsSupabaseService,
-  estimates: estimatesService,
+  estimates: estimatesSupabaseService,
   contracts: contractsService,
   invoices: invoicesService,
   payments: paymentsService,

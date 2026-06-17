@@ -1,0 +1,556 @@
+import { USE_SUPABASE } from '../../config/backendConfig'
+import { supabaseClient } from '../../lib/supabaseClient'
+
+const TABLE_NAME = 'estimates'
+
+const uiToDbStatusMap = {
+  Draft: 'draft',
+  Saved: 'saved',
+  Sent: 'sent',
+  Approved: 'approved',
+  Rejected: 'rejected',
+  'Converted to Contract': 'converted',
+}
+
+const dbToUiStatusMap = {
+  draft: 'Draft',
+  saved: 'Saved',
+  sent: 'Sent',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  converted: 'Converted to Contract',
+}
+
+function isDev() {
+  return Boolean(import.meta.env.DEV)
+}
+
+function warnDev(message, meta) {
+  if (!isDev()) return
+
+  if (meta === undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(message)
+    return
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn(message, meta)
+}
+
+function createSkippedResponse(message, data = null) {
+  return {
+    data,
+    error: null,
+    skipped: true,
+    message,
+  }
+}
+
+function createErrorResult(message, details = null) {
+  return {
+    data: null,
+    error: {
+      message,
+      details,
+    },
+    skipped: false,
+  }
+}
+
+function normalizeError(error, fallbackMessage) {
+  return {
+    message: error?.message || fallbackMessage,
+    details: error?.details || null,
+    code: error?.code || null,
+  }
+}
+
+function readSingleRow(data) {
+  return Array.isArray(data) ? data[0] ?? null : data ?? null
+}
+
+function hasOwn(source, key) {
+  return Boolean(source) && Object.prototype.hasOwnProperty.call(source, key)
+}
+
+function readField(source = {}, keys = []) {
+  for (const key of keys) {
+    if (hasOwn(source, key)) {
+      return source[key]
+    }
+  }
+
+  return undefined
+}
+
+function assignIfDefined(target, key, value) {
+  if (value !== undefined) {
+    target[key] = value
+  }
+}
+
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function normalizeLineItems(lineItems) {
+  if (!Array.isArray(lineItems)) return []
+
+  return lineItems.map((item) => ({
+    ...(item && typeof item === 'object' ? item : {}),
+    name: typeof item?.name === 'string' ? item.name : '',
+    amount: toNumber(item?.amount),
+  }))
+}
+
+function sumLineItems(lineItems) {
+  return normalizeLineItems(lineItems).reduce((sum, item) => sum + toNumber(item.amount), 0)
+}
+
+function mapStatusToDb(status) {
+  if (!status) return 'draft'
+  return uiToDbStatusMap[status] || String(status).toLowerCase().replace(/\s+/g, '_')
+}
+
+function mapStatusToUi(status) {
+  if (!status) return 'Draft'
+  return dbToUiStatusMap[status] || status
+}
+
+function applyStatusTimestamps(payload, estimate = {}) {
+  const explicitSentAt = readField(estimate, ['sentAt', 'sent_at'])
+  const explicitApprovedAt = readField(estimate, ['approvedAt', 'approved_at'])
+  const explicitRejectedAt = readField(estimate, ['rejectedAt', 'rejected_at'])
+  const explicitConvertedAt = readField(estimate, ['convertedAt', 'converted_at'])
+  const now = new Date().toISOString()
+
+  assignIfDefined(payload, 'sent_at', explicitSentAt)
+  assignIfDefined(payload, 'approved_at', explicitApprovedAt)
+  assignIfDefined(payload, 'rejected_at', explicitRejectedAt)
+  assignIfDefined(payload, 'converted_at', explicitConvertedAt)
+
+  if (payload.status === 'sent' && payload.sent_at === undefined) payload.sent_at = now
+  if (payload.status === 'approved' && payload.approved_at === undefined) payload.approved_at = now
+  if (payload.status === 'rejected' && payload.rejected_at === undefined) payload.rejected_at = now
+  if (payload.status === 'converted' && payload.converted_at === undefined) payload.converted_at = now
+
+  return payload
+}
+
+function toAppEstimate(row) {
+  const lineItems = normalizeLineItems(row?.line_items)
+
+  return {
+    id: row?.id || undefined,
+    contractorId: row?.contractor_id || undefined,
+    clientId: row?.client_id || null,
+    projectId: row?.project_id || null,
+    number: row?.estimate_number || '',
+    estimateNumber: row?.estimate_number || '',
+    title: row?.title || 'Estimate',
+    projectTitle: row?.title || 'Estimate',
+    summary: row?.scope_of_work || '',
+    scopeOfWork: row?.scope_of_work || '',
+    lineItems,
+    subtotal: toNumber(row?.subtotal),
+    discountAmount: toNumber(row?.discount_amount),
+    taxAmount: toNumber(row?.tax_amount),
+    total: toNumber(row?.total_amount),
+    totalAmount: toNumber(row?.total_amount),
+    amount: toNumber(row?.total_amount),
+    depositPercentage: row?.deposit_percentage === null || row?.deposit_percentage === undefined ? null : toNumber(row?.deposit_percentage),
+    materialsIncluded: Boolean(row?.materials_included),
+    paymentTerms: row?.payment_terms || '',
+    status: mapStatusToUi(row?.status),
+    sentAt: row?.sent_at || null,
+    approvedAt: row?.approved_at || null,
+    rejectedAt: row?.rejected_at || null,
+    convertedAt: row?.converted_at || null,
+    dateCreated: row?.created_at || null,
+    createdAt: row?.created_at || null,
+    updatedAt: row?.updated_at || null,
+    archivedAt: row?.archived_at || null,
+    client: '',
+    nextAction: '',
+  }
+}
+
+function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {}) {
+  const payload = {}
+  const lineItemsInput = readField(estimate, ['lineItems', 'line_items'])
+  const lineItems = lineItemsInput !== undefined ? normalizeLineItems(lineItemsInput) : undefined
+  const subtotalInput = readField(estimate, ['subtotal'])
+  const discountAmountInput = readField(estimate, ['discountAmount', 'discount_amount'])
+  const taxAmountInput = readField(estimate, ['taxAmount', 'tax_amount'])
+  const totalInput = readField(estimate, ['total', 'totalAmount', 'total_amount', 'amount'])
+  const titleInput = readField(estimate, ['title', 'projectTitle', 'estimateTitle'])
+  const statusInput = readField(estimate, ['status'])
+  const materialsIncludedInput = readField(estimate, ['materialsIncluded', 'materials_included'])
+
+  if (contractorId) {
+    payload.contractor_id = contractorId
+  }
+
+  if (isCreate || readField(estimate, ['clientId', 'client_id']) !== undefined) {
+    payload.client_id = readField(estimate, ['clientId', 'client_id']) || null
+  }
+
+  if (isCreate || readField(estimate, ['projectId', 'project_id']) !== undefined) {
+    payload.project_id = readField(estimate, ['projectId', 'project_id']) || null
+  }
+
+  if (titleInput !== undefined) {
+    payload.title = titleInput || 'Estimate'
+  } else if (isCreate) {
+    payload.title = 'Estimate'
+  }
+
+  if (isCreate || readField(estimate, ['number', 'estimateNumber', 'estimate_number']) !== undefined) {
+    payload.estimate_number = readField(estimate, ['number', 'estimateNumber', 'estimate_number']) || null
+  }
+
+  if (isCreate || readField(estimate, ['summary', 'scopeOfWork', 'scope_of_work']) !== undefined) {
+    payload.scope_of_work = readField(estimate, ['summary', 'scopeOfWork', 'scope_of_work']) || null
+  }
+
+  if (lineItems !== undefined || isCreate) {
+    payload.line_items = lineItems || []
+  }
+
+  if (subtotalInput !== undefined) {
+    payload.subtotal = toNumber(subtotalInput)
+  } else if (lineItems !== undefined) {
+    payload.subtotal = sumLineItems(lineItems)
+  } else if (isCreate) {
+    payload.subtotal = 0
+  }
+
+  if (discountAmountInput !== undefined) {
+    payload.discount_amount = toNumber(discountAmountInput)
+  } else if (isCreate) {
+    payload.discount_amount = 0
+  }
+
+  if (taxAmountInput !== undefined) {
+    payload.tax_amount = toNumber(taxAmountInput)
+  } else if (isCreate) {
+    payload.tax_amount = 0
+  }
+
+  if (totalInput !== undefined) {
+    payload.total_amount = toNumber(totalInput)
+  } else if (lineItems !== undefined || subtotalInput !== undefined || discountAmountInput !== undefined || taxAmountInput !== undefined || isCreate) {
+    const subtotal = payload.subtotal ?? 0
+    const discountAmount = payload.discount_amount ?? 0
+    const taxAmount = payload.tax_amount ?? 0
+    payload.total_amount = subtotal - discountAmount + taxAmount
+  }
+
+  if (isCreate || readField(estimate, ['depositPercentage', 'deposit_percentage']) !== undefined) {
+    const depositPercentage = readField(estimate, ['depositPercentage', 'deposit_percentage'])
+    payload.deposit_percentage = depositPercentage === '' || depositPercentage === null || depositPercentage === undefined
+      ? null
+      : toNumber(depositPercentage)
+  }
+
+  if (materialsIncludedInput !== undefined) {
+    payload.materials_included = Boolean(materialsIncludedInput)
+  } else if (isCreate) {
+    payload.materials_included = true
+  }
+
+  if (isCreate || readField(estimate, ['paymentTerms', 'payment_terms']) !== undefined) {
+    payload.payment_terms = readField(estimate, ['paymentTerms', 'payment_terms']) || null
+  }
+
+  if (statusInput !== undefined) {
+    payload.status = mapStatusToDb(statusInput)
+  } else if (isCreate) {
+    payload.status = 'draft'
+  }
+
+  return applyStatusTimestamps(payload, estimate)
+}
+
+function buildContractorQuery(contractorId, extraQuery = {}) {
+  return {
+    ...extraQuery,
+    contractor_id: `eq.${contractorId}`,
+  }
+}
+
+function handleMissingContractorId(methodName) {
+  warnDev(`[dev] estimatesSupabaseService.${methodName} called without contractorId`)
+
+  return createErrorResult('contractorId is required for estimate operations.')
+}
+
+export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', [])
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('list')
+  }
+
+  try {
+    const query = buildContractorQuery(contractorId, {
+      select: '*',
+      order: 'created_at.desc',
+    })
+
+    if (!includeArchived) {
+      query.archived_at = 'is.null'
+    }
+
+    if (status) {
+      query.status = `eq.${mapStatusToDb(status)}`
+    }
+
+    if (clientId) {
+      query.client_id = `eq.${clientId}`
+    }
+
+    if (projectId) {
+      query.project_id = `eq.${projectId}`
+    }
+
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'GET',
+      query,
+    })
+
+    return {
+      data: Array.isArray(data) ? data.map(toAppEstimate) : [],
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: [],
+      error: normalizeError(error, 'Unable to load estimates from Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function getById(id, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false')
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('getById')
+  }
+
+  try {
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'GET',
+      query: buildContractorQuery(contractorId, {
+        select: '*',
+        id: `eq.${id}`,
+        limit: '1',
+      }),
+    })
+
+    const row = readSingleRow(data)
+
+    return {
+      data: row ? toAppEstimate(row) : null,
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to load the estimate from Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function create(estimateData, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', estimateData ?? null)
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('create')
+  }
+
+  try {
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'POST',
+      body: toSupabasePayload(contractorId, estimateData, { isCreate: true }),
+    })
+
+    return {
+      data: toAppEstimate(readSingleRow(data)),
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to create the estimate in Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function update(id, updates, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('update')
+  }
+
+  try {
+    const payload = {
+      ...toSupabasePayload(contractorId, updates),
+      updated_at: new Date().toISOString(),
+    }
+
+    delete payload.contractor_id
+
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'PATCH',
+      query: buildContractorQuery(contractorId, {
+        id: `eq.${id}`,
+      }),
+      body: payload,
+    })
+
+    return {
+      data: toAppEstimate(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to update the estimate in Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function archive(id, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', { id, archived: true })
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('archive')
+  }
+
+  try {
+    const archivedAt = new Date().toISOString()
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'PATCH',
+      query: buildContractorQuery(contractorId, {
+        id: `eq.${id}`,
+      }),
+      body: {
+        archived_at: archivedAt,
+        updated_at: archivedAt,
+      },
+    })
+
+    return {
+      data: toAppEstimate(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt, updated_at: archivedAt }),
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to archive the estimate in Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function restore(id, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', { id, archived: false })
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('restore')
+  }
+
+  try {
+    const restoredAt = new Date().toISOString()
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'PATCH',
+      query: buildContractorQuery(contractorId, {
+        id: `eq.${id}`,
+      }),
+      body: {
+        archived_at: null,
+        updated_at: restoredAt,
+      },
+    })
+
+    return {
+      data: toAppEstimate(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null, updated_at: restoredAt }),
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to restore the estimate in Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export async function deletePermanently(id, { contractorId } = {}) {
+  if (!USE_SUPABASE) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false', { id, deleted: true })
+  }
+
+  if (!contractorId) {
+    return handleMissingContractorId('deletePermanently')
+  }
+
+  try {
+    const data = await supabaseClient.request(TABLE_NAME, {
+      method: 'DELETE',
+      query: buildContractorQuery(contractorId, {
+        id: `eq.${id}`,
+      }),
+    })
+
+    const row = readSingleRow(data)
+
+    return {
+      data: row ? toAppEstimate(row) : { id, deleted: true },
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to permanently delete the estimate in Supabase.'),
+      skipped: false,
+    }
+  }
+}
+
+export default {
+  list,
+  getById,
+  create,
+  update,
+  archive,
+  restore,
+  deletePermanently,
+}
