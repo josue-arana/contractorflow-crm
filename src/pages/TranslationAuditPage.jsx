@@ -179,6 +179,16 @@ export function TranslationAuditPage({ t }) {
         </div>
       </SectionCard>
 
+      <SectionCard title={t('invoicesBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.invoicesBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.invoicesBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.invoicesBackend.status} />
+        </div>
+      </SectionCard>
+
       <SectionCard title={t('contractorIsolationReadiness')}>
         <div className="grid gap-3">
           {snapshot.contractorIsolation.map((item) => (

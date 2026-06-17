@@ -844,6 +844,7 @@ export const en = {
   "projectsBackend": "Projects Backend",
   "estimatesBackend": "Estimates Backend",
   "contractsBackend": "Contracts Backend",
+  "invoicesBackend": "Invoices Backend",
   "routing": "Routing",
   "translations": "Translations",
   "services": "Services",
@@ -983,6 +984,8 @@ export const en = {
   "estimatesBackendSupabaseDetail": "Estimates can switch to the contractor-scoped Supabase service when backend mode is enabled.",
   "contractsBackendLocalDetail": "Contracts stay on the current local App state path while USE_SUPABASE is false.",
   "contractsBackendSupabaseDetail": "Contracts can switch to the contractor-scoped Supabase service when backend mode is enabled.",
+  "invoicesBackendLocalDetail": "Invoices stay on the current local App state path while USE_SUPABASE is false.",
+  "invoicesBackendSupabaseDetail": "Invoices can switch to the contractor-scoped Supabase service when backend mode is enabled.",
   "contractor": "Contractor"
   ,"contractorIsolationReadiness": "Contractor Isolation Readiness"
   ,"ready": "Ready"

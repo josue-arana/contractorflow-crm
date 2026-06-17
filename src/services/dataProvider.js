@@ -26,7 +26,6 @@ import leadsLocalService from './local/leadsLocalService'
 import projectsLocalService from './local/projectsLocalService'
 import estimatesLocalService from './local/estimatesLocalService'
 import contractsLocalService from './local/contractsLocalService'
-import * as invoicesService from './invoicesService'
 import invoicesLocalService from './local/invoicesLocalService'
 import * as paymentsService from './paymentsService'
 import paymentsLocalService from './local/paymentsLocalService'
@@ -37,6 +36,7 @@ import * as photosService from './photosService'
 import clientsSupabaseService from './supabase/clientsSupabaseService'
 import contractsSupabaseService from './supabase/contractsSupabaseService'
 import estimatesSupabaseService from './supabase/estimatesSupabaseService'
+import invoicesSupabaseService from './supabase/invoicesSupabaseService'
 import leadsSupabaseService from './supabase/leadsSupabaseService'
 import projectsSupabaseService from './supabase/projectsSupabaseService'
 import settingsSupabaseService from './supabase/settingsSupabaseService'
@@ -73,7 +73,7 @@ const supabaseImpl = {
   projects: projectsSupabaseService,
   estimates: estimatesSupabaseService,
   contracts: contractsSupabaseService,
-  invoices: invoicesService,
+  invoices: invoicesSupabaseService,
   payments: paymentsService,
   events: eventsService,
   settings: {
