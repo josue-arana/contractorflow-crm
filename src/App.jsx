@@ -36,32 +36,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-
-const defaultCompanySettings = {
-  appLanguage: 'en',
-  company: {
-    name: 'ContractorFlow Remodeling LLC',
-    ownerName: 'Josue Arana',
-    phone: '(410) 555-0199',
-    email: 'office@contractorflow.example',
-    address: 'Baltimore, MD 21201',
-    website: 'www.contractorflow.example',
-    licenseNumber: 'MHIC-000000',
-    logo: '',
-  },
-  defaults: {
-    paymentTerms: '50% downpayment with remaining balance due weekly based on work progress.',
-    depositPercentage: 50,
-    invoiceDueDays: 7,
-    materialsIncluded: true,
-  },
-  portal: {
-    defaultLanguage: 'en',
-    showPayments: true,
-    showPhotos: true,
-    showDocuments: true,
-  },
-}
+import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -127,7 +102,12 @@ function ContractorFlowApp() {
   const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
   const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
-  const [companySettings, setCompanySettings] = useState(() => ({ ...defaultCompanySettings, appLanguage: language, portal: { ...defaultCompanySettings.portal, defaultLanguage: portalLanguage } }))
+  const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
+    appLanguage: language,
+    portal: {
+      defaultLanguage: portalLanguage,
+    },
+  }))
   const [notifications, setNotifications] = useState(initialNotifications)
   const [userProfile, setUserProfile] = useState(defaultUserProfile)
   const t = useMemo(() => createTranslator(language), [language])

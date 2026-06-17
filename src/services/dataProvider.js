@@ -21,9 +21,7 @@
 
 import { USE_SUPABASE } from '../config/backendConfig'
 
-import * as clientsService from './clientsService'
 import clientsLocalService from './local/clientsLocalService'
-import * as leadsService from './leadsService'
 import leadsLocalService from './local/leadsLocalService'
 import * as projectsService from './projectsService'
 import projectsLocalService from './local/projectsLocalService'
@@ -37,9 +35,11 @@ import * as paymentsService from './paymentsService'
 import paymentsLocalService from './local/paymentsLocalService'
 import * as eventsService from './eventsService'
 import eventsLocalService from './local/eventsLocalService'
-import * as settingsService from './settingsService'
 import settingsLocalService from './local/settingsLocalService'
 import * as photosService from './photosService'
+import clientsSupabaseService from './supabase/clientsSupabaseService'
+import leadsSupabaseService from './supabase/leadsSupabaseService'
+import settingsSupabaseService from './supabase/settingsSupabaseService'
 
 // NOTE: Currently `USE_SUPABASE` is false and the UI continues to use local
 // React state and mocks. Many service modules are already Supabase-ready but
@@ -47,25 +47,29 @@ import * as photosService from './photosService'
 // `createBackendService.js`). We keep the local/supabase switch here so that
 // migrating to a real backend later only requires changing this file.
 
+function readContractorId(value) {
+  if (typeof value === 'string') return value
+  if (value && typeof value === 'object') return value.contractorId || value.contractor_id || ''
+  return ''
+}
+
+function normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOptions) {
+  if (typeof contractorIdOrSettings === 'string') {
+    return {
+      contractorId: contractorIdOrSettings,
+      settings: maybeSettingsOrOptions ?? null,
+    }
+  }
+
+  return {
+    contractorId: readContractorId(maybeSettingsOrOptions),
+    settings: contractorIdOrSettings ?? null,
+  }
+}
+
 const supabaseImpl = {
-  clients: {
-    list: clientsService.list,
-    getById: clientsService.getById,
-    create: clientsService.create,
-    update: clientsService.update,
-    archive: clientsService.archive,
-    restore: clientsService.restore,
-    deletePermanently: clientsService.deletePermanently,
-  },
-  leads: {
-    list: leadsService.list,
-    getById: leadsService.getById,
-    create: leadsService.create,
-    update: leadsService.update,
-    archive: leadsService.archive,
-    restore: leadsService.restore,
-    deletePermanently: leadsService.deletePermanently,
-  },
+  clients: clientsSupabaseService,
+  leads: leadsSupabaseService,
   projects: {
     list: projectsService.list,
     getById: projectsService.getById,
@@ -80,19 +84,14 @@ const supabaseImpl = {
   invoices: invoicesService,
   payments: paymentsService,
   events: eventsService,
-  // In a Supabase-backed implementation these would be wrappers around the
-  // CRUD methods (list/getById/update). For now we expose the existing
-  // `settingsService` which is Supabase-ready.
   settings: {
-    // getSettings should return the singular company settings record when
-    // backend is enabled; map to `list` for future compatibility.
-    getSettings: async (opts) => {
-      const res = await settingsService.list(opts)
-      return res
+    getSettings: async (contractorIdOrOptions) => {
+      const contractorId = readContractorId(contractorIdOrOptions)
+      return settingsSupabaseService.getSettings(contractorId)
     },
-    updateSettings: async (payload, opts) => {
-      const res = await settingsService.update(payload?.id, payload, opts)
-      return res
+    updateSettings: async (contractorIdOrSettings, maybeSettingsOrOptions) => {
+      const { contractorId, settings } = normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOptions)
+      return settingsSupabaseService.updateSettings(contractorId, settings)
     },
   },
   photos: photosService,

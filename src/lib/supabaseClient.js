@@ -1,8 +1,5 @@
-import { backendConfig, USE_SUPABASE, isSupabaseConfigured } from '../config/backendConfig'
-
-// Read Vite env vars directly so this module validates presence safely
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || ''
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
+import { backendConfig, USE_SUPABASE } from '../config/backendConfig'
+import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from '../services/system/environmentService'
 
 // Lightweight Supabase REST client for ContractorFlow CRM.
 //
@@ -31,34 +28,42 @@ function buildQueryString(query = {}) {
   return queryString ? `?${queryString}` : ''
 }
 
+function getSupabaseConfigError() {
+  return new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+}
+
+function warnDisabledRequest() {
+  const environmentStatus = getEnvironmentStatus()
+
+  if (!environmentStatus.hasSupabaseUrl || !environmentStatus.hasAnonKey) {
+    // eslint-disable-next-line no-console
+    console.warn('[dev] Supabase request skipped: USE_SUPABASE=false and Vite env is incomplete.')
+    return
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn('[dev] Supabase request called while USE_SUPABASE=false; skipping network call.')
+}
+
 function createSupabaseRestClient() {
   async function requestAuth(path, { method = 'GET', body, headers = {} } = {}) {
     if (!USE_SUPABASE) {
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        // During local development with Supabase disabled, only warn — do not crash.
-        // This helps avoid runtime errors when environment variables are intentionally absent.
-        // eslint-disable-next-line no-console
-        console.warn('[dev] Supabase disabled and missing env vars: VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY')
-      } else {
-        // Supabase disabled but env vars present — still warn that client is inactive.
-        // eslint-disable-next-line no-console
-        console.warn('[dev] Supabase client called while USE_SUPABASE=false; calls will be skipped.')
-      }
-
+      warnDisabledRequest()
       return null
     }
 
-    // If Supabase is enabled at runtime, env vars must be present — otherwise throw.
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      throw new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+    const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw getSupabaseConfigError()
     }
 
-    const url = `${(SUPABASE_URL || backendConfig.supabaseUrl).replace(/\/$/, '')}/auth/v1${path}`
+    const url = `${supabaseUrl.replace(/\/$/, '')}/auth/v1${path}`
 
     const response = await fetch(url, {
       method,
       headers: {
-        apikey: SUPABASE_ANON_KEY || backendConfig.supabaseAnonKey,
+        apikey: supabaseAnonKey,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...headers,
       },
@@ -79,30 +84,23 @@ function createSupabaseRestClient() {
   return {
     async request(tableName, { method = 'GET', query, body, prefer = 'return=representation' } = {}) {
       if (!USE_SUPABASE) {
-        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-          // Warn but do not throw during local development when Supabase is disabled.
-          // eslint-disable-next-line no-console
-          console.warn('[dev] Supabase request skipped: USE_SUPABASE=false and Vite env not set.')
-        } else {
-          // Supabase disabled explicitly.
-          // eslint-disable-next-line no-console
-          console.warn('[dev] Supabase request called while USE_SUPABASE=false; skipping network call.')
-        }
-
+        warnDisabledRequest()
         return null
       }
 
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        throw new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+      const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw getSupabaseConfigError()
       }
 
-      const url = `${(SUPABASE_URL || backendConfig.supabaseUrl).replace(/\/$/, '')}/rest/v1/${tableName}${buildQueryString(query)}`
+      const url = `${supabaseUrl.replace(/\/$/, '')}/rest/v1/${tableName}${buildQueryString(query)}`
 
       const response = await fetch(url, {
         method,
         headers: {
-          apikey: SUPABASE_ANON_KEY || backendConfig.supabaseAnonKey,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY || backendConfig.supabaseAnonKey}`,
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${supabaseAnonKey}`,
           'Content-Type': 'application/json',
           Prefer: prefer,
         },
@@ -126,11 +124,13 @@ function createSupabaseRestClient() {
 export const supabaseClient = createSupabaseRestClient()
 
 export function getSupabaseConfigStatus() {
+  const environmentStatus = getEnvironmentStatus()
+
   return {
     enabled: USE_SUPABASE,
-    configured: isSupabaseConfigured(),
-    urlPresent: Boolean(SUPABASE_URL || backendConfig.supabaseUrl),
-    anonKeyPresent: Boolean(SUPABASE_ANON_KEY || backendConfig.supabaseAnonKey),
+    configured: environmentStatus.supabaseConfigured,
+    urlPresent: environmentStatus.hasSupabaseUrl,
+    anonKeyPresent: environmentStatus.hasAnonKey,
     betaPlan: backendConfig.betaPlan,
   }
 }
@@ -143,8 +143,10 @@ export function assertSupabaseReady() {
     return false
   }
 
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new Error('Supabase is enabled but VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required. Please set these environment variables.')
+  const environmentStatus = getEnvironmentStatus()
+
+  if (!environmentStatus.supabaseConfigured) {
+    throw getSupabaseConfigError()
   }
 
   return true

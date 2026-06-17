@@ -27,7 +27,7 @@ import { ToastProvider, useToast } from '../components/common/ToastProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { NotificationCenter } from '../components/layout/NotificationCenter'
 import { ScrollToTop } from '../components/layout/ScrollToTop'
-import { getSupabaseHealthStatus } from '../services/healthService'
+import { getBackendEnvironmentStatus, getClientsBackendStatus, getLeadsBackendStatus, getSettingsBackendStatus } from '../services/healthService'
 import { auditTranslations } from '../translations'
 
 const requiredServiceMethods = ['list', 'getById', 'create', 'update', 'archive', 'restore', 'deletePermanently']
@@ -262,27 +262,6 @@ export function buildApplicationHealth() {
       status: ScrollToTop ? 'PASS' : 'FAIL',
       detail: ScrollToTop ? 'Scroll restoration component is mounted in the app shell.' : 'Scroll restoration component is missing.',
     },
-    // Supabase environment checks (uses healthService for unified status)
-    (() => {
-      const supa = getSupabaseHealthStatus()
-      const pass = supa.status === 'disabled' || supa.status === 'ready'
-      return {
-        id: 'supabaseUrl',
-        labelKey: 'supabaseUrlConfigured',
-        status: pass ? 'PASS' : 'FAIL',
-        detail: supa.details,
-      }
-    })(),
-    (() => {
-      const supa = getSupabaseHealthStatus()
-      const pass = supa.status === 'disabled' || supa.status === 'ready'
-      return {
-        id: 'supabaseAnonKey',
-        labelKey: 'supabaseAnonKeyConfigured',
-        status: pass ? 'PASS' : 'FAIL',
-        detail: supa.details,
-      }
-    })(),
   ]
 
   return healthChecks
@@ -310,6 +289,8 @@ export function buildDeveloperHealthSnapshot() {
     })
   }
   function buildPrivateBetaChecklist() {
+    const backendEnvironment = getBackendEnvironmentStatus()
+
     // Determine service layer readiness from existing service audit
     const serviceAudit = buildServiceAudit()
     const serviceLayerComplete = serviceAudit.missing.length === 0 && serviceAudit.factoryReady
@@ -320,8 +301,8 @@ export function buildDeveloperHealthSnapshot() {
     const databaseSchemaExists = true
 
     const checklist = [
-      { id: 'supabaseProjectCreated', labelKey: 'check.supabaseProjectCreated', status: 'Not Started' },
-      { id: 'envConfigured', labelKey: 'check.envConfigured', status: 'Not Started' },
+      { id: 'supabaseProjectCreated', labelKey: 'check.supabaseProjectCreated', status: 'Complete' },
+      { id: 'envConfigured', labelKey: 'check.envConfigured', status: backendEnvironment.supabaseConfigured ? 'Complete' : 'Pending' },
       { id: 'authFoundationAdded', labelKey: 'check.authFoundationAdded', status: 'Complete' },
       { id: 'databaseSchemaCreated', labelKey: 'check.databaseSchemaCreated', status: databaseSchemaExists ? 'Complete' : 'Pending' },
       { id: 'rlsPoliciesDrafted', labelKey: 'check.rlsPoliciesDrafted', status: 'Pending' },
@@ -346,6 +327,10 @@ export function buildDeveloperHealthSnapshot() {
     technicalDebtAudit: buildTechnicalDebtAudit(),
     modalShellReady: Boolean(ModalShell),
     contractorIsolation: buildContractorIsolationReadiness(),
+    backendEnvironment: getBackendEnvironmentStatus(),
+    clientsBackend: getClientsBackendStatus(),
+    leadsBackend: getLeadsBackendStatus(),
+    settingsBackend: getSettingsBackendStatus(),
     privateBetaChecklist: buildPrivateBetaChecklist(),
   }
 }

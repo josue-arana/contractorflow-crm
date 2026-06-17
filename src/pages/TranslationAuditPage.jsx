@@ -94,6 +94,61 @@ export function TranslationAuditPage({ t }) {
         </div>
       </SectionCard>
 
+      <SectionCard title={t('backendEnvironment')}>
+        <div className="rounded-2xl bg-slate-50 p-4 text-sm font-semibold text-slate-700">
+          {t(snapshot.backendEnvironment.helperKey)}
+        </div>
+        {snapshot.backendEnvironment.warningKey ? (
+          <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t(snapshot.backendEnvironment.warningKey)}
+          </p>
+        ) : null}
+        <div className="mt-4 space-y-3">
+          {snapshot.backendEnvironment.items.map((item) => (
+            <div key={item.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-bold text-slate-950">{t(item.labelKey)}</p>
+                <p className="mt-1 text-sm text-slate-600">{t(item.detailKey)}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <p className="text-sm font-semibold text-slate-700">{t(item.valueKey)}</p>
+                <StatusBadge status={item.status} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('settingsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.settingsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.settingsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.settingsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('clientsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.clientsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.clientsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.clientsBackend.status} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={t('leadsBackend')}>
+        <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-bold text-slate-950">{t(snapshot.leadsBackend.valueKey)}</p>
+            <p className="mt-1 text-sm text-slate-600">{t(snapshot.leadsBackend.detailKey)}</p>
+          </div>
+          <StatusBadge status={snapshot.leadsBackend.status} />
+        </div>
+      </SectionCard>
+
       <SectionCard title={t('contractorIsolationReadiness')}>
         <div className="grid gap-3">
           {snapshot.contractorIsolation.map((item) => (

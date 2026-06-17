@@ -7,6 +7,9 @@
 // - VITE_SUPABASE_URL
 // - VITE_SUPABASE_ANON_KEY
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
+
 export const USE_SUPABASE = false
 export const USE_AUTH = false
 export const USE_STORAGE = false
@@ -21,8 +24,8 @@ export const backendConfig = {
   useRealEmail: USE_REAL_EMAIL,
   useRealSms: USE_REAL_SMS,
   usePdfExport: USE_PDF_EXPORT,
-  supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
-  supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+  supabaseUrl: SUPABASE_URL,
+  supabaseAnonKey: SUPABASE_ANON_KEY,
   betaPlan: {
     name: 'Free 1–5 contractor beta',
     maxContractors: 5,
@@ -31,11 +34,11 @@ export const backendConfig = {
 }
 
 export function isSupabaseConfigured() {
-  return Boolean(backendConfig.supabaseUrl && backendConfig.supabaseAnonKey)
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY)
 }
 
 export function isSupabaseAuthConfigured() {
-  return Boolean(backendConfig.useSupabase && backendConfig.useAuth && backendConfig.supabaseUrl && backendConfig.supabaseAnonKey)
+  return Boolean(USE_SUPABASE && USE_AUTH && SUPABASE_URL && SUPABASE_ANON_KEY)
 }
 
 export function isBackendEnabled() {

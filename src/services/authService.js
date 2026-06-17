@@ -1,5 +1,6 @@
-import { backendConfig, USE_AUTH, USE_SUPABASE, isSupabaseAuthConfigured } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE } from '../config/backendConfig'
 import { supabaseClient } from '../lib/supabaseClient'
+import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from './system/environmentService'
 
 const AUTH_STORAGE_KEY = 'contractorflow.auth.session'
 const authListeners = new Set()
@@ -58,8 +59,10 @@ function emitAuthChange(event, session) {
 }
 
 function buildAuthHeaders(includeJson = true) {
+  const { supabaseAnonKey } = getSupabaseEnvironmentConfig()
+
   return {
-    apikey: backendConfig.supabaseAnonKey,
+    apikey: supabaseAnonKey,
     ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
   }
 }
@@ -69,7 +72,7 @@ async function authRequest(path, { method = 'GET', body, accessToken } = {}) {
     throw createAuthDisabledError()
   }
 
-  if (!isSupabaseAuthConfigured()) {
+  if (!getEnvironmentStatus().authConfigured) {
     throw new Error('Supabase Auth is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before enabling auth.')
   }
 
@@ -114,10 +117,12 @@ export function subscribeToAuthChanges(listener) {
 }
 
 export function getAuthServiceStatus() {
+  const environmentStatus = getEnvironmentStatus()
+
   return {
     authEnabled: USE_AUTH,
     supabaseEnabled: USE_SUPABASE,
-    configured: isSupabaseAuthConfigured(),
+    configured: Boolean(USE_SUPABASE && USE_AUTH && environmentStatus.authConfigured),
     hasStoredSession: Boolean(readStoredSession()),
     mode: USE_AUTH ? 'supabase' : 'mock',
     clientReady: Boolean(supabaseClient),
