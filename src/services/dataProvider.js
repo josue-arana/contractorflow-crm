@@ -23,7 +23,6 @@ import { USE_SUPABASE } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
-import * as projectsService from './projectsService'
 import projectsLocalService from './local/projectsLocalService'
 import * as estimatesService from './estimatesService'
 import estimatesLocalService from './local/estimatesLocalService'
@@ -39,6 +38,7 @@ import settingsLocalService from './local/settingsLocalService'
 import * as photosService from './photosService'
 import clientsSupabaseService from './supabase/clientsSupabaseService'
 import leadsSupabaseService from './supabase/leadsSupabaseService'
+import projectsSupabaseService from './supabase/projectsSupabaseService'
 import settingsSupabaseService from './supabase/settingsSupabaseService'
 
 // NOTE: Currently `USE_SUPABASE` is false and the UI continues to use local
@@ -70,15 +70,7 @@ function normalizeSettingsUpdateArgs(contractorIdOrSettings, maybeSettingsOrOpti
 const supabaseImpl = {
   clients: clientsSupabaseService,
   leads: leadsSupabaseService,
-  projects: {
-    list: projectsService.list,
-    getById: projectsService.getById,
-    create: projectsService.create,
-    update: projectsService.update,
-    archive: projectsService.archive,
-    restore: projectsService.restore,
-    deletePermanently: projectsService.deletePermanently,
-  },
+  projects: projectsSupabaseService,
   estimates: estimatesService,
   contracts: contractsService,
   invoices: invoicesService,

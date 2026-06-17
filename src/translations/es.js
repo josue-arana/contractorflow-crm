@@ -841,6 +841,7 @@ export const es = {
   "settingsBackend": "Backend de configuración",
   "clientsBackend": "Backend de clientes",
   "leadsBackend": "Backend de prospectos",
+  "projectsBackend": "Backend de proyectos",
   "routing": "Rutas",
   "translations": "Traducciones",
   "services": "Servicios",
@@ -974,6 +975,8 @@ export const es = {
   "clientsBackendSupabaseDetail": "Clientes puede cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
   "leadsBackendLocalDetail": "Prospectos sigue usando la ruta actual de estado local de la app mientras USE_SUPABASE sea false.",
   "leadsBackendSupabaseDetail": "Prospectos puede cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
+  "projectsBackendLocalDetail": "Proyectos y trabajos siguen usando la ruta actual de estado local de la app mientras USE_SUPABASE sea false.",
+  "projectsBackendSupabaseDetail": "Proyectos y trabajos pueden cambiar al servicio de Supabase con alcance por contratista cuando el modo backend se active.",
   "contractor": "Contratista"
   ,"contractorIsolationReadiness": "Preparación de aislamiento de contratistas"
   ,"ready": "Listo"
