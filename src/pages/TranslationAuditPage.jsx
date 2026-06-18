@@ -1,8 +1,9 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
-import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
 
 function StatusBadge({ status }) {
@@ -61,6 +62,7 @@ export function TranslationAuditPage({ t }) {
   const settingsContractorId = getSettingsContractorId({ contractor, company, session })
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
   const leadsContractorId = getLeadsContractorId({ contractor, company, session })
+  const projectsContractorId = getProjectsContractorId({ contractor, company, session })
   const hasSettingsSupabaseUser = hasAuthenticatedSupabaseSettingsUser({
     authMode,
     user,
@@ -123,6 +125,18 @@ export function TranslationAuditPage({ t }) {
       id: 'leadsContractorId',
       label: t('leadsCurrentContractorId'),
       value: leadsContractorId || t('notAvailable'),
+    },
+  ]
+  const projectsBackendRows = [
+    {
+      id: 'useSupabaseProjects',
+      label: t('backendEnvironmentUseSupabaseProjects'),
+      value: t(USE_SUPABASE_PROJECTS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'projectsContractorId',
+      label: t('projectsCurrentContractorId'),
+      value: projectsContractorId || t('notAvailable'),
     },
   ]
 
@@ -260,12 +274,25 @@ export function TranslationAuditPage({ t }) {
       </SectionCard>
 
       <SectionCard title={t('projectsBackend')}>
+        {USE_SUPABASE_PROJECTS ? (
+          <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t('projectsSupabaseBetaEnabled')}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-bold text-slate-950">{t(snapshot.projectsBackend.valueKey)}</p>
             <p className="mt-1 text-sm text-slate-600">{t(snapshot.projectsBackend.detailKey)}</p>
           </div>
           <StatusBadge status={snapshot.projectsBackend.status} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {projectsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

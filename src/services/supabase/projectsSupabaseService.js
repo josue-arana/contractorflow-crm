@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_PROJECTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'projects'
@@ -28,6 +28,8 @@ const dbToUiStatusMap = {
   cancelled: 'Cancelled',
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 function isDev() {
   return Boolean(import.meta.env.DEV)
 }
@@ -54,12 +56,13 @@ function createSkippedResponse(message, data = null) {
   }
 }
 
-function createErrorResult(message, details = null) {
+function createErrorResult(message, details = null, code = null) {
   return {
     data: null,
     error: {
       message,
       details,
+      code,
     },
     skipped: false,
   }
@@ -92,12 +95,31 @@ function mapStatusToUi(status) {
   return dbToUiStatusMap[status] || status
 }
 
-function toAppProject(row) {
+function normalizeOptionalUuid(value, fieldName) {
+  if (!value) return null
+
+  if (typeof value === 'string' && uuidPattern.test(value.trim())) {
+    return value.trim()
+  }
+
+  warnDev(`[dev] projectsSupabaseService received a non-UUID ${fieldName}; sending null instead.`, {
+    fieldName,
+    value,
+  })
+
+  return null
+}
+
+export function mapProjectRowToUiProject(row) {
+  const archivedAt = row?.archived_at || null
+
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     leadId: row?.lead_id || null,
+    name: row?.title || row?.project_type || '',
+    title: row?.title || row?.project_type || '',
     client: '',
     phone: '',
     email: '',
@@ -114,15 +136,19 @@ function toAppProject(row) {
     notes: row?.notes || '',
     startDate: row?.start_date || '',
     targetCompletion: row?.target_end_date || '',
-    archivedAt: row?.archived_at || null,
+    archivedAt,
+    archived_at: archivedAt,
+    isArchived: Boolean(archivedAt),
+    createdAt: row?.created_at || null,
+    updatedAt: row?.updated_at || null,
   }
 }
 
-function toSupabasePayload(contractorId, project = {}) {
+export function mapUiProjectToProjectRow(contractorId, project = {}) {
   return {
     contractor_id: contractorId,
-    client_id: project.clientId || project.client_id || null,
-    lead_id: project.leadId || project.lead_id || null,
+    client_id: normalizeOptionalUuid(project.clientId || project.client_id, 'client_id'),
+    lead_id: normalizeOptionalUuid(project.leadId || project.lead_id, 'lead_id'),
     title: project.projectTitle || project.title || project.projectType || 'Untitled Project',
     description: project.description || null,
     project_type: project.projectType || project.projectTitle || null,
@@ -147,12 +173,19 @@ function buildContractorQuery(contractorId, extraQuery = {}) {
 function handleMissingContractorId(methodName) {
   warnDev(`[dev] projectsSupabaseService.${methodName} called without contractorId`)
 
-  return createErrorResult('contractorId is required for project operations.')
+  return createErrorResult(
+    'contractorId is required for project operations.',
+    {
+      methodName,
+      reason: 'No contractorId was provided to the Projects Supabase service.',
+    },
+    'MISSING_CONTRACTOR_ID'
+  )
 }
 
 export async function list({ contractorId, includeArchived = false, status, clientId, leadId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', [])
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', [])
   }
 
   if (!contractorId) {
@@ -187,7 +220,7 @@ export async function list({ contractorId, includeArchived = false, status, clie
     })
 
     return {
-      data: Array.isArray(data) ? data.map(toAppProject) : [],
+      data: Array.isArray(data) ? data.map(mapProjectRowToUiProject) : [],
       error: null,
       skipped: false,
     }
@@ -201,8 +234,8 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false')
   }
 
   if (!contractorId) {
@@ -222,7 +255,7 @@ export async function getById(id, { contractorId } = {}) {
     const row = readSingleRow(data)
 
     return {
-      data: row ? toAppProject(row) : null,
+      data: row ? mapProjectRowToUiProject(row) : null,
       error: null,
       skipped: false,
     }
@@ -236,8 +269,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(projectData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', projectData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', projectData ?? null)
   }
 
   if (!contractorId) {
@@ -247,11 +280,11 @@ export async function create(projectData, { contractorId } = {}) {
   try {
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'POST',
-      body: toSupabasePayload(contractorId, projectData),
+      body: mapUiProjectToProjectRow(contractorId, projectData),
     })
 
     return {
-      data: toAppProject(readSingleRow(data)),
+      data: mapProjectRowToUiProject(readSingleRow(data)),
       error: null,
       skipped: false,
     }
@@ -265,8 +298,8 @@ export async function create(projectData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -275,7 +308,7 @@ export async function update(id, updates, { contractorId } = {}) {
 
   try {
     const payload = {
-      ...toSupabasePayload(contractorId, updates),
+      ...mapUiProjectToProjectRow(contractorId, updates),
       updated_at: new Date().toISOString(),
     }
 
@@ -290,7 +323,7 @@ export async function update(id, updates, { contractorId } = {}) {
     })
 
     return {
-      data: toAppProject(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: mapProjectRowToUiProject(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
       error: null,
       skipped: false,
     }
@@ -304,8 +337,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -326,7 +359,7 @@ export async function archive(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppProject(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
+      data: mapProjectRowToUiProject(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
       error: null,
       skipped: false,
     }
@@ -340,8 +373,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -361,7 +394,7 @@ export async function restore(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppProject(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
+      data: mapProjectRowToUiProject(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
       error: null,
       skipped: false,
     }
@@ -375,8 +408,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+    return createSkippedResponse('Supabase projects service skipped because USE_SUPABASE=false and USE_SUPABASE_PROJECTS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

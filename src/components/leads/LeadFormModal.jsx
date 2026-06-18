@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
 import { SelectField } from '../ui/SelectField'
 import { ModalShell } from '../common/ModalShell'
+import { tStatus } from '../../translations'
 
 const emptyLead = {
   client: '',
@@ -154,7 +155,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('projectType')}</label>
               <SelectField value={form.projectType} onChange={(event) => updateField('projectType', event.target.value)}>
                 <option value="">{t('selectProjectType')}</option>
-                {projectTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+                {projectTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}
               </SelectField>
             </div>
             <TextField label={t('estimatedValue')} value={form.value} onChange={(value) => updateField('value', value)} type="number" />
@@ -162,13 +163,13 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('priority')}</label>
               <SelectField value={form.priority} onChange={(event) => updateField('priority', event.target.value)}>
-                {priorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+                {priorities.map((priority) => <option key={priority} value={priority}>{tStatus(t, priority)}</option>)}
               </SelectField>
             </div>
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('status')}</label>
               <SelectField value={form.status} onChange={(event) => updateField('status', event.target.value)}>
-                {leadStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+                {leadStatuses.map((status) => <option key={status} value={status}>{tStatus(t, status)}</option>)}
               </SelectField>
             </div>
           </section>

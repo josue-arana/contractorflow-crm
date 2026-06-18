@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -123,6 +123,23 @@ function resolveLeadsContractorId(primaryValue, fallbackValue) {
 
   if ((USE_SUPABASE || USE_SUPABASE_LEADS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.leads did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveProjectsContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if ((USE_SUPABASE || USE_SUPABASE_PROJECTS) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.projects did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
     return BETA_CONTRACTOR_ID
@@ -361,12 +378,100 @@ const leadsDataProvider = {
   },
 }
 
+const projectsDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.list(options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options)
+
+    return projectsSupabaseService.list({
+      ...options,
+      contractorId,
+    })
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.getById(id, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options)
+
+    return projectsSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  create: async (projectData, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.create(projectData, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options, projectData)
+
+    return projectsSupabaseService.create(projectData, {
+      ...options,
+      contractorId,
+    })
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.update(id, updates, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options, updates)
+
+    return projectsSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.archive(id, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options)
+
+    return projectsSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.restore(id, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options)
+
+    return projectsSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_PROJECTS) {
+      return projectsLocalService.deletePermanently(id, options)
+    }
+
+    const contractorId = resolveProjectsContractorId(options)
+
+    return projectsSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
+  },
+}
+
 const entityProvider = USE_SUPABASE ? supabaseImpl : localImpl
 
 export const dataProvider = {
   ...entityProvider,
   clients: clientsDataProvider,
   leads: leadsDataProvider,
+  projects: projectsDataProvider,
   settings: settingsDataProvider,
 }
 

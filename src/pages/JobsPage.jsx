@@ -10,7 +10,7 @@ import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 
-export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
+export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
@@ -34,7 +34,7 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, on
           nextStep: lead.nextStep || t('projectStatus'),
         }
       })
-  }, [leads])
+  }, [leads, t])
 
   const activeJobsList = jobs.filter((job) => !archivedIds.includes(job.id))
   const filteredJobs = selectedFilter === 'All'
@@ -111,8 +111,8 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, on
             {t('jobsHeroText')}
           </p>
         </div>
-        <button onClick={() => onScheduleJob?.()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <CalendarDays className="h-4 w-4" /> {t('scheduleJob')}
+        <button onClick={() => onCreateJob?.()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+          <BriefcaseBusiness className="h-4 w-4" /> {t('createJob')}
         </button>
       </section>
 
@@ -223,4 +223,3 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onScheduleJob, on
     </div>
   )
 }
-

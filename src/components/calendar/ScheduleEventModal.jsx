@@ -184,7 +184,7 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{editingEvent ? t('saveChanges') : t(context === 'job' ? 'saveJob' : 'saveEvent')}</button>
+          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{editingEvent ? t('saveChanges') : t(context === 'job' ? 'scheduleJob' : 'saveEvent')}</button>
         </div>
       </form>
     </ModalShell>

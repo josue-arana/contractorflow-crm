@@ -8,9 +8,11 @@ export function getClientSlug(name = '') {
 
 export function buildClientProfiles(leads = [], customClients = []) {
   const clientMap = new Map()
+  const slugToClientId = new Map()
 
   customClients.forEach((client) => {
     const id = client.id || getClientSlug(client.name)
+    const slug = getClientSlug(client.name || id)
     const archivedAt = client.archivedAt || client.archived_at || null
     const isArchived = Boolean(client.isArchived || archivedAt)
     clientMap.set(id, {
@@ -38,12 +40,17 @@ export function buildClientProfiles(leads = [], customClients = []) {
       updatedAt: client.updatedAt || client.updated_at || null,
       manualClient: true,
     })
+    if (slug) slugToClientId.set(slug, id)
   })
 
   leads.forEach((lead) => {
     const name = lead.client || 'Unknown Client'
     const slug = getClientSlug(name)
-    const existing = clientMap.get(slug)
+    const leadClientId = typeof lead.clientId === 'string' ? lead.clientId.trim() : ''
+    const clientKey = leadClientId && clientMap.has(leadClientId)
+      ? leadClientId
+      : slugToClientId.get(slug) || leadClientId || slug
+    const existing = clientMap.get(clientKey)
     const contractAmount = lead.portal?.contractAmount || lead.value || 0
     const paid = lead.portal?.amountPaid || 0
     const balance = lead.portal?.outstandingBalance ?? Math.max(contractAmount - paid, 0)
@@ -68,8 +75,8 @@ export function buildClientProfiles(leads = [], customClients = []) {
       if (!existing.address && lead.address) existing.address = lead.address
       if (lead.nextStep) existing.notes = [...new Set([...(existing.notes || []), lead.nextStep])]
     } else {
-      clientMap.set(slug, {
-        id: slug,
+      clientMap.set(clientKey, {
+        id: clientKey,
         name,
         phone: lead.phone || '(410) 555-0100',
         email: lead.email || `${slug || 'client'}@example.com`,
@@ -86,6 +93,8 @@ export function buildClientProfiles(leads = [], customClients = []) {
         ],
       })
     }
+
+    if (slug) slugToClientId.set(slug, clientKey)
   })
 
   return Array.from(clientMap.values()).sort((a, b) => a.name.localeCompare(b.name))
