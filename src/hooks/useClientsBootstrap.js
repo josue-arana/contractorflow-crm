@@ -1,0 +1,52 @@
+import { useEffect } from 'react'
+import { USE_SUPABASE_CLIENTS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
+import dataProvider from '../services/dataProvider'
+import { getClientsContractorId } from '../services/system/clientsRuntimeService'
+
+function warnDev(message, meta) {
+  if (!import.meta.env.DEV) return
+
+  if (meta === undefined) {
+    // eslint-disable-next-line no-console
+    console.warn(message)
+    return
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn(message, meta)
+}
+
+export function useClientsBootstrap(setCustomClients) {
+  const { contractor, company, session } = useAuth()
+  const contractorId = getClientsContractorId({ contractor, company, session })
+
+  useEffect(() => {
+    let isCancelled = false
+
+    if (!USE_SUPABASE_CLIENTS) {
+      return undefined
+    }
+
+    async function loadClients() {
+      const response = await dataProvider.clients.list({ contractorId, includeArchived: true })
+
+      if (isCancelled) return
+
+      if (response?.error) {
+        warnDev('[dev] Failed to load clients from Supabase during bootstrap.', response.error)
+        return
+      }
+
+      setCustomClients(Array.isArray(response?.data) ? response.data : [])
+    }
+
+    loadClients()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, setCustomClients])
+}
+
+export default useClientsBootstrap

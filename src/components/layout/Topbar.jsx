@@ -1,5 +1,10 @@
 import { Bell, ChevronDown, Menu, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { appRoutes } from '../../config/appRoutes'
+import { USE_AUTH } from '../../config/backendConfig'
+import { useAuth } from '../../contexts/AuthContext'
+import { useToast } from '../common/ToastProvider'
 import { ModalShell } from '../common/ModalShell'
 import { AccountMenu } from './AccountMenu'
 import { NotificationCenter } from './NotificationCenter'
@@ -16,10 +21,14 @@ export function Topbar({
   onSaveUserProfile,
   onOpenSettings,
 }) {
+  const navigate = useNavigate()
+  const { logout } = useAuth()
+  const { showToast } = useToast()
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
   const [isAccountOpen, setIsAccountOpen] = useState(false)
   const [accountScreen, setAccountScreen] = useState(null)
   const [profileDraft, setProfileDraft] = useState(userProfile)
+  const [isSigningOut, setIsSigningOut] = useState(false)
   const unreadCount = notifications.filter((notification) => !notification.read).length
 
   useEffect(() => {
@@ -50,6 +59,40 @@ export function Topbar({
   function saveProfile() {
     onSaveUserProfile(profileDraft)
     closeAccountScreen()
+  }
+
+  async function confirmSignOut() {
+    if (isSigningOut) return
+
+    setIsSigningOut(true)
+
+    try {
+      const result = await logout()
+
+      setIsAccountOpen(false)
+      setIsNotificationsOpen(false)
+      closeAccountScreen()
+
+      if (result?.error && import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Sign out completed locally with a remote auth warning.', result.error)
+      }
+
+      showToast(t(USE_AUTH ? 'authSignOutSuccess' : 'authMockSignOutSuccess'))
+
+      if (USE_AUTH) {
+        navigate(appRoutes.login, { replace: true })
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Sign out failed unexpectedly.', error)
+      }
+
+      showToast(error?.message || t('authSignOutFailed'), 'error')
+    } finally {
+      setIsSigningOut(false)
+    }
   }
 
   return (
@@ -176,10 +219,10 @@ export function Topbar({
 
       <ModalShell isOpen={accountScreen === 'signOut'} onBackdropClick={closeAccountScreen} panelClassName="max-w-md">
         <h2 className="text-lg font-bold text-slate-950">{t('confirmSignOut')}</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{t('signOutHelp')}</p>
+        <p className="mt-2 text-sm leading-6 text-slate-500">{t(USE_AUTH ? 'signOutHelpAuth' : 'signOutHelpMock')}</p>
         <div className="mt-6 flex justify-end gap-3">
-          <button onClick={closeAccountScreen} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-          <button onClick={closeAccountScreen} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700">{t('signOut')}</button>
+          <button onClick={closeAccountScreen} disabled={isSigningOut} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button>
+          <button onClick={confirmSignOut} disabled={isSigningOut} className="rounded-2xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60">{t('signOut')}</button>
         </div>
       </ModalShell>
     </>

@@ -10,6 +10,15 @@ import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 
+function isClientArchived(client, archivedClientIds = []) {
+  return Boolean(
+    client?.isArchived
+      || client?.archivedAt
+      || client?.archived_at
+      || archivedClientIds.includes(client?.id)
+  )
+}
+
 export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -27,14 +36,14 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
     )
   }
 
-  const isArchived = archivedClientIds.includes(client.id)
+  const isArchived = isClientArchived(client, archivedClientIds)
 
   async function runConfirmAction() {
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider.clients.archive(client.id)
-        onArchiveClient(client.id)
+        const response = await dataProvider.clients.archive(client.id)
+        onArchiveClient(client.id, response?.data)
       }
       if (confirmAction.mode === 'delete') {
         await dataProvider.clients.deletePermanently(client.id)
@@ -73,7 +82,17 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
             {isArchived ? (
               <>
-                <button onClick={() => onRestoreClient(client.id)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="h-4 w-4" /> {t('restore')}</button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const response = await dataProvider.clients.restore(client.id)
+                      onRestoreClient(client.id, response?.data)
+                    } catch (err) {
+                      // local mode: ignore errors
+                    }
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"
+                ><Undo2 className="h-4 w-4" /> {t('restore')}</button>
                 <button onClick={() => setConfirmAction({ mode: 'delete' })} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="h-4 w-4" /> {t('deletePermanently')}</button>
               </>
             ) : (
@@ -153,7 +172,21 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         mode="edit"
         client={client}
         onClose={() => setIsEditOpen(false)}
-        onSave={async (updatedClient) => { try { await dataProvider.clients.update(client.id, updatedClient) } catch (err) {} onUpdateClient(client.id, updatedClient); setIsEditOpen(false) }}
+        onSave={async (updatedClient) => {
+          let nextClient = updatedClient
+
+          try {
+            const response = await dataProvider.clients.update(client.id, updatedClient)
+            if (response?.data && !response?.error) {
+              nextClient = response.data
+            }
+          } catch (err) {
+            // local mode: ignore errors
+          }
+
+          onUpdateClient(client.id, nextClient)
+          setIsEditOpen(false)
+        }}
         t={t}
       />
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />

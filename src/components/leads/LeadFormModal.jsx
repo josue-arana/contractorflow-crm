@@ -32,6 +32,7 @@ const projectTypes = [
 
 const leadStatuses = ['New Lead', 'Contacted', 'Estimate Sent', 'Won']
 const priorities = ['High', 'Medium', 'Low']
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function normalizeValue(value) {
   const parsed = Number(String(value).replace(/[^0-9.]/g, ''))
@@ -91,9 +92,17 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     const trimmedName = form.client.trim()
     const projectType = form.projectType.trim() || form.projectTitle.trim() || t('project')
     const projectTitle = form.projectTitle.trim() || projectType
+    const selectedClient = clientMode === 'existing'
+      ? sortedClients.find((item) => item.id === selectedClientId)
+      : null
+    const selectedClientIdValue = selectedClient?.id
+    const safeClientId = typeof selectedClientIdValue === 'string' && uuidPattern.test(selectedClientIdValue)
+      ? selectedClientIdValue
+      : ''
     const normalized = {
       ...form,
       client: trimmedName || t('newClientFallback'),
+      ...(safeClientId ? { clientId: safeClientId } : {}),
       projectTitle,
       projectType,
       value: normalizeValue(form.value),

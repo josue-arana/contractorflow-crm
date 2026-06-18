@@ -1,4 +1,4 @@
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { getEnvironmentStatus } from './system/environmentService'
 
 function getRowStatus(isReady) {
@@ -8,16 +8,23 @@ function getRowStatus(isReady) {
 export function getBackendEnvironmentStatus() {
   const environmentStatus = getEnvironmentStatus()
   const useSupabaseSettingsStatus = USE_SUPABASE_SETTINGS && !environmentStatus.supabaseConfigured ? 'WARNING' : 'PASS'
+  const helperKey =
+    environmentStatus.dataMode === 'supabase'
+      ? 'backendEnvironmentSupabaseModeHelper'
+      : environmentStatus.dataMode === 'entity-supabase-beta'
+        ? 'backendEnvironmentEntitySupabaseModeHelper'
+        : environmentStatus.dataMode === 'settings-supabase'
+          ? 'backendEnvironmentSettingsSupabaseModeHelper'
+          : environmentStatus.dataMode === 'clients-supabase'
+            ? 'backendEnvironmentClientsSupabaseModeHelper'
+            : environmentStatus.dataMode === 'leads-supabase'
+              ? 'backendEnvironmentLeadsSupabaseModeHelper'
+              : 'backendEnvironmentLocalModeHelper'
 
   return {
     ...environmentStatus,
     status: environmentStatus.supabaseConfigured ? 'PASS' : 'WARNING',
-    helperKey:
-      environmentStatus.dataMode === 'supabase'
-        ? 'backendEnvironmentSupabaseModeHelper'
-        : environmentStatus.dataMode === 'settings-supabase'
-          ? 'backendEnvironmentSettingsSupabaseModeHelper'
-          : 'backendEnvironmentLocalModeHelper',
+    helperKey,
     warningKey: environmentStatus.supabaseConfigured ? null : 'backendEnvironmentMissingVarsHelper',
     items: [
       {
@@ -87,20 +94,44 @@ export function getSettingsBackendStatus() {
 }
 
 export function getClientsBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_CLIENTS
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'clientsBackendSupabaseDetail' : 'clientsBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'clientsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'clientsBackendSupabaseAuthRequiredDetail'
+          : 'clientsBackendSupabaseDetail'
+      : 'clientsBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
 export function getLeadsBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_LEADS
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'leadsBackendSupabaseDetail' : 'leadsBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'leadsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'leadsBackendSupabaseAuthRequiredDetail'
+          : 'leadsBackendSupabaseDetail'
+      : 'leadsBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
@@ -160,6 +191,7 @@ export function getEventsBackendStatus() {
 
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
+  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS].filter(Boolean).length
 
   if (!environmentStatus.supabaseConfigured) {
     return {
@@ -169,7 +201,7 @@ export function getSupabaseHealthStatus() {
     }
   }
 
-  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS) {
+  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS) {
     return {
       status: 'disabled',
       label: 'Supabase disabled',
@@ -181,11 +213,27 @@ export function getSupabaseHealthStatus() {
   // tables or performing network calls during build; return configured/ready.
   return {
     status: 'ready',
-    label: USE_AUTH ? 'Supabase and auth ready' : USE_SUPABASE_SETTINGS && !USE_SUPABASE ? 'Supabase configured for Settings beta' : 'Supabase configured',
+    label: USE_AUTH
+      ? 'Supabase and auth ready'
+      : selectedEntityFlagCount > 1 && !USE_SUPABASE
+        ? 'Supabase configured for entity beta flags'
+        : USE_SUPABASE_SETTINGS && !USE_SUPABASE
+          ? 'Supabase configured for Settings beta'
+          : USE_SUPABASE_CLIENTS && !USE_SUPABASE
+            ? 'Supabase configured for Clients beta'
+            : USE_SUPABASE_LEADS && !USE_SUPABASE
+              ? 'Supabase configured for Leads beta'
+              : 'Supabase configured',
     details: USE_AUTH
       ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present.'
-      : USE_SUPABASE_SETTINGS && !USE_SUPABASE
-        ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Company Settings is allowed to use Supabase.'
-        : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
+      : selectedEntityFlagCount > 1 && !USE_SUPABASE
+        ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only selected beta entities are allowed to use Supabase.'
+        : USE_SUPABASE_SETTINGS && !USE_SUPABASE
+          ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Company Settings is allowed to use Supabase.'
+        : USE_SUPABASE_CLIENTS && !USE_SUPABASE
+          ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Clients is allowed to use Supabase.'
+          : USE_SUPABASE_LEADS && !USE_SUPABASE
+            ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Leads is allowed to use Supabase.'
+            : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
   }
 }
