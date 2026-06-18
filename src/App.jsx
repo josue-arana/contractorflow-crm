@@ -212,7 +212,7 @@ function ContractorFlowApp() {
   }
 
   function createLead(lead) {
-    const id = `lead-${Date.now()}`
+    const id = lead.id || `lead-${Date.now()}`
     setLeads((current) => [
       {
         id,
@@ -229,14 +229,20 @@ function ContractorFlowApp() {
 
   async function createLeadFromDashboard(lead) {
     try {
-      await dataProvider?.leads?.create?.(lead)
+      const response = await dataProvider?.leads?.create?.(lead)
+
+      if (response?.error) {
+        showToast(response.error.message || t('leadSaveFailed'), 'error')
+        return
+      }
+
+      createLead(response?.data || lead)
+      setIsDashboardLeadModalOpen(false)
+      setDashboardSuccessMessage(t('leadCreated'))
+      window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
     } catch (err) {
-      // ignore local-mode persistence errors
+      showToast(err?.message || t('leadSaveFailed'), 'error')
     }
-    createLead(lead)
-    setIsDashboardLeadModalOpen(false)
-    setDashboardSuccessMessage(t('leadCreated'))
-    window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
   }
 
   function updateLead(leadId, updates) {

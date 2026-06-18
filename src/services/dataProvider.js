@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -106,6 +106,23 @@ function resolveClientsContractorId(primaryValue, fallbackValue) {
 
   if ((USE_SUPABASE || USE_SUPABASE_CLIENTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.clients did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveLeadsContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if ((USE_SUPABASE || USE_SUPABASE_LEADS) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.leads did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
     return BETA_CONTRACTOR_ID
@@ -257,11 +274,99 @@ const clientsDataProvider = {
   },
 }
 
+const leadsDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.list(options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options)
+
+    return leadsSupabaseService.list({
+      ...options,
+      contractorId,
+    })
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.getById(id, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options)
+
+    return leadsSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  create: async (leadData, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.create(leadData, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options, leadData)
+
+    return leadsSupabaseService.create(leadData, {
+      ...options,
+      contractorId,
+    })
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.update(id, updates, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options, updates)
+
+    return leadsSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.archive(id, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options)
+
+    return leadsSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.restore(id, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options)
+
+    return leadsSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+      return leadsLocalService.deletePermanently(id, options)
+    }
+
+    const contractorId = resolveLeadsContractorId(options)
+
+    return leadsSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
+  },
+}
+
 const entityProvider = USE_SUPABASE ? supabaseImpl : localImpl
 
 export const dataProvider = {
   ...entityProvider,
   clients: clientsDataProvider,
+  leads: leadsDataProvider,
   settings: settingsDataProvider,
 }
 

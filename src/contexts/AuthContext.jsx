@@ -56,30 +56,41 @@ function normalizeAuthenticatedUser(user) {
 }
 
 function buildContractorState(nextUser, currentContractor = mockContractor) {
+  const baseContractor = currentContractor || mockContractor
+
   return {
-    ...currentContractor,
-    id: nextUser?.id || currentContractor.id,
+    ...baseContractor,
+    id: nextUser?.id || baseContractor.id,
     contractorId: getResolvedContractorId(),
-    fullName: nextUser?.user_metadata?.full_name || currentContractor.fullName,
-    email: nextUser?.email || currentContractor.email,
-    role: nextUser?.user_metadata?.role || currentContractor.role,
+    fullName: nextUser?.user_metadata?.full_name || baseContractor.fullName,
+    email: nextUser?.email || baseContractor.email,
+    role: nextUser?.user_metadata?.role || baseContractor.role,
   }
 }
 
 function buildCompanyState(nextUser, currentCompany = mockCompany) {
+  const baseCompany = currentCompany || mockCompany
+
   return {
-    ...currentCompany,
+    ...baseCompany,
     contractorId: getResolvedContractorId(),
-    name: nextUser?.user_metadata?.company_name || currentCompany.name,
+    name: nextUser?.user_metadata?.company_name || baseCompany.name,
   }
 }
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(USE_AUTH ? null : mockSession)
   const [user, setUser] = useState(USE_AUTH ? null : mockSession.user)
-  const [company, setCompany] = useState(mockCompany)
-  const [contractor, setContractor] = useState(mockContractor)
+  const [company, setCompany] = useState(USE_AUTH ? null : mockCompany)
+  const [contractor, setContractor] = useState(USE_AUTH ? null : mockContractor)
   const [isLoading, setIsLoading] = useState(USE_AUTH)
+
+  function clearAuthenticatedState() {
+    setSession(null)
+    setUser(null)
+    setCompany(null)
+    setContractor(null)
+  }
 
   useEffect(() => {
     if (!USE_AUTH) {
@@ -111,8 +122,7 @@ export function AuthProvider({ children }) {
         setContractor((current) => buildContractorState(nextUser, current))
         setCompany((current) => buildCompanyState(nextUser, current))
       } else {
-        setSession(null)
-        setUser(null)
+        clearAuthenticatedState()
       }
 
       setIsLoading(false)
@@ -130,6 +140,11 @@ export function AuthProvider({ children }) {
             user: normalizedUser,
           }
         : null
+
+      if (!normalizedUser) {
+        clearAuthenticatedState()
+        return
+      }
 
       setSession(normalizedSession)
       setUser(normalizedUser)
@@ -191,7 +206,9 @@ export function AuthProvider({ children }) {
   async function logout() {
     const result = await signOut()
 
-    if (!USE_AUTH) {
+    if (USE_AUTH) {
+      clearAuthenticatedState()
+    } else {
       setSession(mockSession)
       setUser(mockSession.user)
       setCompany(mockCompany)

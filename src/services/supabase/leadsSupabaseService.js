@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_LEADS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'leads'
@@ -35,6 +35,8 @@ const dbToUiPriorityMap = {
   urgent: 'Urgent',
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 function isDev() {
   return Boolean(import.meta.env.DEV)
 }
@@ -52,6 +54,19 @@ function warnDev(message, meta) {
   console.warn(message, meta)
 }
 
+function logDev(message, meta) {
+  if (!isDev() || !USE_SUPABASE_LEADS) return
+
+  if (meta === undefined) {
+    // eslint-disable-next-line no-console
+    console.log(message)
+    return
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(message, meta)
+}
+
 function createSkippedResponse(message, data = null) {
   return {
     data,
@@ -61,12 +76,13 @@ function createSkippedResponse(message, data = null) {
   }
 }
 
-function createErrorResult(message, details = null) {
+function createErrorResult(message, details = null, code = null) {
   return {
     data: null,
     error: {
       message,
       details,
+      code,
     },
     skipped: false,
   }
@@ -109,17 +125,36 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function toAppLead(row) {
+function normalizeOptionalUuid(value, fieldName) {
+  if (!value) return null
+
+  if (typeof value === 'string' && uuidPattern.test(value.trim())) {
+    return value.trim()
+  }
+
+  warnDev(`[dev] leadsSupabaseService received a non-UUID ${fieldName}; sending null instead.`, {
+    fieldName,
+    value,
+  })
+
+  return null
+}
+
+export function mapLeadRowToUiLead(row) {
+  const archivedAt = row?.archived_at || null
+
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     projectId: row?.project_id || null,
+    name: row?.name || 'Unknown Client',
     client: row?.name || 'Unknown Client',
     phone: row?.phone || '',
     email: row?.email || '',
     address: row?.address || '',
     location: row?.address || '',
+    title: row?.service_type || '',
     projectTitle: row?.service_type || '',
     projectType: row?.service_type || '',
     value: toNumber(row?.estimated_value),
@@ -129,15 +164,19 @@ function toAppLead(row) {
     nextStep: row?.notes || '',
     status: mapStatusToUi(row?.status),
     projectStatus: row?.status === 'won' ? 'Signed' : 'Lead',
-    archivedAt: row?.archived_at || null,
+    archivedAt,
+    archived_at: archivedAt,
+    isArchived: Boolean(archivedAt),
+    createdAt: row?.created_at || null,
+    updatedAt: row?.updated_at || null,
   }
 }
 
-function toSupabasePayload(contractorId, lead = {}) {
+export function mapUiLeadToLeadRow(contractorId, lead = {}) {
   return {
     contractor_id: contractorId,
-    client_id: lead.clientId || lead.client_id || null,
-    project_id: lead.projectId || lead.project_id || null,
+    client_id: normalizeOptionalUuid(lead.clientId || lead.client_id, 'client_id'),
+    project_id: normalizeOptionalUuid(lead.projectId || lead.project_id, 'project_id'),
     name: lead.client || lead.name || 'Unknown Client',
     phone: lead.phone || null,
     email: lead.email || null,
@@ -161,12 +200,19 @@ function buildContractorQuery(contractorId, extraQuery = {}) {
 function handleMissingContractorId(methodName) {
   warnDev(`[dev] leadsSupabaseService.${methodName} called without contractorId`)
 
-  return createErrorResult('contractorId is required for lead operations.')
+  return createErrorResult(
+    'contractorId is required for lead operations.',
+    {
+      methodName,
+      reason: 'No contractorId was provided to the Leads Supabase service.',
+    },
+    'MISSING_CONTRACTOR_ID'
+  )
 }
 
 export async function list({ contractorId, includeArchived = false, status, clientId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', [])
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', [])
   }
 
   if (!contractorId) {
@@ -197,7 +243,7 @@ export async function list({ contractorId, includeArchived = false, status, clie
     })
 
     return {
-      data: Array.isArray(data) ? data.map(toAppLead) : [],
+      data: Array.isArray(data) ? data.map(mapLeadRowToUiLead) : [],
       error: null,
       skipped: false,
     }
@@ -211,8 +257,8 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false')
   }
 
   if (!contractorId) {
@@ -232,7 +278,7 @@ export async function getById(id, { contractorId } = {}) {
     const row = readSingleRow(data)
 
     return {
-      data: row ? toAppLead(row) : null,
+      data: row ? mapLeadRowToUiLead(row) : null,
       error: null,
       skipped: false,
     }
@@ -246,8 +292,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(leadData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', leadData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', leadData ?? null)
   }
 
   if (!contractorId) {
@@ -255,17 +301,36 @@ export async function create(leadData, { contractorId } = {}) {
   }
 
   try {
+    const payload = mapUiLeadToLeadRow(contractorId, leadData)
+
+    logDev('[dev] leadsSupabaseService.create payload', {
+      contractorId,
+      leadData,
+      payload,
+    })
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'POST',
-      body: toSupabasePayload(contractorId, leadData),
+      body: payload,
+    })
+
+    logDev('[dev] leadsSupabaseService.create response', {
+      contractorId,
+      data,
     })
 
     return {
-      data: toAppLead(readSingleRow(data)),
+      data: mapLeadRowToUiLead(readSingleRow(data)),
       error: null,
       skipped: false,
     }
   } catch (error) {
+    logDev('[dev] leadsSupabaseService.create error', {
+      contractorId,
+      error: normalizeError(error, 'Unable to create the lead in Supabase.'),
+      leadData,
+    })
+
     return {
       data: null,
       error: normalizeError(error, 'Unable to create the lead in Supabase.'),
@@ -275,8 +340,8 @@ export async function create(leadData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -285,7 +350,7 @@ export async function update(id, updates, { contractorId } = {}) {
 
   try {
     const payload = {
-      ...toSupabasePayload(contractorId, updates),
+      ...mapUiLeadToLeadRow(contractorId, updates),
       updated_at: new Date().toISOString(),
     }
 
@@ -300,7 +365,7 @@ export async function update(id, updates, { contractorId } = {}) {
     })
 
     return {
-      data: toAppLead(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: mapLeadRowToUiLead(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
       error: null,
       skipped: false,
     }
@@ -314,8 +379,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -336,7 +401,7 @@ export async function archive(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppLead(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
+      data: mapLeadRowToUiLead(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
       error: null,
       skipped: false,
     }
@@ -350,8 +415,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -371,7 +436,7 @@ export async function restore(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppLead(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
+      data: mapLeadRowToUiLead(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
       error: null,
       skipped: false,
     }
@@ -385,8 +450,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_LEADS) {
+    return createSkippedResponse('Supabase leads service skipped because USE_SUPABASE=false and USE_SUPABASE_LEADS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

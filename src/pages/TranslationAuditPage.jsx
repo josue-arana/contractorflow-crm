@@ -1,7 +1,8 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
-import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { getClientsContractorId } from '../services/system/clientsRuntimeService'
+import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
 
 function StatusBadge({ status }) {
@@ -59,6 +60,7 @@ export function TranslationAuditPage({ t }) {
   const { authMode, authServiceStatus, contractor, company, user, session } = useAuth()
   const settingsContractorId = getSettingsContractorId({ contractor, company, session })
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
+  const leadsContractorId = getLeadsContractorId({ contractor, company, session })
   const hasSettingsSupabaseUser = hasAuthenticatedSupabaseSettingsUser({
     authMode,
     user,
@@ -109,6 +111,18 @@ export function TranslationAuditPage({ t }) {
       id: 'clientsContractorId',
       label: t('clientsCurrentContractorId'),
       value: clientsContractorId || t('notAvailable'),
+    },
+  ]
+  const leadsBackendRows = [
+    {
+      id: 'useSupabaseLeads',
+      label: t('backendEnvironmentUseSupabaseLeads'),
+      value: t(USE_SUPABASE_LEADS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'leadsContractorId',
+      label: t('leadsCurrentContractorId'),
+      value: leadsContractorId || t('notAvailable'),
     },
   ]
 
@@ -223,12 +237,25 @@ export function TranslationAuditPage({ t }) {
       </SectionCard>
 
       <SectionCard title={t('leadsBackend')}>
+        {USE_SUPABASE_LEADS ? (
+          <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
+            {t('leadsSupabaseBetaEnabled')}
+          </p>
+        ) : null}
         <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-bold text-slate-950">{t(snapshot.leadsBackend.valueKey)}</p>
             <p className="mt-1 text-sm text-slate-600">{t(snapshot.leadsBackend.detailKey)}</p>
           </div>
           <StatusBadge status={snapshot.leadsBackend.status} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {leadsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

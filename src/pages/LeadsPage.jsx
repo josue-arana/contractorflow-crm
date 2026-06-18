@@ -5,6 +5,7 @@ import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { useToast } from '../components/common/ToastProvider'
 import { currency } from '../utils/formatters'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
@@ -16,6 +17,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { showToast } = useToast()
 
   const activeLeads = useMemo(() => leads.filter((lead) => !archivedIds.includes(lead.id)), [leads, archivedIds])
 
@@ -49,12 +51,18 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
 
   async function handleCreateLead(lead) {
     try {
-      await dataProvider?.leads?.create?.(lead)
+      const response = await dataProvider?.leads?.create?.(lead)
+
+      if (response?.error) {
+        showToast(response.error.message || t('leadSaveFailed'), 'error')
+        return
+      }
+
+      onCreateLead(response?.data || lead)
+      setIsCreateOpen(false)
     } catch (err) {
-      // ignore local-mode persistence errors
+      showToast(err?.message || t('leadSaveFailed'), 'error')
     }
-    onCreateLead(lead)
-    setIsCreateOpen(false)
   }
 
   function confirmArchive(lead) {

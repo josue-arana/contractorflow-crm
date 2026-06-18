@@ -12,6 +12,8 @@
 //   against Supabase while every other entity remains in local mode.
 // - USE_SUPABASE_CLIENTS can be enabled independently to test Clients
 //   against Supabase while every other entity remains in local mode.
+// - USE_SUPABASE_LEADS can be enabled independently to test Leads
+//   against Supabase while every other entity remains in local mode.
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
@@ -19,6 +21,7 @@ const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
 export const USE_SUPABASE = false
 export const USE_SUPABASE_SETTINGS = true
 export const USE_SUPABASE_CLIENTS = true
+export const USE_SUPABASE_LEADS = true
 export const USE_AUTH = true
 export const USE_STORAGE = false
 export const USE_REAL_EMAIL = false
@@ -30,6 +33,7 @@ export const backendConfig = {
   useSupabase: USE_SUPABASE,
   useSupabaseSettings: USE_SUPABASE_SETTINGS,
   useSupabaseClients: USE_SUPABASE_CLIENTS,
+  useSupabaseLeads: USE_SUPABASE_LEADS,
   useAuth: USE_AUTH,
   useStorage: USE_STORAGE,
   useRealEmail: USE_REAL_EMAIL,
@@ -54,7 +58,7 @@ export function isSupabaseAuthConfigured() {
 }
 
 export function isSupabaseDataEnabled() {
-  return USE_SUPABASE === true || USE_SUPABASE_SETTINGS === true || USE_SUPABASE_CLIENTS === true
+  return USE_SUPABASE === true || USE_SUPABASE_SETTINGS === true || USE_SUPABASE_CLIENTS === true || USE_SUPABASE_LEADS === true
 }
 
 export function isSupabaseAuthEnabled() {
@@ -67,9 +71,12 @@ export function isBackendEnabled() {
 
 export function getDataModeLabel() {
   if (USE_SUPABASE) return 'Supabase'
-  if (USE_SUPABASE_SETTINGS && USE_SUPABASE_CLIENTS) return 'Selected Entities via Supabase'
+  if (
+    [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS].filter(Boolean).length > 1
+  ) return 'Selected Entities via Supabase'
   if (USE_SUPABASE_SETTINGS) return 'Settings via Supabase'
   if (USE_SUPABASE_CLIENTS) return 'Clients via Supabase'
+  if (USE_SUPABASE_LEADS) return 'Leads via Supabase'
   return 'Local Mock Data'
 }
 
