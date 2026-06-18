@@ -10,19 +10,28 @@ import dataProvider from '../services/dataProvider'
 
 const clientFilters = ['Active', 'Archived']
 
+function isClientArchived(client, archivedClientIds = []) {
+  return Boolean(
+    client?.isArchived
+      || client?.archivedAt
+      || client?.archived_at
+      || archivedClientIds.includes(client?.id)
+  )
+}
+
 export function ClientsPage({ leads, customClients = [], archivedClientIds = [], onOpenClient, onCreateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
-  const activeClientsList = useMemo(() => clients.filter((client) => !archivedClientIds.includes(client.id)), [clients, archivedClientIds])
+  const activeClientsList = useMemo(() => clients.filter((client) => !isClientArchived(client, archivedClientIds)), [clients, archivedClientIds])
 
   const filteredClients = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return clients.filter((client) => {
-      const isArchived = archivedClientIds.includes(client.id)
-      const matchesArchive = selectedFilter === 'Archived' ? isArchived : !isArchived
+      const archived = isClientArchived(client, archivedClientIds)
+      const matchesArchive = selectedFilter === 'Archived' ? archived : !archived
       const matchesSearch = !term || [client.name, client.phone, client.email, client.address]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term))
@@ -53,8 +62,8 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider.clients.archive(confirmAction.client.id)
-        onArchiveClient(confirmAction.client.id)
+        const response = await dataProvider.clients.archive(confirmAction.client.id)
+        onArchiveClient(confirmAction.client.id, response?.data)
       }
       if (confirmAction.mode === 'delete') {
         await dataProvider.clients.deletePermanently(confirmAction.client.id)
@@ -67,11 +76,22 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   }
 
   function renderClientActions(client, compact = false) {
-    const isArchived = archivedClientIds.includes(client.id)
-    if (isArchived) {
+    const archived = isClientArchived(client, archivedClientIds)
+    if (archived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreClient(client.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button
+            onClick={async (event) => {
+              event.stopPropagation()
+              try {
+                const response = await dataProvider.clients.restore(client.id)
+                onRestoreClient(client.id, response?.data)
+              } catch (err) {
+                // local mode: ignore errors
+              }
+            }}
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
+          ><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(client) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )
@@ -137,14 +157,14 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredClients.map((client) => (
-                <tr key={client.id} onClick={() => !archivedClientIds.includes(client.id) && onOpenClient(client.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr key={client.id} onClick={() => !isClientArchived(client, archivedClientIds) && onOpenClient(client.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{client.address}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{client.phone}</td>
                   <td className="px-4 py-4 text-slate-600">{client.email}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{client.projectCount}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>
-                  <td className="px-4 py-4"><StatusBadge status={archivedClientIds.includes(client.id) ? 'Archived' : client.latestProjectStatus} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} /></td>
                   <td className="px-4 py-4 text-right">{renderClientActions(client)}</td>
                 </tr>
               ))}
@@ -157,7 +177,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
             <article key={client.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{client.name}</h3><p className="text-sm text-slate-500">{client.phone}</p></div>
-                <StatusBadge status={archivedClientIds.includes(client.id) ? 'Archived' : client.latestProjectStatus} t={t} />
+                <StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} />
               </div>
               <div className="space-y-2 text-sm text-slate-600"><p>{client.email}</p><p>{client.address}</p></div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
@@ -171,7 +191,27 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
         {filteredClients.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-900">{t('noClientsFound')}</p><p className="mt-2 text-sm text-slate-500">{t('noClientsFoundHelp')}</p></div>}
       </section>
-      <ClientFormModal isOpen={isCreateOpen} mode="create" onClose={() => setIsCreateOpen(false)} onSave={async (client) => { try { await dataProvider.clients.create(client) } catch (err) {} onCreateClient(client); setIsCreateOpen(false) }} t={t} />
+      <ClientFormModal
+        isOpen={isCreateOpen}
+        mode="create"
+        onClose={() => setIsCreateOpen(false)}
+        onSave={async (client) => {
+          let nextClient = client
+
+          try {
+            const response = await dataProvider.clients.create(client)
+            if (response?.data && !response?.error) {
+              nextClient = response.data
+            }
+          } catch (err) {
+            // local mode: ignore errors
+          }
+
+          onCreateClient(nextClient)
+          setIsCreateOpen(false)
+        }}
+        t={t}
+      />
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )

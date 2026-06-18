@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_CLIENTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'clients'
@@ -29,12 +29,13 @@ function createSkippedResponse(message, data = null) {
   }
 }
 
-function createErrorResult(message, details = null) {
+function createErrorResult(message, details = null, code = null) {
   return {
     data: null,
     error: {
       message,
       details,
+      code,
     },
     skipped: false,
   }
@@ -53,7 +54,13 @@ function readSingleRow(data) {
 }
 
 function readClientName(client = {}) {
-  return String(client.name || client.displayName || client.display_name || '').trim()
+  return String(
+    client.name
+      || client.displayName
+      || client.display_name
+      || [client.firstName || client.first_name, client.lastName || client.last_name].filter(Boolean).join(' ')
+      || ''
+  ).trim()
 }
 
 function splitClientName(client = {}) {
@@ -71,21 +78,39 @@ function splitClientName(client = {}) {
   }
 }
 
-function toAppClient(row) {
+function buildDisplayName(row = {}) {
+  const fullName = [row.first_name, row.last_name].filter(Boolean).join(' ').trim()
+  return row.display_name || fullName || 'Unknown Client'
+}
+
+export function mapClientRowToUiClient(row) {
+  const displayName = row?.display_name || buildDisplayName(row)
+  const archivedAt = row?.archived_at || null
+
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
-    name: row?.display_name || 'Unknown Client',
+    name: displayName,
+    displayName,
+    firstName: row?.first_name || '',
+    lastName: row?.last_name || '',
     phone: row?.phone || '',
     email: row?.email || '',
-    address: [row?.address, row?.city, row?.state, row?.postal_code].filter(Boolean).join(', '),
+    address: row?.address || '',
+    preferredLanguage: row?.preferred_language || 'en',
+    preferred_language: row?.preferred_language || 'en',
+    language: row?.preferred_language || 'en',
     notes: row?.notes || '',
     status: row?.status || 'active',
-    archivedAt: row?.archived_at || null,
+    archivedAt,
+    archived_at: archivedAt,
+    isArchived: Boolean(archivedAt),
+    createdAt: row?.created_at || null,
+    updatedAt: row?.updated_at || null,
   }
 }
 
-function toSupabasePayload(contractorId, client = {}) {
+export function mapUiClientToClientRow(contractorId, client = {}) {
   const { firstName, lastName, displayName } = splitClientName(client)
 
   return {
@@ -96,10 +121,7 @@ function toSupabasePayload(contractorId, client = {}) {
     phone: client.phone || null,
     email: client.email || null,
     address: client.address || null,
-    city: client.city || null,
-    state: client.state || null,
-    postal_code: client.postalCode || client.postal_code || null,
-    preferred_language: client.preferredLanguage || client.preferred_language || 'en',
+    preferred_language: client.preferredLanguage || client.preferred_language || client.language || 'en',
     notes: client.notes || null,
     status: client.status || 'active',
   }
@@ -115,12 +137,19 @@ function buildContractorQuery(contractorId, extraQuery = {}) {
 function handleMissingContractorId(methodName) {
   warnDev(`[dev] clientsSupabaseService.${methodName} called without contractorId`)
 
-  return createErrorResult('contractorId is required for client operations.')
+  return createErrorResult(
+    'contractorId is required for client operations.',
+    {
+      methodName,
+      reason: 'No contractorId was provided to the Clients Supabase service.',
+    },
+    'MISSING_CONTRACTOR_ID'
+  )
 }
 
 export async function list({ contractorId, includeArchived = false } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', [])
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', [])
   }
 
   if (!contractorId) {
@@ -143,7 +172,7 @@ export async function list({ contractorId, includeArchived = false } = {}) {
     })
 
     return {
-      data: Array.isArray(data) ? data.map(toAppClient) : [],
+      data: Array.isArray(data) ? data.map(mapClientRowToUiClient) : [],
       error: null,
       skipped: false,
     }
@@ -157,8 +186,8 @@ export async function list({ contractorId, includeArchived = false } = {}) {
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false')
   }
 
   if (!contractorId) {
@@ -178,7 +207,7 @@ export async function getById(id, { contractorId } = {}) {
     const row = readSingleRow(data)
 
     return {
-      data: row ? toAppClient(row) : null,
+      data: row ? mapClientRowToUiClient(row) : null,
       error: null,
       skipped: false,
     }
@@ -192,8 +221,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(clientData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', clientData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', clientData ?? null)
   }
 
   if (!contractorId) {
@@ -203,11 +232,11 @@ export async function create(clientData, { contractorId } = {}) {
   try {
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'POST',
-      body: toSupabasePayload(contractorId, clientData),
+      body: mapUiClientToClientRow(contractorId, clientData),
     })
 
     return {
-      data: toAppClient(readSingleRow(data)),
+      data: mapClientRowToUiClient(readSingleRow(data)),
       error: null,
       skipped: false,
     }
@@ -221,8 +250,8 @@ export async function create(clientData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -231,7 +260,7 @@ export async function update(id, updates, { contractorId } = {}) {
 
   try {
     const payload = {
-      ...toSupabasePayload(contractorId, updates),
+      ...mapUiClientToClientRow(contractorId, updates),
       updated_at: new Date().toISOString(),
     }
 
@@ -246,7 +275,7 @@ export async function update(id, updates, { contractorId } = {}) {
     })
 
     return {
-      data: toAppClient(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: mapClientRowToUiClient(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
       error: null,
       skipped: false,
     }
@@ -260,8 +289,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -282,7 +311,7 @@ export async function archive(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppClient(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
+      data: mapClientRowToUiClient(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt }),
       error: null,
       skipped: false,
     }
@@ -296,8 +325,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -317,7 +346,7 @@ export async function restore(id, { contractorId } = {}) {
     })
 
     return {
-      data: toAppClient(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
+      data: mapClientRowToUiClient(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null }),
       error: null,
       skipped: false,
     }
@@ -331,8 +360,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_CLIENTS) {
+    return createSkippedResponse('Supabase clients service skipped because USE_SUPABASE=false and USE_SUPABASE_CLIENTS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

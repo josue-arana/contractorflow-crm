@@ -11,12 +11,18 @@ export function buildClientProfiles(leads = [], customClients = []) {
 
   customClients.forEach((client) => {
     const id = client.id || getClientSlug(client.name)
+    const archivedAt = client.archivedAt || client.archived_at || null
+    const isArchived = Boolean(client.isArchived || archivedAt)
     clientMap.set(id, {
       id,
       name: client.name || 'Unknown Client',
+      displayName: client.displayName || client.name || 'Unknown Client',
+      firstName: client.firstName || client.first_name || '',
+      lastName: client.lastName || client.last_name || '',
       phone: client.phone || '(410) 555-0100',
       email: client.email || `${id || 'client'}@example.com`,
       address: client.address || 'Address not added',
+      preferredLanguage: client.preferredLanguage || client.preferred_language || client.language || 'en',
       latestProjectStatus: client.latestProjectStatus || 'Lead',
       projectCount: 0,
       totalProjectValue: 0,
@@ -24,6 +30,12 @@ export function buildClientProfiles(leads = [], customClients = []) {
       repeatClient: Boolean(client.repeatClient),
       projects: [],
       notes: client.notes ? [client.notes] : ['Client added manually.'],
+      status: client.status || 'active',
+      archivedAt,
+      archived_at: archivedAt,
+      isArchived,
+      createdAt: client.createdAt || client.created_at || null,
+      updatedAt: client.updatedAt || client.updated_at || null,
       manualClient: true,
     })
   })

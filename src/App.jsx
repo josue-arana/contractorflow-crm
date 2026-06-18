@@ -11,6 +11,7 @@ import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
 import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
+import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
@@ -36,6 +37,7 @@ import { AuthProvider } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
+import { USE_SUPABASE_CLIENTS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 
 const emptyArchiveState = {
@@ -117,6 +119,8 @@ function ContractorFlowApp() {
   const { showToast } = useToast()
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
 
+  useClientsBootstrap(setCustomClients)
+
   const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
@@ -182,7 +186,7 @@ function ContractorFlowApp() {
     project: archiveLeadRecord,
     job: archiveLeadRecord,
     estimate: archiveLeadRecord,
-    client: (id) => { updateArchiveList('clientIds', id, 'add'); showToast(t('itemArchived')) },
+    client: archiveClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'add'); showToast(t('itemArchived')) },
     scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'add'); showToast(t('itemArchived')) },
   }
@@ -192,7 +196,7 @@ function ContractorFlowApp() {
     project: restoreLeadRecord,
     job: restoreLeadRecord,
     estimate: restoreLeadRecord,
-    client: (id) => { updateArchiveList('clientIds', id, 'remove'); showToast(t('itemRestored')) },
+    client: restoreClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'remove'); showToast(t('itemRestored')) },
     scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'remove'); showToast(t('itemRestored')) },
   }
@@ -202,7 +206,7 @@ function ContractorFlowApp() {
     project: deleteLeadRecord,
     job: deleteLeadRecord,
     estimate: deleteLeadRecord,
-    client: (id) => { updateArchiveList('deletedClientIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
+    client: deleteClientRecord,
     invoice: (id) => { updateArchiveList('deletedInvoiceIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
     scheduleEvent: (id) => { updateArchiveList('deletedScheduleEventIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
   }
@@ -250,7 +254,7 @@ function ContractorFlowApp() {
   }
 
   function createClient(client) {
-    const id = getClientSlug(client.name) || `client-${Date.now()}`
+    const id = client.id || getClientSlug(client.name) || `client-${Date.now()}`
     updateArchiveList('deletedClientIds', id, 'remove')
     updateArchiveList('clientIds', id, 'remove')
     setCustomClients((current) => {
@@ -283,6 +287,37 @@ function ContractorFlowApp() {
     }))
     showToast(t('clientUpdated'))
     addNotification('notificationClientUpdatedTitle', 'notificationClientUpdatedMessage')
+  }
+
+  function archiveClientRecord(id, clientRecord = null) {
+    updateArchiveList('clientIds', id, 'add')
+
+    if (USE_SUPABASE_CLIENTS && clientRecord) {
+      setCustomClients((current) => current.map((item) => (item.id === id ? { ...item, ...clientRecord, id } : item)))
+    }
+
+    showToast(t('itemArchived'))
+  }
+
+  function restoreClientRecord(id, clientRecord = null) {
+    updateArchiveList('clientIds', id, 'remove')
+
+    if (USE_SUPABASE_CLIENTS && clientRecord) {
+      setCustomClients((current) => current.map((item) => (item.id === id ? { ...item, ...clientRecord, id } : item)))
+    }
+
+    showToast(t('itemRestored'))
+  }
+
+  function deleteClientRecord(id) {
+    updateArchiveList('deletedClientIds', id, 'add')
+
+    if (USE_SUPABASE_CLIENTS) {
+      setCustomClients((current) => current.filter((item) => item.id !== id))
+      updateArchiveList('clientIds', id, 'remove')
+    }
+
+    showToast(t('itemDeletedPermanently'))
   }
 
   function moveLead(leadId, targetStatus) {

@@ -1,4 +1,4 @@
-import { USE_SUPABASE, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 
 function readEnvValue(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -16,7 +16,15 @@ export function getEnvironmentStatus() {
   const hasSupabaseUrl = Boolean(supabaseUrl)
   const hasAnonKey = Boolean(supabaseAnonKey)
   const supabaseConfigured = hasSupabaseUrl && hasAnonKey
-  const dataMode = USE_SUPABASE ? 'supabase' : USE_SUPABASE_SETTINGS ? 'settings-supabase' : 'local'
+  const dataMode = USE_SUPABASE
+    ? 'supabase'
+    : USE_SUPABASE_SETTINGS && USE_SUPABASE_CLIENTS
+      ? 'entity-supabase-beta'
+      : USE_SUPABASE_SETTINGS
+        ? 'settings-supabase'
+        : USE_SUPABASE_CLIENTS
+          ? 'clients-supabase'
+          : 'local'
   const settingsDataMode = USE_SUPABASE_SETTINGS ? 'supabase' : 'local'
 
   return {
@@ -26,6 +34,7 @@ export function getEnvironmentStatus() {
     authConfigured: supabaseConfigured,
     dataMode,
     settingsDataMode,
+    useSupabaseClients: USE_SUPABASE_CLIENTS,
     useSupabaseSettings: USE_SUPABASE_SETTINGS,
   }
 }
