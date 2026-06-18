@@ -19,7 +19,7 @@ function isClientArchived(client, archivedClientIds = []) {
   )
 }
 
-export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateProject, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
+export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateJob, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
@@ -37,6 +37,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   }
 
   const isArchived = isClientArchived(client, archivedClientIds)
+  const primaryProject = client.projects[0] || null
 
   async function runConfirmAction() {
     if (!confirmAction) return
@@ -78,7 +79,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <a href={`tel:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50"><Phone className="h-4 w-4" /> {t('callClient')}</a>
             <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>
-            <button onClick={onCreateProject} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
+            <button onClick={() => onCreateJob?.(client)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
             <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
             {isArchived ? (
               <>
@@ -117,8 +118,20 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
 
         <InfoCard title={t('quickActions')} icon={WalletCards}>
           <div className="grid gap-2">
-            <button onClick={() => client.projects[0] && onOpenProject(client.projects[0].id)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('viewProjects')}</button>
-            <button onClick={() => client.projects[0] && onRecordPayment(client.projects[0].id)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('recordPayment')}</button>
+            <button
+              onClick={() => primaryProject && onOpenProject(primaryProject.id)}
+              disabled={!primaryProject}
+              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+            >
+              {t('viewProjects')}
+            </button>
+            <button
+              onClick={() => primaryProject && onRecordPayment(primaryProject.id)}
+              disabled={!primaryProject}
+              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
+            >
+              {t('recordPayment')}
+            </button>
           </div>
         </InfoCard>
       </section>
@@ -126,7 +139,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
       <section className="grid gap-4 xl:grid-cols-2">
         <InfoCard title={t('projectHistory')} icon={BriefcaseBusiness}>
           <div className="space-y-3">
-            {client.projects.map((project) => (
+            {client.projects.length > 0 ? client.projects.map((project) => (
               <button key={project.id} onClick={() => onOpenProject(project.id)} className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-blue-50/40">
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="font-bold text-slate-950">{project.projectTitle || project.projectType}</p><p className="mt-1 text-sm text-slate-500">{project.location}</p></div>
@@ -137,7 +150,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                   <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('remaining')}</p><p className="font-bold text-slate-950">{currency.format(project.outstandingBalance)}</p></div>
                 </div>
               </button>
-            ))}
+            )) : <p className="text-sm text-slate-500">{t('noJobs')}</p>}
           </div>
         </InfoCard>
 

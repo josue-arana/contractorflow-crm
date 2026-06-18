@@ -9,6 +9,7 @@ import { mockScheduleEvents } from './data/mockScheduleEvents'
 import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
 import { ToastProvider, useToast } from './components/common/ToastProvider'
+import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
@@ -59,6 +60,30 @@ function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
   return 'Progress Payment Paid'
 }
 
+function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) {
+  const address = persistedJob.address || persistedJob.location || jobDraft.address || jobDraft.location || clientRecord?.address || ''
+  const value = persistedJob.value ?? persistedJob.estimatedValue ?? persistedJob.contractValue ?? jobDraft.value ?? 0
+
+  return {
+    ...jobDraft,
+    ...persistedJob,
+    clientId: persistedJob.clientId ?? jobDraft.clientId ?? clientRecord?.id ?? '',
+    client: persistedJob.client || jobDraft.client || clientRecord?.name || '',
+    phone: persistedJob.phone || jobDraft.phone || clientRecord?.phone || '',
+    email: persistedJob.email || jobDraft.email || clientRecord?.email || '',
+    address,
+    location: persistedJob.location || jobDraft.location || address,
+    projectTitle: persistedJob.projectTitle || persistedJob.title || jobDraft.projectTitle || jobDraft.projectType || '',
+    projectType: persistedJob.projectType || jobDraft.projectType || jobDraft.projectTitle || '',
+    projectStatus: persistedJob.projectStatus || jobDraft.projectStatus || 'Scheduled',
+    startDate: persistedJob.startDate || jobDraft.startDate || '',
+    value: Number(value) || 0,
+    notes: persistedJob.notes || jobDraft.notes || '',
+    nextStep: persistedJob.nextStep || jobDraft.nextStep || jobDraft.notes || '',
+    source: persistedJob.source || jobDraft.source || 'Direct Job',
+  }
+}
+
 const defaultUserProfile = {
   name: 'Josue Arana',
   email: 'josue@contractorflow.example',
@@ -96,6 +121,7 @@ function ContractorFlowApp() {
   const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
   const [invoices, setInvoices] = useState(mockInvoices)
   const [scheduleModalState, setScheduleModalState] = useState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
+  const [jobModalState, setJobModalState] = useState({ isOpen: false, initialClientId: '', initialClient: null })
   const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
   const [dashboardSuccessMessage, setDashboardSuccessMessage] = useState('')
   const [archives, setArchives] = useState(emptyArchiveState)
@@ -227,6 +253,65 @@ function ContractorFlowApp() {
     return id
   }
 
+  function buildWorkspaceJobRecord(job, clientRecord = null) {
+    const projectValue = Number(job?.contractValue ?? job?.estimatedValue ?? job?.value ?? 0) || 0
+    const projectStatus = job?.projectStatus || 'Scheduled'
+    const amountPaid = projectStatus === 'Paid' ? projectValue : 0
+    const outstandingBalance = Math.max(projectValue - amountPaid, 0)
+    const address = job?.address || job?.location || clientRecord?.address || ''
+
+    return {
+      id: job?.id || `project-${Date.now()}`,
+      contractorId: job?.contractorId || undefined,
+      clientId: job?.clientId || clientRecord?.id || '',
+      client: job?.client || clientRecord?.name || t('newClientFallback'),
+      phone: job?.phone || clientRecord?.phone || '',
+      email: job?.email || clientRecord?.email || '',
+      address,
+      location: job?.location || address,
+      projectTitle: job?.projectTitle || job?.title || job?.projectType || t('jobs'),
+      projectType: job?.projectType || job?.projectTitle || t('jobs'),
+      value: projectValue,
+      source: job?.source || 'Direct Job',
+      priority: job?.priority || 'Medium',
+      notes: job?.notes || '',
+      nextStep: job?.nextStep || job?.notes || t('jobReadyToManage'),
+      status: 'Won',
+      projectStatus,
+      portal: {
+        ...(job?.portal || {}),
+        contractAmount: Number(job?.contractValue ?? projectValue) || 0,
+        depositRequired: job?.portal?.depositRequired ?? Math.round(projectValue * 0.5),
+        amountPaid,
+        outstandingBalance,
+        paymentStatus: projectStatus === 'Paid' ? 'Paid in Full' : job?.portal?.paymentStatus || 'Not Paid',
+        startDate: job?.startDate || job?.portal?.startDate || '',
+        estimatedCompletion: job?.targetCompletion || job?.portal?.estimatedCompletion || '',
+        timeline: job?.portal?.timeline || [],
+        photos: job?.portal?.photos || [],
+        documents: job?.portal?.documents || [],
+        estimate: job?.portal?.estimate,
+        contract: job?.portal?.contract,
+      },
+    }
+  }
+
+  function createJob(job, clientRecord = null) {
+    const workspaceJob = buildWorkspaceJobRecord(job, clientRecord)
+
+    updateArchiveList('leadIds', workspaceJob.id, 'remove')
+    updateArchiveList('deletedLeadIds', workspaceJob.id, 'remove')
+    setLeads((current) => {
+      const existing = current.find((item) => item.id === workspaceJob.id)
+      if (existing) {
+        return current.map((item) => (item.id === workspaceJob.id ? { ...item, ...workspaceJob, id: workspaceJob.id } : item))
+      }
+
+      return [workspaceJob, ...current]
+    })
+    showToast(t('jobCreated'))
+  }
+
   async function createLeadFromDashboard(lead) {
     try {
       const response = await dataProvider?.leads?.create?.(lead)
@@ -242,6 +327,25 @@ function ContractorFlowApp() {
       window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
     } catch (err) {
       showToast(err?.message || t('leadSaveFailed'), 'error')
+    }
+  }
+
+  async function createJobFromModal(jobDraft) {
+    const matchedClient = clients.find((client) => client.id === jobDraft.clientId)
+      || clients.find((client) => client.name === jobDraft.client)
+
+    try {
+      const response = await dataProvider?.projects?.create?.(jobDraft)
+
+      if (response?.error) {
+        showToast(response.error.message || t('jobSaveFailed'), 'error')
+        return
+      }
+
+      createJob(mergeCreatedJobDraft(jobDraft, response?.data || {}, matchedClient || null), matchedClient || null)
+      setJobModalState({ isOpen: false, initialClientId: '', initialClient: null })
+    } catch (err) {
+      showToast(err?.message || t('jobSaveFailed'), 'error')
     }
   }
 
@@ -564,6 +668,18 @@ function ContractorFlowApp() {
     setScheduleModalState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   }
 
+  function openJobModal({ clientId = '', client = null } = {}) {
+    setJobModalState({
+      isOpen: true,
+      initialClientId: clientId || client?.id || '',
+      initialClient: client || null,
+    })
+  }
+
+  function closeJobModal() {
+    setJobModalState({ isOpen: false, initialClientId: '', initialClient: null })
+  }
+
   function exportScheduleEvent(event) {
     const startDate = event.date || new Date().toISOString().slice(0, 10)
     const startTime = (event.startTime || event.time || '09:00').slice(0, 5).replace(':', '')
@@ -637,10 +753,10 @@ function ContractorFlowApp() {
       <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewProject={openProject} onCreateLead={createLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
-      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onScheduleJob={() => openScheduleModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
+      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
-      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateProject={() => navigate('/leads')} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
+      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
@@ -682,6 +798,15 @@ function ContractorFlowApp() {
         <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
       </div>
       <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
+      <JobFormModal
+        isOpen={jobModalState.isOpen}
+        clients={clients}
+        initialClientId={jobModalState.initialClientId}
+        initialClient={jobModalState.initialClient}
+        onClose={closeJobModal}
+        onSave={createJobFromModal}
+        t={t}
+      />
       <ScheduleEventModal
         isOpen={scheduleModalState.isOpen}
         leads={activeLeads}

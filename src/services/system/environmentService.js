@@ -1,4 +1,4 @@
-import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 
 function readEnvValue(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -16,7 +16,7 @@ export function getEnvironmentStatus() {
   const hasSupabaseUrl = Boolean(supabaseUrl)
   const hasAnonKey = Boolean(supabaseAnonKey)
   const supabaseConfigured = hasSupabaseUrl && hasAnonKey
-  const enabledEntityFlags = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS].filter(Boolean).length
+  const enabledEntityFlags = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS].filter(Boolean).length
   const dataMode = USE_SUPABASE
     ? 'supabase'
     : enabledEntityFlags > 1
@@ -27,7 +27,9 @@ export function getEnvironmentStatus() {
           ? 'clients-supabase'
           : USE_SUPABASE_LEADS
             ? 'leads-supabase'
-          : 'local'
+            : USE_SUPABASE_PROJECTS
+              ? 'projects-supabase'
+              : 'local'
   const settingsDataMode = USE_SUPABASE_SETTINGS ? 'supabase' : 'local'
 
   return {
@@ -39,6 +41,7 @@ export function getEnvironmentStatus() {
     settingsDataMode,
     useSupabaseClients: USE_SUPABASE_CLIENTS,
     useSupabaseLeads: USE_SUPABASE_LEADS,
+    useSupabaseProjects: USE_SUPABASE_PROJECTS,
     useSupabaseSettings: USE_SUPABASE_SETTINGS,
   }
 }
