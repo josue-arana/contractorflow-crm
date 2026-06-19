@@ -10,11 +10,11 @@ const uiToDbStatusMap = {
   Contract: 'contract',
   Scheduled: 'scheduled',
   'In Progress': 'in_progress',
-  'Waiting on Client': 'in_progress',
-  'Waiting on Materials': 'in_progress',
-  'Ready for Final Walkthrough': 'in_progress',
+  'Waiting on Client': 'waiting_on_client',
+  'Waiting on Materials': 'waiting_on_materials',
+  'Ready for Final Walkthrough': 'ready_for_final_walkthrough',
   Completed: 'completed',
-  Paid: 'completed',
+  Paid: 'paid',
   Cancelled: 'cancelled',
 }
 
@@ -24,7 +24,11 @@ const dbToUiStatusMap = {
   contract: 'Signed',
   scheduled: 'Scheduled',
   in_progress: 'In Progress',
+  waiting_on_client: 'Waiting on Client',
+  waiting_on_materials: 'Waiting on Materials',
+  ready_for_final_walkthrough: 'Ready for Final Walkthrough',
   completed: 'Completed',
+  paid: 'Paid',
   cancelled: 'Cancelled',
 }
 
@@ -87,7 +91,7 @@ function toNumber(value) {
 
 function mapStatusToDb(status) {
   if (!status) return 'lead'
-  return uiToDbStatusMap[status] || String(status).toLowerCase()
+  return uiToDbStatusMap[status] || String(status).toLowerCase().replace(/\s+/g, '_')
 }
 
 function mapStatusToUi(status) {
@@ -112,29 +116,72 @@ function normalizeOptionalUuid(value, fieldName) {
 
 export function mapProjectRowToUiProject(row) {
   const archivedAt = row?.archived_at || null
+  const estimatedValue = toNumber(row?.estimated_value || 0)
+  const contractValue = toNumber(row?.contract_value)
+  const value = toNumber(row?.estimated_value || row?.contract_value || 0)
+  const paid = toNumber(row?.paid || 0)
+  const remaining = toNumber(row?.remaining ?? Math.max(value - paid, 0))
+  const projectType = row?.project_type || ''
+  const notes = row?.notes || ''
+  const description = row?.description || ''
+  const address = row?.address || ''
+  const status = row?.status || 'scheduled'
 
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     leadId: row?.lead_id || null,
-    name: row?.title || row?.project_type || '',
-    title: row?.title || row?.project_type || '',
+    title: row?.title || '',
+    name: row?.title || '',
+    projectTitle: row?.title || '',
+    projectType,
+    jobType: projectType,
     client: '',
+    clientName: '',
+    customerName: '',
     phone: '',
     email: '',
-    address: row?.address || '',
-    location: row?.address || '',
-    projectTitle: row?.title || '',
-    projectType: row?.project_type || row?.title || '',
-    projectStatus: mapStatusToUi(row?.status),
-    status: mapStatusToUi(row?.status),
-    value: toNumber(row?.contract_value ?? row?.estimated_value),
-    estimatedValue: toNumber(row?.estimated_value),
-    contractValue: toNumber(row?.contract_value),
-    nextStep: row?.notes || '',
-    notes: row?.notes || '',
+    status,
+    projectStatus: mapStatusToUi(status),
     startDate: row?.start_date || '',
+    estimatedValue,
+    value,
+    contractValue,
+    paid,
+    amountPaid: paid,
+    remaining,
+    remainingBalance: remaining,
+    nextStep: notes || description || '',
+    location: address,
+    address,
+    notes,
+    description,
+    events: [],
+    schedule: [],
+    scheduleEvents: [],
+    photos: [],
+    estimates: [],
+    contracts: [],
+    invoices: [],
+    payments: [],
+    portal: {
+      shareUrl: '',
+      contractAmount: contractValue || value,
+      depositRequired: 0,
+      amountPaid: paid,
+      outstandingBalance: remaining,
+      paymentStatus: '',
+      startDate: row?.start_date || '',
+      estimatedCompletion: row?.target_end_date || '',
+      timeline: [],
+      photos: [],
+      documents: [],
+      estimate: {},
+      contract: {},
+      invoices: [],
+      payments: [],
+    },
     targetCompletion: row?.target_end_date || '',
     archivedAt,
     archived_at: archivedAt,
@@ -219,8 +266,19 @@ export async function list({ contractorId, includeArchived = false, status, clie
       query,
     })
 
+    const rows = Array.isArray(data) ? data : []
+    const mappedRows = rows.map(mapProjectRowToUiProject)
+
+    if (isDev() && USE_SUPABASE_PROJECTS) {
+      // eslint-disable-next-line no-console
+      console.info('[dev] projectsSupabaseService.list counts', {
+        rawProjectRowCount: rows.length,
+        mappedProjectRowCount: mappedRows.length,
+      })
+    }
+
     return {
-      data: Array.isArray(data) ? data.map(mapProjectRowToUiProject) : [],
+      data: mappedRows,
       error: null,
       skipped: false,
     }

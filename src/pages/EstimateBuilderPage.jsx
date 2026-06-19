@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
@@ -9,7 +9,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
 
-export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
   const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
@@ -70,7 +70,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('projectWorkspace')}</button>
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {backLabel}</button>
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('estimateBuilder')}</p>
         <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
@@ -146,7 +146,9 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
           <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={showLineItems ? lineItems : []} t={t} />
-          <button onClick={() => setIsEditing((current) => !current)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{isEditing ? t('doneEditing') : t('editEstimate')}</button>
+          {!isEditing && (
+            <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
+          )}
           <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
@@ -230,9 +232,32 @@ function DocumentCompanyHeader({ company, t }) {
 
 export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const { id, leadId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
+  const estimateSource = location.state?.source
+  const sourceLeadId = location.state?.leadId
+  const sourceProjectId = location.state?.projectId || projectId
+  const backLabel = useMemo(() => {
+    if (estimateSource === 'lead' && sourceLeadId) return t('backToLeadDetails')
+    if (estimateSource === 'project' && sourceProjectId) return t('backToProjectWorkspace')
+    return t('back')
+  }, [estimateSource, sourceLeadId, sourceProjectId, t])
+
+  function handleBack() {
+    if (estimateSource === 'lead' && sourceLeadId) {
+      navigate(`/leads/${sourceLeadId}`)
+      return
+    }
+
+    if (estimateSource === 'project' && sourceProjectId) {
+      navigate(`/projects/${sourceProjectId}`)
+      return
+    }
+
+    navigate(-1)
+  }
 
   if (!lead) {
     return (
@@ -251,7 +276,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
       lead={lead}
       t={t}
       companySettings={companySettings}
-      onBack={() => navigate(`/projects/${lead.id}`)}
+      onBack={handleBack}
+      backLabel={backLabel}
       isArchived={archivedIds.includes(lead.id)}
       onSaveEstimate={(estimate) => onSaveEstimate?.(lead.id, estimate)}
       onConvert={(estimate) => {

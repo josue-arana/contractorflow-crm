@@ -2,6 +2,7 @@ export const appRoutes = {
   root: '/',
   dashboard: '/dashboard',
   leads: '/leads',
+  leadDetail: '/leads/:id',
   estimates: '/estimates',
   contracts: '/contracts',
   jobs: '/jobs',

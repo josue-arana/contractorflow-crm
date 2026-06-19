@@ -44,11 +44,14 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
   const [form, setForm] = useState(emptyLead)
   const [clientMode, setClientMode] = useState('new')
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [validationError, setValidationError] = useState('')
+  const isCreateMode = mode === 'create'
 
-  const sortedClients = useMemo(() => [...clients].sort((a, b) => a.name.localeCompare(b.name)), [clients])
+  const sortedClients = useMemo(() => [...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [clients])
 
   useEffect(() => {
     if (!isOpen) return
+    setValidationError('')
 
     if (lead) {
       setForm({
@@ -68,7 +71,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
   }, [isOpen, lead, sortedClients])
 
   useEffect(() => {
-    if (mode !== 'create' || clientMode !== 'existing' || !selectedClientId) return
+    if (!isCreateMode || clientMode !== 'existing' || !selectedClientId) return
     const client = sortedClients.find((item) => item.id === selectedClientId)
     if (!client) return
 
@@ -80,19 +83,33 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       address: client.address || '',
       location: client.address || current.location || '',
     }))
-  }, [clientMode, selectedClientId, mode, sortedClients])
+  }, [clientMode, isCreateMode, selectedClientId, sortedClients])
 
   if (!isOpen) return null
 
   function updateField(field, value) {
+    setValidationError('')
     setForm((current) => ({ ...current, [field]: value }))
   }
 
   function handleSubmit(event) {
     event.preventDefault()
     const trimmedName = form.client.trim()
-    const projectType = form.projectType.trim() || form.projectTitle.trim() || t('project')
-    const projectTitle = form.projectTitle.trim() || projectType
+    const trimmedPhone = form.phone.trim()
+    const trimmedEmail = form.email.trim()
+    const projectTitle = form.projectTitle.trim()
+    const projectType = form.projectType.trim()
+
+    if (!trimmedName || !projectTitle) {
+      setValidationError(t('leadRequiredFieldsError'))
+      return
+    }
+
+    if (!trimmedPhone && !trimmedEmail) {
+      setValidationError(t('leadContactRequiredError'))
+      return
+    }
+
     const selectedClient = clientMode === 'existing'
       ? sortedClients.find((item) => item.id === selectedClientId)
       : null
@@ -103,9 +120,12 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     const normalized = {
       ...form,
       client: trimmedName || t('newClientFallback'),
+      clientMode,
       ...(safeClientId ? { clientId: safeClientId } : {}),
       projectTitle,
       projectType,
+      phone: trimmedPhone,
+      email: trimmedEmail,
       value: normalizeValue(form.value),
       location: form.location || form.address,
       nextStep: form.nextStep || form.notes || t('followUpWithClient'),
@@ -128,7 +148,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {mode === 'create' && sortedClients.length > 0 && (
+          {isCreateMode && sortedClients.length > 0 && (
             <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('client')}</label>
               <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
@@ -147,19 +167,16 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
 
           <section className="grid gap-4 sm:grid-cols-2">
             <TextField label={t('customerName')} value={form.client} onChange={(value) => updateField('client', value)} required />
-            <TextField label={t('phone')} value={form.phone} onChange={(value) => updateField('phone', value)} />
-            <TextField label={t('email')} value={form.email} onChange={(value) => updateField('email', value)} type="email" />
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-sm font-bold text-slate-700">{t('phoneOrEmailRequiredLabel')} <span className="text-red-500">*</span></label>
+              <p className="mb-3 text-xs text-slate-500">{t('phoneOrEmailRequiredHelp')}</p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextField label={t('phone')} value={form.phone} onChange={(value) => updateField('phone', value)} />
+                <TextField label={t('email')} value={form.email} onChange={(value) => updateField('email', value)} type="email" />
+              </div>
+            </div>
             <TextField label={t('address')} value={form.address} onChange={(value) => updateField('address', value)} />
             <TextField label={t('projectTitle')} value={form.projectTitle} onChange={(value) => updateField('projectTitle', value)} required />
-            <div>
-              <label className="mb-2 block text-sm font-bold text-slate-700">{t('projectType')}</label>
-              <SelectField value={form.projectType} onChange={(event) => updateField('projectType', event.target.value)}>
-                <option value="">{t('selectProjectType')}</option>
-                {projectTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}
-              </SelectField>
-            </div>
-            <TextField label={t('estimatedValue')} value={form.value} onChange={(value) => updateField('value', value)} type="number" />
-            <TextField label={t('source')} value={form.source} onChange={(value) => updateField('source', value)} />
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('priority')}</label>
               <SelectField value={form.priority} onChange={(event) => updateField('priority', event.target.value)}>
@@ -172,6 +189,18 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
                 {leadStatuses.map((status) => <option key={status} value={status}>{tStatus(t, status)}</option>)}
               </SelectField>
             </div>
+            {!isCreateMode && (
+              <>
+                <div>
+                  <label className="mb-2 block text-sm font-bold text-slate-700">{t('projectType')}</label>
+                  <SelectField value={form.projectType} onChange={(event) => updateField('projectType', event.target.value)}>
+                    <option value="">{t('selectProjectType')}</option>
+                    {projectTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}
+                  </SelectField>
+                </div>
+                <TextField label={t('source')} value={form.source} onChange={(value) => updateField('source', value)} />
+              </>
+            )}
           </section>
 
           <div>
@@ -185,6 +214,10 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
             />
           </div>
 
+          {validationError && (
+            <p className="text-sm font-medium text-red-600">{validationError}</p>
+          )}
+
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
             <button type="submit" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">{mode === 'edit' ? t('saveChanges') : t('saveLead')}</button>
@@ -197,7 +230,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
 function TextField({ label, value, onChange, type = 'text', required = false }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-bold text-slate-700">{label}</label>
+      <label className="mb-2 block text-sm font-bold text-slate-700">{label}{required ? <> <span className="text-red-500">*</span></> : null}</label>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -142,22 +142,29 @@ function normalizeOptionalUuid(value, fieldName) {
 
 export function mapLeadRowToUiLead(row) {
   const archivedAt = row?.archived_at || null
+  const clientName = row?.name || 'Unknown Client'
+  const projectType = row?.service_type || ''
+  const estimatedValue = toNumber(row?.estimated_value)
 
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     projectId: row?.project_id || null,
-    name: row?.name || 'Unknown Client',
-    client: row?.name || 'Unknown Client',
+    name: clientName,
+    client: clientName,
+    clientName,
+    customerName: clientName,
     phone: row?.phone || '',
     email: row?.email || '',
     address: row?.address || '',
     location: row?.address || '',
-    title: row?.service_type || '',
-    projectTitle: row?.service_type || '',
-    projectType: row?.service_type || '',
-    value: toNumber(row?.estimated_value),
+    title: projectType,
+    projectTitle: projectType,
+    projectType,
+    jobType: projectType,
+    value: estimatedValue,
+    estimatedValue,
     source: row?.source || '',
     priority: mapPriorityToUi(row?.priority),
     notes: row?.notes || '',

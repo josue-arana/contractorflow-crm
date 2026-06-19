@@ -1,47 +1,153 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Archive, BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, Trash2, Undo2, Zap } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { MobileJobStat } from '../components/ui/MobileJobStat'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 
+const supabaseStatusToDisplayMap = {
+  scheduled: 'Scheduled',
+  in_progress: 'In Progress',
+  waiting_on_client: 'Waiting on Client',
+  waiting_on_materials: 'Waiting on Materials',
+  ready_for_final_walkthrough: 'Ready for Final Walkthrough',
+  completed: 'Completed',
+  paid: 'Paid',
+}
+
+const displayStatusToSupabaseMap = {
+  Scheduled: 'scheduled',
+  'In Progress': 'in_progress',
+  'Waiting on Client': 'waiting_on_client',
+  'Waiting on Materials': 'waiting_on_materials',
+  'Ready for Final Walkthrough': 'ready_for_final_walkthrough',
+  Completed: 'completed',
+  Paid: 'paid',
+}
+
+function toDisplayJobStatus(status) {
+  if (!status) return 'Scheduled'
+  return supabaseStatusToDisplayMap[status] || status
+}
+
+function toSupabaseJobStatus(status) {
+  if (!status) return ''
+  return displayStatusToSupabaseMap[status] || String(status).toLowerCase().replace(/\s+/g, '_')
+}
+
+function logSupabaseJobsDebug(message, meta) {
+  if (!import.meta.env.DEV || !USE_SUPABASE_PROJECTS) return
+
+  // eslint-disable-next-line no-console
+  console.info(message, meta)
+}
+
 export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
+  const [projects, setProjects] = useState([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const { contractor, company, session } = useAuth()
+  const contractorId = getProjectsContractorId({ contractor, company, session })
   const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
+  const isArchivedJob = (job) => Boolean(job?.isArchived || job?.archivedAt || archivedIds.includes(job?.id))
+
+  useEffect(() => {
+    let isCancelled = false
+
+    if (!USE_SUPABASE_PROJECTS) {
+      setProjects([])
+      return undefined
+    }
+
+    async function loadProjects() {
+      setIsLoadingProjects(true)
+
+      try {
+        const response = await dataProvider.projects.list({
+          contractorId,
+          includeArchived: true,
+        })
+
+        if (isCancelled) return
+
+        const nextProjects = Array.isArray(response?.data) ? response.data : []
+        logSupabaseJobsDebug('[dev] JobsPage Supabase load counts', {
+          rawProjectRowCount: nextProjects.length,
+          mappedProjectRowCount: nextProjects.length,
+        })
+        setProjects(nextProjects)
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingProjects(false)
+        }
+      }
+    }
+
+    loadProjects()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, leads.length])
 
   const jobs = useMemo(() => {
-    return leads
-      .filter((lead) => ['Won', 'Signed'].includes(lead.status) || ['Signed', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid'].includes(lead.projectStatus))
+    const sourceRecords = USE_SUPABASE_PROJECTS ? projects : leads
+
+    return sourceRecords
+      .filter((lead) => (
+        USE_SUPABASE_PROJECTS
+          ? Boolean(lead?.id)
+          : ['Won', 'Signed'].includes(lead.status) || ['Signed', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid'].includes(lead.projectStatus)
+      ))
       .map((lead) => {
         const portal = getPortalData(lead)
-        const amountPaid = portal.amountPaid || 0
-        const remainingBalance = Math.max((portal.contractAmount || lead.value) - amountPaid, 0)
-        const derivedStatus = remainingBalance === 0 && ['Completed', 'Paid'].includes(lead.projectStatus) ? 'Paid' : lead.projectStatus || (lead.status === 'Won' ? 'Scheduled' : 'In Progress')
+        const projectValue = Number(lead.projectValue ?? portal.contractAmount ?? lead.value ?? lead.estimatedValue ?? lead.contractValue ?? 0) || 0
+        const amountPaid = Number(lead.amountPaid ?? lead.paid ?? portal.amountPaid ?? 0) || 0
+        const remainingBalance = Number(lead.remainingBalance ?? lead.remaining ?? Math.max(projectValue - amountPaid, 0)) || 0
+        const normalizedStatus = USE_SUPABASE_PROJECTS
+          ? toDisplayJobStatus(lead.status)
+          : (lead.projectStatus || (lead.status === 'Won' ? 'Scheduled' : 'In Progress'))
+        const derivedStatus = remainingBalance === 0 && ['Completed', 'Paid'].includes(normalizedStatus) ? 'Paid' : normalizedStatus
 
         return {
           ...lead,
+          client: lead.client || lead.clientName || lead.customerName || '',
           jobStatus: derivedStatus,
-          startDate: portal.startDate,
-          projectValue: portal.contractAmount || lead.value,
+          startDate: lead.startDate || portal.startDate,
+          projectValue,
           amountPaid,
           remainingBalance,
-          nextStep: lead.nextStep || t('projectStatus'),
+          nextStep: lead.nextStep || lead.notes || t('projectStatus'),
         }
       })
-  }, [leads, t])
+  }, [leads, projects, t])
 
-  const activeJobsList = jobs.filter((job) => !archivedIds.includes(job.id))
+  const activeJobsList = jobs.filter((job) => !isArchivedJob(job))
   const filteredJobs = selectedFilter === 'All'
     ? activeJobsList
     : selectedFilter === 'Archived'
-      ? jobs.filter((job) => archivedIds.includes(job.id))
-      : activeJobsList.filter((job) => job.jobStatus === selectedFilter)
+      ? jobs.filter((job) => isArchivedJob(job))
+      : activeJobsList.filter((job) => (
+        USE_SUPABASE_PROJECTS
+          ? toSupabaseJobStatus(job.status) === toSupabaseJobStatus(selectedFilter)
+          : job.jobStatus === selectedFilter
+      ))
+
+  useEffect(() => {
+    logSupabaseJobsDebug('[dev] JobsPage filter counts', {
+      activeProjectCount: activeJobsList.length,
+      selectedFilter,
+    })
+  }, [activeJobsList.length, selectedFilter])
 
   const activeJobs = activeJobsList.filter((job) => !['Completed', 'Paid'].includes(job.jobStatus)).length
   const inProgressJobs = activeJobsList.filter((job) => job.jobStatus === 'In Progress').length
@@ -70,11 +176,21 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider?.projects?.archive?.(confirmAction.job.id)
+        await dataProvider?.projects?.archive?.(confirmAction.job.id, { contractorId })
+        if (USE_SUPABASE_PROJECTS) {
+          setProjects((current) => current.map((project) => (
+            project.id === confirmAction.job.id
+              ? { ...project, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
+              : project
+          )))
+        }
         onArchiveJob(confirmAction.job.id)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id)
+        await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id, { contractorId })
+        if (USE_SUPABASE_PROJECTS) {
+          setProjects((current) => current.filter((project) => project.id !== confirmAction.job.id))
+        }
         onDeleteJob(confirmAction.job.id)
       }
     } catch (err) {
@@ -84,11 +200,24 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
   }
 
   function renderJobActions(job, compact = false) {
-    const isArchived = archivedIds.includes(job.id)
+    const isArchived = isArchivedJob(job)
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={async (event) => { event.stopPropagation(); try { await dataProvider?.projects?.restore?.(job.id) } catch (err) {} onRestoreJob(job.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={async (event) => {
+            event.stopPropagation()
+            try {
+              await dataProvider?.projects?.restore?.(job.id, { contractorId })
+              if (USE_SUPABASE_PROJECTS) {
+                setProjects((current) => current.map((project) => (
+                  project.id === job.id
+                    ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
+                    : project
+                )))
+              }
+            } catch (err) {}
+            onRestoreJob(job.id)
+          }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(job) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )
@@ -153,6 +282,12 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
           ))}
         </div>
 
+        {USE_SUPABASE_PROJECTS && isLoadingProjects && (
+          <div className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-600">
+            {t('loadingJobs')}
+          </div>
+        )}
+
         <div className="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -171,10 +306,10 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
               {filteredJobs.map((job) => (
                 <tr key={job.id} onClick={() => onViewJob(job.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4">
-                    <p className="font-bold text-slate-950">{job.client}</p>
+                    <p className="font-bold text-slate-950">{job.client || job.projectTitle || job.projectType}</p>
                     <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
                   </td>
-                  <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(job.id) ? 'Archived' : job.jobStatus} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={isArchivedJob(job) ? 'Archived' : job.jobStatus} t={t} /></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{job.startDate}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(job.projectValue)}</td>
                   <td className="px-4 py-4 text-right font-bold text-emerald-700">{currency.format(job.amountPaid)}</td>
@@ -192,10 +327,10 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
             <article key={job.id} onClick={() => onViewJob(job.id)} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-bold text-slate-950">{job.client}</h3>
+                  <h3 className="font-bold text-slate-950">{job.client || job.projectTitle || job.projectType}</h3>
                   <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
                 </div>
-                <StatusBadge status={archivedIds.includes(job.id) ? 'Archived' : job.jobStatus} t={t} />
+                <StatusBadge status={isArchivedJob(job) ? 'Archived' : job.jobStatus} t={t} />
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <MobileJobStat label={t('start')} value={job.startDate} />

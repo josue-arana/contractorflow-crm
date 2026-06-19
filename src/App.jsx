@@ -13,6 +13,7 @@ import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
+import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
@@ -24,6 +25,7 @@ import { EstimateBuilderRoute } from './pages/EstimateBuilderPage'
 import { EstimatesPage } from './pages/EstimatesPage'
 import { ContractRoute, ContractsPage } from './pages/ContractsPage'
 import { JobsPage } from './pages/JobsPage'
+import { LeadDetailPage } from './pages/LeadDetailPage'
 import { LeadsPage } from './pages/LeadsPage'
 import { ClientsPage } from './pages/ClientsPage'
 import { ClientProfilePage } from './pages/ClientProfilePage'
@@ -35,11 +37,15 @@ import { TranslationAuditPage } from './pages/TranslationAuditPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
 import { appRoutes } from './config/appRoutes'
 import { AuthProvider } from './contexts/AuthContext'
+import { useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_SUPABASE_CLIENTS } from './config/backendConfig'
+import { USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
+import { getClientsContractorId } from './services/system/clientsRuntimeService'
+import { getLeadsContractorId } from './services/system/leadsRuntimeService'
+import { getProjectsContractorId } from './services/system/projectsRuntimeService'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -102,6 +108,22 @@ const initialNotifications = [
   { id: 'notif-invoice-paid', titleKey: 'notificationInvoicePaidTitle', messageKey: 'notificationInvoicePaidMessage', timeKey: 'thisWeek', read: true },
 ]
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isUuid(value) {
+  return typeof value === 'string' && uuidPattern.test(value.trim())
+}
+
+function logLeadDevError(message, error, meta) {
+  if (!import.meta.env.DEV) return
+
+  // eslint-disable-next-line no-console
+  console.error(message, {
+    error,
+    ...meta,
+  })
+}
+
 function App() {
   return (
     <BrowserRouter>
@@ -116,7 +138,7 @@ function App() {
 }
 
 function ContractorFlowApp() {
-  const [leads, setLeads] = useState(initialLeads)
+  const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads)
   const [customClients, setCustomClients] = useState([])
   const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
   const [invoices, setInvoices] = useState(mockInvoices)
@@ -143,9 +165,14 @@ function ContractorFlowApp() {
   const navigate = useNavigate()
   const location = useLocation()
   const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
+  const clientsContractorId = getClientsContractorId({ contractor, company, session })
+  const leadsContractorId = getLeadsContractorId({ contractor, company, session })
+  const projectsContractorId = getProjectsContractorId({ contractor, company, session })
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
 
   useClientsBootstrap(setCustomClients)
+  useLeadsBootstrap(setLeads)
 
   const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
@@ -239,15 +266,22 @@ function ContractorFlowApp() {
 
   function createLead(lead) {
     const id = lead.id || `lead-${Date.now()}`
-    setLeads((current) => [
-      {
+    setLeads((current) => {
+      const nextLead = {
         id,
         ...lead,
         value: Number(lead.value) || 0,
+        estimatedValue: Number(lead.estimatedValue ?? lead.value) || 0,
         projectStatus: lead.projectStatus || (lead.status === 'Won' ? 'Signed' : 'Lead'),
-      },
-      ...current,
-    ])
+      }
+      const existing = current.find((item) => item.id === id)
+
+      if (existing) {
+        return current.map((item) => (item.id === id ? { ...item, ...nextLead, id } : item))
+      }
+
+      return [nextLead, ...current]
+    })
     showToast(t('leadCreated'))
     addNotification('notificationLeadCreatedTitle', 'notificationLeadCreatedMessage')
     return id
@@ -312,21 +346,94 @@ function ContractorFlowApp() {
     showToast(t('jobCreated'))
   }
 
-  async function createLeadFromDashboard(lead) {
+  function upsertClientSilently(clientRecord) {
+    if (!clientRecord?.id) return
+
+    setCustomClients((current) => {
+      const existing = current.find((item) => item.id === clientRecord.id)
+      if (existing) return current.map((item) => (item.id === clientRecord.id ? { ...item, ...clientRecord, id: clientRecord.id } : item))
+      return [clientRecord, ...current]
+    })
+  }
+
+  async function saveLeadRecord(leadDraft) {
     try {
-      const response = await dataProvider?.leads?.create?.(lead)
+      let clientId = leadDraft.clientId || ''
+
+      if (USE_SUPABASE_LEADS && leadDraft.clientMode === 'new' && leadDraft.client?.trim()) {
+        const clientResponse = await dataProvider?.clients?.create?.({
+          name: leadDraft.client.trim(),
+          phone: leadDraft.phone || '',
+          email: leadDraft.email || '',
+          address: leadDraft.address || leadDraft.location || '',
+        }, {
+          contractorId: clientsContractorId,
+        })
+
+        if (clientResponse?.error) {
+          showToast(clientResponse.error.message || t('leadSaveFailed'), 'error')
+          logLeadDevError('[dev] Failed to create client during lead creation.', clientResponse.error, {
+            leadDraft,
+          })
+          return null
+        }
+
+        if (!isUuid(clientResponse?.data?.id)) {
+          const error = new Error('Client creation did not return a valid uuid.')
+          showToast(t('leadSaveFailed'), 'error')
+          logLeadDevError('[dev] Client creation during lead save returned an invalid id.', error, {
+            leadDraft,
+            clientResponse,
+          })
+          return null
+        }
+
+        clientId = clientResponse.data.id
+        upsertClientSilently(clientResponse.data)
+      }
+
+      const response = await dataProvider?.leads?.create?.({
+        ...leadDraft,
+        ...(clientId ? { clientId } : {}),
+      }, {
+        contractorId: leadsContractorId,
+      })
 
       if (response?.error) {
         showToast(response.error.message || t('leadSaveFailed'), 'error')
-        return
+        logLeadDevError('[dev] Failed to create lead.', response.error, {
+          leadDraft,
+        })
+        return null
       }
 
-      createLead(response?.data || lead)
+      const persistedLead = response?.data || { ...leadDraft, ...(clientId ? { clientId } : {}) }
+      createLead(persistedLead)
+      return persistedLead
+    } catch (err) {
+      showToast(err?.message || t('leadSaveFailed'), 'error')
+      logLeadDevError('[dev] Lead creation threw an unexpected error.', err, {
+        leadDraft,
+      })
+      return null
+    }
+  }
+
+  async function createLeadFromDashboard(lead) {
+    const persistedLead = await saveLeadRecord(lead)
+
+    if (!persistedLead) {
+      return
+    }
+
+    try {
       setIsDashboardLeadModalOpen(false)
       setDashboardSuccessMessage(t('leadCreated'))
       window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
     } catch (err) {
-      showToast(err?.message || t('leadSaveFailed'), 'error')
+      logLeadDevError('[dev] Failed to finalize dashboard lead creation state.', err, {
+        leadDraft: lead,
+      })
     }
   }
 
@@ -335,7 +442,7 @@ function ContractorFlowApp() {
       || clients.find((client) => client.name === jobDraft.client)
 
     try {
-      const response = await dataProvider?.projects?.create?.(jobDraft)
+      const response = await dataProvider?.projects?.create?.(jobDraft, { contractorId: projectsContractorId })
 
       if (response?.error) {
         showToast(response.error.message || t('jobSaveFailed'), 'error')
@@ -720,6 +827,22 @@ function ContractorFlowApp() {
     setSidebarOpen(false)
   }
 
+  function openLead(leadId) {
+    const selectedLead = visibleLeads.find((item) => item.id === leadId)
+
+    if (!USE_SUPABASE_LEADS) {
+      openProject(leadId)
+      return
+    }
+
+    if (selectedLead?.projectId) {
+      navigate(`/projects/${selectedLead.projectId}`)
+    } else {
+      navigate(`/leads/${leadId}`)
+    }
+    setSidebarOpen(false)
+  }
+
   function openPortal(leadId) {
     navigate(`/portal/${leadId}`)
     setSidebarOpen(false)
@@ -739,7 +862,7 @@ function ContractorFlowApp() {
       selectedMobileStage={selectedMobileStage}
       setSelectedMobileStage={setSelectedMobileStage}
       moveLead={moveLead}
-      onLeadClick={openProject}
+      onLeadClick={openLead}
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
       successMessage={dashboardSuccessMessage}
       t={t}
@@ -750,7 +873,8 @@ function ContractorFlowApp() {
     <Routes>
       <Route path={appRoutes.root} element={dashboardPage} />
       <Route path={appRoutes.dashboard} element={dashboardPage} />
-      <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewProject={openProject} onCreateLead={createLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
+      <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewLead={openLead} onCreateLead={saveLeadRecord} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
+      <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
@@ -839,32 +963,47 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
 
-  if (!lead) {
-    return <ProjectNotFound onBack={onBack} t={t} />
-  }
-
   return (
     <ProjectDetailPage
       lead={lead}
       companySettings={companySettings}
       clients={clients}
-      isArchived={archivedIds.includes(lead.id)}
+      isArchived={archivedIds.includes(projectId)}
       onBack={onBack}
-      onOpenPortal={() => onOpenPortal(lead.id)}
+      onOpenPortal={() => onOpenPortal(projectId)}
       onUpdateLead={onUpdateLead}
-      onRecordPayment={(payment) => onRecordPayment?.(lead.id, payment)}
-      onUploadPhotos={(photos) => onUploadPhotos?.(lead.id, photos)}
-      scheduleEvents={scheduleEvents.filter((event) => event.leadId === lead.id)}
+      onRecordPayment={(payment) => onRecordPayment?.(projectId, payment)}
+      onUploadPhotos={(photos) => onUploadPhotos?.(projectId, photos)}
+      scheduleEvents={scheduleEvents.filter((event) => event.leadId === projectId)}
       archivedScheduleEventIds={archivedScheduleEventIds}
-      onScheduleEvent={() => onScheduleEvent?.({ leadId: lead.id, context: 'job' })}
-      onEditScheduleEvent={(event) => onScheduleEvent?.({ leadId: lead.id, context: 'job', event })}
+      onScheduleEvent={() => onScheduleEvent?.({ leadId: projectId, context: 'job' })}
+      onEditScheduleEvent={(event) => onScheduleEvent?.({ leadId: projectId, context: 'job', event })}
       onExportEvent={onExportEvent}
       onArchiveScheduleEvent={onArchiveScheduleEvent}
       onRestoreScheduleEvent={onRestoreScheduleEvent}
       onDeleteScheduleEvent={onDeleteScheduleEvent}
-      onArchiveProject={() => onArchiveProject(lead.id)}
-      onRestoreProject={() => onRestoreProject(lead.id)}
-      onDeleteProject={() => onDeleteProject(lead.id)}
+      onArchiveProject={() => onArchiveProject(projectId)}
+      onRestoreProject={() => onRestoreProject(projectId)}
+      onDeleteProject={() => onDeleteProject(projectId)}
+      t={t}
+    />
+  )
+}
+
+function LeadRoute({ leads, clients, archivedIds = [], onBack, onUpdateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
+  const { id } = useParams()
+  const lead = leads.find((item) => item.id === id)
+
+  return (
+    <LeadDetailPage
+      lead={lead}
+      clients={clients}
+      archivedIds={archivedIds}
+      onBack={onBack}
+      onUpdateLead={onUpdateLead}
+      onArchiveLead={onArchiveLead}
+      onRestoreLead={onRestoreLead}
+      onDeleteLead={onDeleteLead}
       t={t}
     />
   )
