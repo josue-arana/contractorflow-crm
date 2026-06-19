@@ -4,6 +4,7 @@ import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { contractorCompany } from '../data/mockInvoices'
 import { currency } from '../utils/formatters'
+import { archivePanelButtonClasses } from '../utils/buttonStyles'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
@@ -190,7 +191,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
                     <button onClick={() => setConfirmAction({ mode: 'delete' })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
                   </>
                 ) : (
-                  <button onClick={() => setConfirmAction({ mode: 'archive' })} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
+                  <button onClick={() => setConfirmAction({ mode: 'archive' })} className={archivePanelButtonClasses}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
                 )}
               </div>
             </div>

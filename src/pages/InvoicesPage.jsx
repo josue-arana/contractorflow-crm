@@ -4,6 +4,7 @@ import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
@@ -87,7 +88,7 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
         <button onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
         <button onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(invoice) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(invoice) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }

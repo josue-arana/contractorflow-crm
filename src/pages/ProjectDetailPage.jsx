@@ -16,6 +16,7 @@ import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { archiveMenuItemClasses, archivePanelButtonClasses } from '../utils/buttonStyles'
 
 function logProjectDetailDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -297,7 +298,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             onRestoreProject?.()
           },
         }
-      : { label: t('archive'), icon: Archive, action: () => setConfirmAction({ mode: 'archive' }) },
+      : { label: t('archive'), icon: Archive, action: () => setConfirmAction({ mode: 'archive' }), tone: 'archive' },
   ]
 
   return (
@@ -333,7 +334,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
               <button
                 key={button.label}
                 onClick={button.action}
-                className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
+                className={`flex min-h-[58px] items-center justify-center gap-2 px-4 py-3 text-sm font-bold transition ${button.primary ? 'rounded-2xl bg-blue-600 text-white hover:bg-blue-700' : button.tone === 'archive' ? archivePanelButtonClasses : 'rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
               >
                 <Icon className="h-4 w-4" /> {button.label}
               </button>
@@ -412,7 +413,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
                       <button onClick={() => { onEditScheduleEvent?.(event); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
                         {t('edit')}
                       </button>
-                      <button onClick={() => { setScheduleConfirmAction({ mode: 'archive', event }); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      <button onClick={() => { setScheduleConfirmAction({ mode: 'archive', event }); setOpenScheduleMenuId(null) }} className={archiveMenuItemClasses}>
+                        <Archive className="mr-2 h-4 w-4" />
                         {t('archive')}
                       </button>
                     </div>

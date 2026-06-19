@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { currency } from '../utils/formatters'
+import { archivePanelButtonClasses } from '../utils/buttonStyles'
 
 function logLeadDetailDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -269,7 +270,7 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
               <Undo2 className="h-4 w-4" /> {t('restore')}
             </button>
           ) : (
-            <button onClick={() => setConfirmAction({ mode: 'archive' })} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
+            <button onClick={() => setConfirmAction({ mode: 'archive' })} className={`flex min-h-[58px] items-center justify-center gap-2 transition ${archivePanelButtonClasses}`}>
               <Archive className="h-4 w-4" /> {t('archive')}
             </button>
           )}

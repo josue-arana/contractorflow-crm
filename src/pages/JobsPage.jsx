@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 
@@ -225,7 +226,7 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
     return (
       <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
         <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(job) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(job) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }

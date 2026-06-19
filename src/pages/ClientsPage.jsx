@@ -3,6 +3,7 @@ import { Archive, DollarSign, Plus, Search, Trash2, Undo2, UserCheck, Users, Wal
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
@@ -99,7 +100,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     return (
       <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
         <button onClick={(event) => { event.stopPropagation(); onOpenClient(client.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewClient')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(client) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(client) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }

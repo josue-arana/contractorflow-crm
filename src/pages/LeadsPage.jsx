@@ -8,6 +8,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { currency } from '../utils/formatters'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
@@ -128,7 +129,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     return (
       <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
         <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(lead) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(lead) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }
