@@ -10,44 +10,58 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
 
+const simplePricingMode = 'simple'
+const detailedPricingMode = 'detailed'
+
 export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+  const savedLineItems = Array.isArray(savedEstimate.lineItems) ? savedEstimate.lineItems : []
+  const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
   const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
   const [total, setTotal] = useState(Number(savedEstimate.total || lead.value || 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(savedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
-  const [showLineItems, setShowLineItems] = useState(Boolean(savedEstimate.lineItems?.length))
+  const [pricingMode, setPricingMode] = useState(hasSavedLineItems ? detailedPricingMode : simplePricingMode)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
-  const [lineItems, setLineItems] = useState(savedEstimate.lineItems?.length ? savedEstimate.lineItems : [
+  const [lineItems, setLineItems] = useState(hasSavedLineItems ? savedLineItems : [
     { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
     { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
   ])
 
   useEffect(() => {
     const nextSavedEstimate = lead.portal?.estimate || {}
-    if (nextSavedEstimate.summary) setScope(nextSavedEstimate.summary)
-    if (nextSavedEstimate.total) setTotal(Number(nextSavedEstimate.total))
-    if (nextSavedEstimate.materialsIncluded !== undefined) setMaterialsIncluded(nextSavedEstimate.materialsIncluded)
-    if (nextSavedEstimate.paymentTerms) setPaymentTerms(nextSavedEstimate.paymentTerms)
-    if (nextSavedEstimate.lineItems?.length) {
-      setLineItems(nextSavedEstimate.lineItems)
-      setShowLineItems(true)
+    const nextSavedLineItems = Array.isArray(nextSavedEstimate.lineItems) ? nextSavedEstimate.lineItems : []
+    const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
+    setScope(nextSavedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
+    setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
+    setMaterialsIncluded(nextSavedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
+    setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
+    if (nextHasSavedLineItems) {
+      setLineItems(nextSavedLineItems)
+      setPricingMode(detailedPricingMode)
+    } else {
+      setLineItems([
+        { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
+        { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
+      ])
+      setPricingMode(simplePricingMode)
     }
-  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.id, lead.portal?.estimate?.updatedAt, t])
+  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, t])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
-  const estimateTotal = Number(showLineItems && lineTotal > 0 ? lineTotal : total || 0)
+  const isDetailedPricing = pricingMode === detailedPricingMode
+  const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
 
   function getEstimatePayload() {
     return {
       number: savedEstimate.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
       total: estimateTotal,
       summary: scope,
-      lineItems,
+      lineItems: isDetailedPricing ? lineItems : [],
       materialsIncluded,
       paymentTerms,
       updatedAt: new Date().toISOString(),
@@ -66,7 +80,22 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
   function addLineItem() {
     setLineItems((items) => [...items, { name: '', amount: 0 }])
-    setShowLineItems(true)
+    setPricingMode(detailedPricingMode)
+  }
+
+  function removeLineItem(index) {
+    setLineItems((items) => {
+      if (items.length === 1) return [{ name: '', amount: 0 }]
+      return items.filter((_, itemIndex) => itemIndex !== index)
+    })
+  }
+
+  function useDetailedPricing() {
+    setPricingMode(detailedPricingMode)
+  }
+
+  function useSimplePricing() {
+    setPricingMode(simplePricingMode)
   }
 
   return (
@@ -89,12 +118,64 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
             )}
           </InfoCard>
 
-          <InfoCard title={t('totalAmount')}>
-            {isEditing ? (
-              <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
-            ) : (
-              <div className="rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold text-slate-900">{currency.format(estimateTotal)}</div>
-            )}
+          <InfoCard title={t('pricing')}>
+            <div className="space-y-4">
+              {isDetailedPricing ? (
+                <>
+                  {isEditing && (
+                    <div className="flex justify-end">
+                      <button onClick={useSimplePricing} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white">
+                        {t('useSimpleTotalInstead')}
+                      </button>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    {lineItems.map((item, index) => (
+                      <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_140px_auto]">
+                        {isEditing ? (
+                          <>
+                            <input value={item.name} onChange={(event) => updateLineItem(index, 'name', event.target.value)} placeholder={t('item')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
+                            <input type="number" value={item.amount} onChange={(event) => updateLineItem(index, 'amount', Number(event.target.value))} placeholder={t('amount')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none sm:text-right" />
+                            <button onClick={() => removeLineItem(index)} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                              {t('remove')}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700">{item.name || t('item')}</div>
+                            <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
+                            <div />
+                          </>
+                        )}
+                      </div>
+                    ))}
+                    {isEditing && <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>}
+                  </div>
+                  <div className="rounded-2xl bg-blue-50 px-4 py-4 text-blue-700">
+                    <p className="text-xs font-bold uppercase tracking-wide">{t('calculatedTotal')}</p>
+                    <p className="mt-1 text-2xl font-bold">{currency.format(lineTotal)}</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {isEditing && (
+                    <div className="flex justify-end">
+                      <button onClick={useDetailedPricing} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white">
+                        {t('addDetailedLineItems')}
+                      </button>
+                    </div>
+                  )}
+                  {isEditing ? (
+                    <div>
+                      <label className="mb-2 block text-sm font-bold text-slate-700">{t('totalPrice')}</label>
+                      <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold text-slate-900">{currency.format(estimateTotal)}</div>
+                  )}
+                </>
+              )}
+            </div>
           </InfoCard>
 
           <InfoCard title={t('materialsIncluded')}>
@@ -116,37 +197,10 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
               <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{paymentTerms}</div>
             )}
           </InfoCard>
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <button disabled={!isEditing} onClick={() => setShowLineItems((current) => !current)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
-              {showLineItems ? t('hideLineItems') : t('addLineItems')}
-            </button>
-            {showLineItems && (
-              <div className="mt-4 space-y-3">
-                {lineItems.map((item, index) => (
-                  <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_150px]">
-                    {isEditing ? (
-                      <>
-                        <input value={item.name} onChange={(event) => updateLineItem(index, 'name', event.target.value)} placeholder={t('item')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
-                        <input type="number" value={item.amount} onChange={(event) => updateLineItem(index, 'amount', Number(event.target.value))} placeholder={t('amount')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
-                      </>
-                    ) : (
-                      <>
-                        <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700">{item.name || t('item')}</div>
-                        <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
-                      </>
-                    )}
-                  </div>
-                ))}
-                {isEditing && <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>}
-                <p className="text-sm font-bold text-slate-700">{t('lineItems')}: {currency.format(lineTotal)}</p>
-              </div>
-            )}
-          </section>
         </section>
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={showLineItems ? lineItems : []} t={t} />
+          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={t} />
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
@@ -175,7 +229,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
               <p className="mt-1 text-sm font-bold text-slate-900">{savedEstimate.number || getEstimatePayload().number}</p>
             </div>
           </div>
-          <EstimatePreviewBody lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={showLineItems ? lineItems : []} t={t} />
+          <EstimatePreviewBody lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={t} />
           <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
         </div>
       </ModalShell>

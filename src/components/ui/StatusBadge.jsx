@@ -8,6 +8,7 @@ export function StatusBadge({ status, t = (key) => key }) {
     'Waiting on Materials': 'bg-orange-50 text-orange-700 ring-orange-100',
     'Ready for Final Walkthrough': 'bg-purple-50 text-purple-700 ring-purple-100',
     Completed: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    Complete: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
     Paid: 'bg-slate-100 text-slate-700 ring-slate-200',
     Signed: 'bg-indigo-50 text-indigo-700 ring-indigo-100',
     Draft: 'bg-slate-100 text-slate-700 ring-slate-200',
