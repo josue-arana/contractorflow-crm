@@ -12,7 +12,6 @@ import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
-import { readEstimateDraft, writeEstimateDraft } from './services/local/estimateDraftStorage'
 import { readLeadPipelineStage, writeLeadPipelineStage } from './services/local/leadPipelineStorage'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
@@ -48,7 +47,9 @@ import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
+import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
+import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -81,13 +82,20 @@ function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
 
 function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) {
   const address = persistedJob.address || persistedJob.location || jobDraft.address || jobDraft.location || clientRecord?.address || ''
-  const value = persistedJob.value ?? persistedJob.estimatedValue ?? persistedJob.contractValue ?? jobDraft.value ?? 0
+  const clientName = persistedJob.client || persistedJob.clientName || persistedJob.customerName || jobDraft.client || jobDraft.clientName || clientRecord?.name || ''
+  const linkedEstimate = hasEstimateData(persistedJob?.portal?.estimate) ? persistedJob.portal.estimate : readLinkedEstimateDraft(persistedJob, jobDraft.id || jobDraft.projectId || '')
+  const value = resolveEstimateTotal({
+    ...jobDraft,
+    ...persistedJob,
+  }, linkedEstimate)
 
   return {
     ...jobDraft,
     ...persistedJob,
     clientId: persistedJob.clientId ?? jobDraft.clientId ?? clientRecord?.id ?? '',
-    client: persistedJob.client || jobDraft.client || clientRecord?.name || '',
+    client: clientName,
+    clientName,
+    customerName: clientName,
     phone: persistedJob.phone || jobDraft.phone || clientRecord?.phone || '',
     email: persistedJob.email || jobDraft.email || clientRecord?.email || '',
     address,
@@ -96,21 +104,34 @@ function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) 
     projectType: persistedJob.projectType || jobDraft.projectType || jobDraft.projectTitle || '',
     projectStatus: persistedJob.projectStatus || jobDraft.projectStatus || 'Scheduled',
     startDate: persistedJob.startDate || jobDraft.startDate || '',
-    value: Number(value) || 0,
+    estimateId: persistedJob.estimateId ?? jobDraft.estimateId ?? linkedEstimate?.id ?? null,
+    value,
+    estimatedValue: resolveEstimateTotal({ estimatedValue: persistedJob.estimatedValue ?? jobDraft.estimatedValue }, linkedEstimate, value),
+    contractValue: resolveEstimateTotal({ contractValue: persistedJob.contractValue ?? jobDraft.contractValue }, linkedEstimate, value),
     notes: persistedJob.notes || jobDraft.notes || '',
     nextStep: persistedJob.nextStep || jobDraft.nextStep || jobDraft.notes || '',
     source: persistedJob.source || jobDraft.source || 'Direct Job',
     leadPipelineStage: persistedJob.leadPipelineStage || jobDraft.leadPipelineStage || leadPipelineStages.CONVERTED_TO_JOB,
+    portal: {
+      ...(jobDraft.portal || {}),
+      ...(persistedJob.portal || {}),
+      ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
+    },
   }
 }
 
-function buildProjectFromLead(lead, projectId = '') {
+function buildProjectFromLead(lead, projectId = '', linkedEstimate = null) {
   const clientName = lead?.client || lead?.clientName || lead?.customerName || ''
   const address = lead?.address || lead?.location || ''
   const projectTitle = lead?.projectTitle || lead?.title || lead?.projectType || 'Untitled Project'
   const projectType = lead?.projectType || lead?.jobType || lead?.projectTitle || ''
-  const estimatedValue = Number(lead?.portal?.estimate?.total ?? lead?.estimatedValue ?? lead?.value ?? 0) || 0
-  const estimateId = lead?.portal?.estimate?.id || null
+  const sourceEstimate = hasEstimateData(linkedEstimate)
+    ? linkedEstimate
+    : hasEstimateData(lead?.portal?.estimate)
+      ? lead.portal.estimate
+      : readLinkedEstimateDraft(lead)
+  const estimatedValue = resolveEstimateTotal(lead, sourceEstimate)
+  const estimateId = sourceEstimate?.id || lead?.estimateId || null
 
   return {
     ...(projectId ? { id: projectId } : {}),
@@ -136,7 +157,7 @@ function buildProjectFromLead(lead, projectId = '') {
     description: lead?.description || lead?.notes || '',
     portal: {
       ...(lead?.portal || {}),
-      estimate: lead?.portal?.estimate || {},
+      estimate: sourceEstimate || {},
       contract: lead?.portal?.contract || {},
       contractAmount: estimatedValue,
       outstandingBalance: estimatedValue,
@@ -159,6 +180,34 @@ function withLeadPipelineStage(lead) {
     ...nextLead,
     leadPipelineStage: nextLead.leadPipelineStage || getLeadPipelineStage(nextLead),
   }
+}
+
+function hydrateLeadEstimateData(lead) {
+  if (!lead) return lead
+
+  const linkedEstimate = hasEstimateData(lead?.portal?.estimate)
+    ? lead.portal.estimate
+    : readLinkedEstimateDraft(lead)
+
+  if (!hasEstimateData(linkedEstimate)) {
+    return withLeadPipelineStage(lead)
+  }
+
+  const estimateTotal = resolveEstimateTotal(lead, linkedEstimate)
+
+  return withLeadPipelineStage({
+    ...lead,
+    estimateId: lead.estimateId || linkedEstimate.id || null,
+    value: estimateTotal,
+    estimatedValue: estimateTotal,
+    portal: {
+      ...(lead.portal || {}),
+      estimate: {
+        ...(lead.portal?.estimate || {}),
+        ...linkedEstimate,
+      },
+    },
+  })
 }
 
 const defaultUserProfile = {
@@ -255,7 +304,7 @@ function ContractorFlowApp() {
   useClientsBootstrap(setCustomClients)
   useLeadsBootstrap(setLeads)
 
-  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)).map(withLeadPipelineStage), [leads, archives.deletedLeadIds])
+  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)).map(hydrateLeadEstimateData), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id)), [scheduleEvents, archives.deletedScheduleEventIds])
@@ -361,12 +410,20 @@ function ContractorFlowApp() {
     if (!leadRecord) return null
 
     const id = leadRecord.id || `lead-${Date.now()}`
+    const linkedEstimate = hasEstimateData(leadRecord?.portal?.estimate)
+      ? leadRecord.portal.estimate
+      : readLinkedEstimateDraft(leadRecord, id)
+    const resolvedValue = resolveEstimateTotal(leadRecord, linkedEstimate)
     const nextLead = withLeadPipelineStage({
       id,
       ...leadRecord,
-      value: Number(leadRecord.value) || 0,
-      estimatedValue: Number(leadRecord.estimatedValue ?? leadRecord.value) || 0,
+      value: resolvedValue,
+      estimatedValue: resolveEstimateTotal({ estimatedValue: leadRecord.estimatedValue }, linkedEstimate, resolvedValue),
       projectStatus: leadRecord.projectStatus || (leadRecord.status === 'Won' ? 'Signed' : 'Lead'),
+      portal: {
+        ...(leadRecord.portal || {}),
+        ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
+      },
     })
 
     if (nextLead.leadPipelineStage) {
@@ -397,7 +454,11 @@ function ContractorFlowApp() {
   }
 
   function buildWorkspaceJobRecord(job, clientRecord = null) {
-    const projectValue = Number(job?.contractValue ?? job?.estimatedValue ?? job?.value ?? 0) || 0
+    const linkedEstimate = hasEstimateData(job?.portal?.estimate)
+      ? job.portal.estimate
+      : readLinkedEstimateDraft(job)
+    const clientName = job?.client || job?.clientName || job?.customerName || clientRecord?.name || ''
+    const projectValue = resolveEstimateTotal(job, linkedEstimate)
     const projectStatus = job?.projectStatus || 'Scheduled'
     const amountPaid = projectStatus === 'Paid' ? projectValue : 0
     const outstandingBalance = Math.max(projectValue - amountPaid, 0)
@@ -407,7 +468,11 @@ function ContractorFlowApp() {
       id: job?.id || `project-${Date.now()}`,
       contractorId: job?.contractorId || undefined,
       clientId: job?.clientId || clientRecord?.id || '',
-      client: job?.client || clientRecord?.name || t('newClientFallback'),
+      leadId: job?.leadId || job?.lead_id || '',
+      estimateId: job?.estimateId || linkedEstimate?.id || null,
+      client: clientName || t('newClientFallback'),
+      clientName: clientName || t('newClientFallback'),
+      customerName: clientName || t('newClientFallback'),
       phone: job?.phone || clientRecord?.phone || '',
       email: job?.email || clientRecord?.email || '',
       address,
@@ -415,6 +480,8 @@ function ContractorFlowApp() {
       projectTitle: job?.projectTitle || job?.title || job?.projectType || t('jobs'),
       projectType: job?.projectType || job?.projectTitle || t('jobs'),
       value: projectValue,
+      estimatedValue: resolveEstimateTotal({ estimatedValue: job?.estimatedValue }, linkedEstimate, projectValue),
+      contractValue: resolveEstimateTotal({ contractValue: job?.contractValue }, linkedEstimate, projectValue),
       source: job?.source || 'Direct Job',
       priority: job?.priority || 'Medium',
       notes: job?.notes || '',
@@ -433,7 +500,7 @@ function ContractorFlowApp() {
         timeline: job?.portal?.timeline || [],
         photos: job?.portal?.photos || [],
         documents: job?.portal?.documents || [],
-        estimate: job?.portal?.estimate,
+        estimate: linkedEstimate || job?.portal?.estimate,
         contract: job?.portal?.contract,
       },
     }
@@ -545,11 +612,11 @@ function ContractorFlowApp() {
 
     try {
       setIsDashboardLeadModalOpen(false)
-      setDashboardSuccessMessage(t('leadCreated'))
-      window.setTimeout(() => setDashboardSuccessMessage(''), 3500)
+      navigate(appRoutes.leadDetail.replace(':id', persistedLead.id))
     } catch (err) {
       logLeadDevError('[dev] Failed to finalize dashboard lead creation state.', err, {
         leadDraft: lead,
+        persistedLead,
       })
     }
   }
@@ -575,11 +642,30 @@ function ContractorFlowApp() {
 
   function updateLead(leadId, updates) {
     const existingLead = leads.find((lead) => lead.id === leadId)
+    const linkedEstimate = hasEstimateData(updates?.portal?.estimate)
+      ? updates.portal.estimate
+      : hasEstimateData(existingLead?.portal?.estimate)
+        ? existingLead.portal.estimate
+        : readLinkedEstimateDraft(existingLead || leadId, leadId)
+    const resolvedValue = updates.value !== undefined
+      ? toSafeNumber(updates.value)
+      : resolveEstimateTotal({
+        ...(existingLead || {}),
+        ...updates,
+      }, linkedEstimate, toSafeNumber(existingLead?.value))
     const nextLead = withLeadPipelineStage({
       ...(existingLead || {}),
       ...updates,
       id: leadId,
-      value: updates.value !== undefined ? Number(updates.value) || 0 : existingLead?.value,
+      value: resolvedValue,
+      estimatedValue: updates.estimatedValue !== undefined
+        ? toSafeNumber(updates.estimatedValue)
+        : resolveEstimateTotal({ estimatedValue: existingLead?.estimatedValue }, linkedEstimate, resolvedValue),
+      portal: {
+        ...(existingLead?.portal || {}),
+        ...(updates.portal || {}),
+        ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
+      },
     })
 
     if (nextLead?.leadPipelineStage) {
@@ -714,7 +800,10 @@ function ContractorFlowApp() {
     if (targetStage === leadPipelineStages.CONVERTED_TO_JOB) {
       const existingProjectId = sourceLead.projectId || sourceLead.project_id || ''
       const fallbackProjectId = existingProjectId || (USE_SUPABASE_PROJECTS ? '' : leadId)
-      const projectDraft = buildProjectFromLead(sourceLead, fallbackProjectId)
+      const sourceEstimate = hasEstimateData(sourceLead?.portal?.estimate)
+        ? sourceLead.portal.estimate
+        : readLinkedEstimateDraft(sourceLead || leadId, leadId)
+      const projectDraft = buildProjectFromLead(sourceLead, fallbackProjectId, sourceEstimate)
       let linkedProject = existingProjectId ? { id: existingProjectId } : null
 
       if (!existingProjectId) {
@@ -744,7 +833,9 @@ function ContractorFlowApp() {
       }
 
       const linkedProjectId = linkedProject?.id || fallbackProjectId
-      const sourceEstimate = sourceLead?.portal?.estimate || readEstimateDraft(leadId) || null
+      const estimateTotal = resolveEstimateTotal(sourceLead, sourceEstimate)
+      let linkedEstimateId = sourceEstimate?.id || sourceLead?.estimateId || null
+      let persistedProjectEstimate = sourceEstimate || null
 
       if (!linkedProjectId) {
         showToast(t('jobCreateFailed'), 'error')
@@ -758,12 +849,14 @@ function ContractorFlowApp() {
       if (sourceEstimate) {
         const linkedEstimate = {
           ...sourceEstimate,
+          id: sourceEstimate?.id || null,
+          leadId,
           projectId: linkedProjectId,
           clientId: sourceLead?.clientId || sourceLead?.client_id || sourceEstimate?.clientId || null,
+          projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || sourceEstimate?.projectTitle || 'Estimate',
+          total: resolveEstimateTotal(sourceLead, sourceEstimate),
         }
-
-        writeEstimateDraft(leadId, linkedEstimate)
-        writeEstimateDraft(linkedProjectId, linkedEstimate)
+        writeLinkedEstimateDrafts([leadId, linkedProjectId, linkedEstimate.id], linkedEstimate)
 
         try {
           const estimateResponse = sourceEstimate?.id
@@ -779,6 +872,16 @@ function ContractorFlowApp() {
             })
             return null
           }
+
+          const persistedEstimate = {
+            ...linkedEstimate,
+            ...(estimateResponse?.data || {}),
+            id: estimateResponse?.data?.id || linkedEstimate.id,
+          }
+
+          linkedEstimateId = persistedEstimate.id || linkedEstimateId
+          persistedProjectEstimate = persistedEstimate
+          writeLinkedEstimateDrafts([leadId, linkedProjectId, persistedEstimate.id], persistedEstimate)
         } catch (error) {
           if (!sourceEstimate?.id || USE_SUPABASE_PROJECTS) {
             showToast(error?.message || t('estimateLinkToProjectFailed'), 'error')
@@ -792,11 +895,35 @@ function ContractorFlowApp() {
         }
       }
 
+      try {
+        await dataProvider?.projects?.update?.(linkedProjectId, {
+          leadId,
+          clientId: sourceLead?.clientId || sourceLead?.client_id || null,
+          projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || projectDraft.projectTitle,
+          projectType: sourceLead?.projectType || sourceLead?.projectTitle || projectDraft.projectType,
+          value: estimateTotal,
+          estimatedValue: estimateTotal,
+          contractValue: estimateTotal,
+          source: sourceLead?.source || 'Direct Job',
+          priority: sourceLead?.priority || 'Medium',
+          startDate: sourceLead?.startDate || sourceLead?.portal?.startDate || '',
+        }, {
+          contractorId: projectsContractorId,
+        })
+      } catch (error) {
+        logLeadConversionDevError('[dev] Failed to sync project fields during lead conversion.', error, {
+          leadId,
+          projectId: linkedProjectId,
+        })
+      }
+
       const nextLead = withLeadPipelineStage(buildLeadPipelineTransition({
         ...sourceLead,
         projectId: linkedProjectId,
         project_id: linkedProjectId,
-        estimateId: sourceEstimate?.id || sourceLead?.estimateId || null,
+        estimateId: linkedEstimateId,
+        value: estimateTotal,
+        estimatedValue: estimateTotal,
         projectStatus: 'Scheduled',
       }, targetStage))
 
@@ -805,6 +932,9 @@ function ContractorFlowApp() {
       try {
         const response = await dataProvider?.leads?.update?.(leadId, {
           projectId: linkedProjectId,
+          estimateId: linkedEstimateId,
+          value: estimateTotal,
+          estimatedValue: estimateTotal,
           status: nextLead.status,
           leadPipelineStage: nextLead.leadPipelineStage,
         }, {
@@ -838,14 +968,16 @@ function ContractorFlowApp() {
         id: leadId,
         projectId: linkedProjectId,
         project_id: linkedProjectId,
-        estimateId: sourceEstimate?.id || sourceLead?.estimateId || null,
+        estimateId: linkedEstimateId,
+        value: estimateTotal,
+        estimatedValue: estimateTotal,
         projectStatus: 'Scheduled',
         archivedAt: null,
         archived_at: null,
         isArchived: false,
         portal: {
           ...(sourceLead?.portal || {}),
-          ...(sourceEstimate ? { estimate: { ...sourceEstimate, projectId: linkedProjectId } } : {}),
+          ...(persistedProjectEstimate ? { estimate: { ...persistedProjectEstimate, leadId, projectId: linkedProjectId, total: estimateTotal } } : {}),
         },
       })
 
@@ -931,26 +1063,46 @@ function ContractorFlowApp() {
     return saveLeadRecord(duplicatedLead)
   }
 
-  function recordProjectPayment(leadId, payment) {
+function recordProjectPayment(leadId, payment) {
     setLeads((current) => current.map((lead) => {
       if (lead.id !== leadId) return lead
+
       const portal = lead.portal || {}
-      const contractAmount = Number(portal.contractAmount ?? lead.value ?? 0)
-      const depositRequired = Number(portal.depositRequired ?? Math.round(contractAmount * 0.5))
-      const amountPaid = Math.min(contractAmount, Number(portal.amountPaid || 0) + Number(payment.amount || 0))
-      const outstandingBalance = Math.max(contractAmount - amountPaid, 0)
-      const paymentEntry = { id: `payment-${Date.now()}`, ...payment, amount: Number(payment.amount || 0) }
+      const paymentEntry = normalizePaymentRecord({
+        id: payment?.id || `payment-${Date.now()}`,
+        ...payment,
+        clientId: lead.clientId || lead.client_id || null,
+        projectId: lead.id,
+        leadId: lead.leadId || lead.lead_id || lead.id,
+      })
+      const combinedPayments = dedupePayments([
+        paymentEntry,
+        ...(Array.isArray(portal.payments) ? portal.payments : []),
+        ...(Array.isArray(portal.paymentHistory) ? portal.paymentHistory : []),
+      ])
+      const paymentSummary = calculateProjectPaymentSummary({
+        ...lead,
+        portal,
+      }, combinedPayments)
 
       return {
         ...lead,
+        paid: paymentSummary.totalPaid,
+        amountPaid: paymentSummary.totalPaid,
+        remaining: paymentSummary.outstandingBalance,
+        remainingBalance: paymentSummary.outstandingBalance,
+        payments: combinedPayments,
         portal: {
           ...portal,
-          contractAmount,
-          depositRequired,
-          amountPaid,
-          outstandingBalance,
-          paymentStatus: getProjectPaymentStatus(amountPaid, contractAmount, depositRequired),
-          paymentHistory: [paymentEntry, ...(portal.paymentHistory || [])],
+          contractAmount: paymentSummary.projectValue,
+          depositRequired: paymentSummary.depositRequired,
+          depositPaid: paymentSummary.depositPaid,
+          totalPaid: paymentSummary.totalPaid,
+          amountPaid: paymentSummary.totalPaid,
+          outstandingBalance: paymentSummary.outstandingBalance,
+          paymentStatus: paymentSummary.paymentStatus,
+          payments: combinedPayments,
+          paymentHistory: combinedPayments,
         },
       }
     }))
@@ -975,7 +1127,9 @@ function ContractorFlowApp() {
   async function saveEstimate(leadId, estimate) {
     const sourceLead = leads.find((item) => item.id === leadId)
     const portal = sourceLead?.portal || {}
-    const existingEstimate = portal.estimate || {}
+    const existingEstimate = hasEstimateData(portal.estimate)
+      ? portal.estimate
+      : readLinkedEstimateDraft(sourceLead || leadId, leadId) || {}
     const estimateNumber = existingEstimate.number || `EST-${String(leadId).replace(/\D/g, '').padStart(4, '0')}`
     const lineItems = Array.isArray(estimate?.lineItems) ? estimate.lineItems : []
     const relatedProjectId = estimate?.projectId || existingEstimate.projectId || sourceLead?.projectId || null
@@ -983,10 +1137,12 @@ function ContractorFlowApp() {
       ...existingEstimate,
       ...estimate,
       id: estimate?.id || existingEstimate.id,
+      leadId,
       projectId: relatedProjectId,
       clientId: estimate?.clientId || existingEstimate.clientId || sourceLead?.clientId || null,
+      projectTitle: estimate?.projectTitle || existingEstimate.projectTitle || sourceLead?.projectTitle || sourceLead?.projectType || 'Estimate',
       number: estimate?.number || estimateNumber,
-      total: Number(estimate?.total ?? existingEstimate.total ?? sourceLead?.value ?? 0),
+      total: resolveEstimateTotal(sourceLead, estimate, toSafeNumber(existingEstimate.total)),
       lineItems,
       pricingMode: estimate?.pricingMode || (lineItems.length ? 'detailed' : 'simple'),
       status: estimate?.status || existingEstimate.status || 'Draft',
@@ -1034,18 +1190,59 @@ function ContractorFlowApp() {
         lineItems: Array.isArray(response?.data?.lineItems) ? response.data.lineItems : lineItems,
         pricingMode: nextEstimateDraft.pricingMode,
       }
+      const estimateTotal = resolveEstimateTotal(sourceLead, persistedEstimate)
       const nextPipelineStage = [leadPipelineStages.ESTIMATE_SENT, leadPipelineStages.FOLLOW_UP, leadPipelineStages.ESTIMATE_APPROVED, leadPipelineStages.READY_FOR_JOB, leadPipelineStages.CONVERTED_TO_JOB].includes(getLeadPipelineStage(sourceLead))
         ? getLeadPipelineStage(sourceLead)
         : leadPipelineStages.ESTIMATE_CREATED
 
-      writeEstimateDraft(leadId, persistedEstimate)
+      writeLinkedEstimateDrafts([leadId, relatedProjectId, persistedEstimate.id], persistedEstimate)
       writeLeadPipelineStage(leadId, nextPipelineStage)
+
+      try {
+        await dataProvider.leads.update?.(leadId, {
+          projectId: relatedProjectId || sourceLead?.projectId || null,
+          estimateId: persistedEstimate.id || null,
+          value: estimateTotal,
+          estimatedValue: estimateTotal,
+        }, {
+          contractorId: leadsContractorId,
+        })
+      } catch (error) {
+        logEstimateDevError('[dev] Failed to sync lead estimated value after saving estimate.', error, {
+          leadId,
+          estimate: persistedEstimate,
+        })
+      }
+
+      if (relatedProjectId) {
+        try {
+          await dataProvider.projects.update?.(relatedProjectId, {
+            leadId,
+            clientId: sourceLead?.clientId || sourceLead?.client_id || persistedEstimate.clientId || null,
+            projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || persistedEstimate.projectTitle || 'Untitled Project',
+            projectType: sourceLead?.projectType || sourceLead?.projectTitle || '',
+            value: estimateTotal,
+            estimatedValue: estimateTotal,
+            contractValue: estimateTotal,
+            source: sourceLead?.source || 'Direct Job',
+            priority: sourceLead?.priority || 'Medium',
+          }, {
+            contractorId: projectsContractorId,
+          })
+        } catch (error) {
+          logEstimateDevError('[dev] Failed to sync project estimated value after saving estimate.', error, {
+            leadId,
+            projectId: relatedProjectId,
+            estimate: persistedEstimate,
+          })
+        }
+      }
 
       setLeads((current) => current.map((lead) => {
         if (lead.id !== leadId) return lead
         const currentPortal = lead.portal || {}
-        const contractAmount = Number(persistedEstimate.total || currentPortal.contractAmount || lead.value || 0)
-        const amountPaid = Number(currentPortal.amountPaid || 0)
+        const contractAmount = resolveEstimateTotal(lead, persistedEstimate)
+        const amountPaid = toSafeNumber(currentPortal.amountPaid)
         const nextContract = persistedEstimate.status === 'Converted to Contract'
           ? {
               ...(currentPortal.contract || {}),
@@ -1062,6 +1259,7 @@ function ContractorFlowApp() {
           ...lead,
           value: contractAmount,
           estimatedValue: contractAmount,
+          estimateId: persistedEstimate.id || lead.estimateId || null,
           leadPipelineStage: nextPipelineStage,
           status: nextPipelineStage === leadPipelineStages.ESTIMATE_CREATED ? 'Contacted' : lead.status,
           portal: {
@@ -1223,8 +1421,7 @@ function ContractorFlowApp() {
   }
 
   function createScheduleEvent(event, source = 'event') {
-    const id = `evt-${Date.now()}`
-    setScheduleEvents((current) => [{ id, ...event }, ...current])
+    setScheduleEvents((current) => [{ ...event }, ...current])
     showToast(t(source === 'job' ? 'jobScheduled' : 'eventCreated'))
     addNotification('notificationEventScheduledTitle', 'notificationEventScheduledMessage')
   }
@@ -1333,7 +1530,7 @@ function ContractorFlowApp() {
       <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
-      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
+      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
@@ -1396,17 +1593,33 @@ function ContractorFlowApp() {
         onClose={closeScheduleModal}
         onSave={async (event) => {
           try {
-            if (scheduleModalState.editingEvent?.id) {
-              await dataProvider.events.update?.(scheduleModalState.editingEvent.id, event)
-            } else {
-              await dataProvider.events.create?.(event)
+            const eventPayload = {
+              ...event,
+              contractorId: contractor?.contractorId || company?.contractorId || session?.user?.user_metadata?.contractor_id || projectsContractorId || undefined,
             }
-          } catch (err) {
-            // ignore local-mode persistence errors
+            let response = null
+
+            if (scheduleModalState.editingEvent?.id) {
+              response = await dataProvider.events.update?.(scheduleModalState.editingEvent.id, eventPayload, { contractorId: projectsContractorId })
+            } else {
+              response = await dataProvider.events.create?.(eventPayload, { contractorId: projectsContractorId })
+            }
+
+            if (response?.error) {
+              throw response.error
+            }
+
+            const savedEvent = response?.data || eventPayload
+
+            if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, savedEvent)
+            else createScheduleEvent(savedEvent, scheduleModalState.context)
+            closeScheduleModal()
+          } catch (error) {
+            logLeadDevError('[dev] Failed to save schedule event.', error, {
+              event,
+              context: scheduleModalState.context,
+            })
           }
-          if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, event)
-          else createScheduleEvent(event, scheduleModalState.context)
-          closeScheduleModal()
         }}
         t={t}
       />
@@ -1430,10 +1643,10 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onUpdateLead={onUpdateLead}
       onRecordPayment={(payment) => onRecordPayment?.(projectId, payment)}
       onUploadPhotos={(photos) => onUploadPhotos?.(projectId, photos)}
-      scheduleEvents={scheduleEvents.filter((event) => event.leadId === projectId)}
+      scheduleEvents={scheduleEvents}
       archivedScheduleEventIds={archivedScheduleEventIds}
-      onScheduleEvent={() => onScheduleEvent?.({ leadId: projectId, context: 'job' })}
-      onEditScheduleEvent={(event) => onScheduleEvent?.({ leadId: projectId, context: 'job', event })}
+      onScheduleEvent={() => onScheduleEvent?.({ leadId: lead?.id || projectId, context: 'job' })}
+      onEditScheduleEvent={(event) => onScheduleEvent?.({ leadId: lead?.id || projectId, context: 'job', event })}
       onExportEvent={onExportEvent}
       onArchiveScheduleEvent={onArchiveScheduleEvent}
       onRestoreScheduleEvent={onRestoreScheduleEvent}

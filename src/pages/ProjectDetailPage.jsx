@@ -16,9 +16,11 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
-import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
+import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
+import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments, mergeProjectTimeline, normalizePaymentRecord } from '../utils/projectPayments'
+import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
 function logProjectDetailDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -30,9 +32,32 @@ function logProjectDetailDevError(message, error, meta) {
   })
 }
 
-function toSafeNumber(value) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
+function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId = '', clientId = '', projectTitle = '', projectType = '' } = {}) {
+  if (!event) return false
+
+  if (projectId && event.projectId === projectId) {
+    return true
+  }
+
+  if (relatedLeadId && event.leadId === relatedLeadId) {
+    return true
+  }
+
+  if (projectId && event.leadId === projectId) {
+    return true
+  }
+
+  if (!event.projectId) {
+    if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
+      return true
+    }
+
+    if (event.projectTitle && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function buildSafePortal(project = {}) {
@@ -47,6 +72,8 @@ function buildSafePortal(project = {}) {
     percentComplete: toSafeNumber(sourcePortal.percentComplete ?? 0),
     contractAmount: toSafeNumber(sourcePortal.contractAmount ?? project.contractValue ?? value),
     depositRequired: toSafeNumber(sourcePortal.depositRequired ?? 0),
+    depositPaid: toSafeNumber(sourcePortal.depositPaid ?? Math.min(sourcePortal.amountPaid ?? paid, sourcePortal.depositRequired ?? 0)),
+    totalPaid: toSafeNumber(sourcePortal.totalPaid ?? sourcePortal.amountPaid ?? paid),
     amountPaid: toSafeNumber(sourcePortal.amountPaid ?? paid),
     outstandingBalance: toSafeNumber(sourcePortal.outstandingBalance ?? remaining),
     paymentStatus: sourcePortal.paymentStatus || '',
@@ -59,17 +86,12 @@ function buildSafePortal(project = {}) {
     contract: sourcePortal.contract && typeof sourcePortal.contract === 'object' ? sourcePortal.contract : {},
     invoices: Array.isArray(sourcePortal.invoices) ? sourcePortal.invoices : [],
     payments: Array.isArray(sourcePortal.payments) ? sourcePortal.payments : [],
+    paymentHistory: Array.isArray(sourcePortal.paymentHistory) ? sourcePortal.paymentHistory : [],
   }
 }
 
 function hasProjectEstimate(project = {}) {
-  const estimate = project?.portal?.estimate
-
-  if (!estimate || typeof estimate !== 'object') return false
-  if (estimate.id || estimate.number || estimate.updatedAt || estimate.updated_at) return true
-  if (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0) return true
-  if (estimate.total !== undefined || estimate.totalAmount !== undefined) return true
-  return false
+  return hasEstimateData(project?.portal?.estimate)
 }
 
 function hasProjectContract(project = {}) {
@@ -189,6 +211,8 @@ function createSafeProject(project, fallbackId = '') {
     projectTitle: project.projectTitle || project.title || projectType,
     projectType,
     jobType: project.jobType || projectType,
+    priority: project.priority || 'Medium',
+    source: project.source || '',
     events: Array.isArray(project.events) ? project.events : [],
     schedule: Array.isArray(project.schedule) ? project.schedule : [],
     scheduleEvents: Array.isArray(project.scheduleEvents) ? project.scheduleEvents : [],
@@ -248,7 +272,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [isLoadingProject, setIsLoadingProject] = useState(Boolean(USE_SUPABASE_PROJECTS))
   const [hasLoadedProject, setHasLoadedProject] = useState(!USE_SUPABASE_PROJECTS)
   const [projectLoadError, setProjectLoadError] = useState(null)
-  const [estimateRecord, setEstimateRecord] = useState(() => readEstimateDraft(projectId || lead?.id || ''))
+  const [estimateRecord, setEstimateRecord] = useState(() => readLinkedEstimateDraft(lead || projectId, projectId || lead?.id || ''))
+  const [paymentRecords, setPaymentRecords] = useState([])
+  const [projectEventRecords, setProjectEventRecords] = useState([])
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -267,24 +293,87 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     || ((lead?.projectId === projectId || lead?.project_id === projectId) ? lead?.id : null)
     || null
   ), [baseProject, lead, projectId])
+  const relatedClient = useMemo(() => (
+    clients.find((client) => client.id === (baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id))
+    || null
+  ), [baseProject?.clientId, baseProject?.client_id, clients, lead?.clientId, lead?.client_id])
   const resolvedEstimate = useMemo(() => normalizeProjectEstimate(
     estimateRecord
     || baseProject?.portal?.estimate
-    || readEstimateDraft(projectId)
-    || readEstimateDraft(relatedLeadId || '')
-  ), [baseProject, estimateRecord, projectId, relatedLeadId])
+    || lead?.portal?.estimate
+    || readLinkedEstimateDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id])
+  ), [baseProject, estimateRecord, lead, projectId, relatedLeadId])
   const resolvedContract = useMemo(() => normalizeProjectContract(baseProject?.portal?.contract), [baseProject])
-  const currentLead = useMemo(() => createSafeProject({
+  const relatedInvoiceIds = useMemo(() => collectProjectInvoiceIds({
     ...(baseProject || {}),
-    estimateId: baseProject?.estimateId || resolvedEstimate?.id || null,
-    value: resolvedEstimate?.total ?? baseProject?.value ?? baseProject?.estimatedValue ?? 0,
-    estimatedValue: resolvedEstimate?.total ?? baseProject?.estimatedValue ?? baseProject?.value ?? 0,
     portal: {
       ...(baseProject?.portal || {}),
+      ...(lead?.portal || {}),
+    },
+    invoices: [
+      ...(Array.isArray(baseProject?.invoices) ? baseProject.invoices : []),
+      ...(Array.isArray(lead?.invoices) ? lead.invoices : []),
+    ],
+  }), [baseProject, lead])
+  const localPaymentRecords = useMemo(() => dedupePayments([
+    ...(Array.isArray(baseProject?.payments) ? baseProject.payments : []),
+    ...(Array.isArray(baseProject?.portal?.payments) ? baseProject.portal.payments : []),
+    ...(Array.isArray(baseProject?.portal?.paymentHistory) ? baseProject.portal.paymentHistory : []),
+    ...(Array.isArray(lead?.payments) ? lead.payments : []),
+    ...(Array.isArray(lead?.portal?.payments) ? lead.portal.payments : []),
+    ...(Array.isArray(lead?.portal?.paymentHistory) ? lead.portal.paymentHistory : []),
+  ]), [baseProject, lead])
+  const paymentSummary = useMemo(() => calculateProjectPaymentSummary({
+    ...(baseProject || {}),
+    id: projectId,
+    clientId: baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null,
+    leadId: relatedLeadId || baseProject?.leadId || baseProject?.lead_id || null,
+    portal: {
+      ...(baseProject?.portal || {}),
+      ...(lead?.portal || {}),
+    },
+  }, [...paymentRecords, ...localPaymentRecords], { relatedInvoiceIds }), [baseProject, lead, localPaymentRecords, paymentRecords, projectId, relatedInvoiceIds, relatedLeadId])
+  const portalTimeline = useMemo(() => mergeProjectTimeline(
+    baseProject?.portal?.timeline || lead?.portal?.timeline || [],
+    paymentSummary.payments
+  ), [baseProject?.portal?.timeline, lead?.portal?.timeline, paymentSummary.payments])
+  const currentLead = useMemo(() => createSafeProject({
+    ...(baseProject || {}),
+    client: baseProject?.client || baseProject?.clientName || lead?.client || lead?.clientName || relatedClient?.displayName || relatedClient?.name || '',
+    clientName: baseProject?.clientName || baseProject?.client || lead?.clientName || lead?.client || relatedClient?.displayName || relatedClient?.name || '',
+    customerName: baseProject?.customerName || baseProject?.clientName || baseProject?.client || lead?.customerName || lead?.client || relatedClient?.displayName || relatedClient?.name || '',
+    phone: baseProject?.phone || lead?.phone || relatedClient?.phone || '',
+    email: baseProject?.email || lead?.email || relatedClient?.email || '',
+    address: baseProject?.address || baseProject?.location || lead?.address || lead?.location || relatedClient?.address || '',
+    projectTitle: baseProject?.projectTitle || baseProject?.title || lead?.projectTitle || lead?.projectType || '',
+    projectType: baseProject?.projectType || lead?.projectType || lead?.projectTitle || '',
+    source: baseProject?.source || lead?.source || '',
+    priority: baseProject?.priority || lead?.priority || 'Medium',
+    estimateId: baseProject?.estimateId || lead?.estimateId || resolvedEstimate?.id || null,
+    value: resolveEstimateTotal(baseProject, resolvedEstimate),
+    estimatedValue: resolveEstimateTotal({ estimatedValue: baseProject?.estimatedValue ?? lead?.estimatedValue }, resolvedEstimate, resolveEstimateTotal(baseProject, resolvedEstimate)),
+    paid: paymentSummary.totalPaid,
+    amountPaid: paymentSummary.totalPaid,
+    remaining: paymentSummary.outstandingBalance,
+    remainingBalance: paymentSummary.outstandingBalance,
+    payments: paymentSummary.payments,
+    portal: {
+      ...(baseProject?.portal || {}),
+      ...(lead?.portal || {}),
+      contractAmount: paymentSummary.projectValue,
+      depositRequired: paymentSummary.depositRequired,
+      depositPaid: paymentSummary.depositPaid,
+      totalPaid: paymentSummary.totalPaid,
+      amountPaid: paymentSummary.totalPaid,
+      outstandingBalance: paymentSummary.outstandingBalance,
+      paymentStatus: paymentSummary.paymentStatus,
+      timeline: portalTimeline,
+      payments: paymentSummary.payments,
+      paymentHistory: paymentSummary.payments,
       estimate: resolvedEstimate || {},
       contract: resolvedContract || {},
     },
-  }, projectId), [baseProject, projectId, resolvedContract, resolvedEstimate])
+  }, projectId), [baseProject, lead, paymentSummary, portalTimeline, projectId, relatedClient, resolvedContract, resolvedEstimate])
   const portal = useMemo(() => {
     if (!currentLead) {
       return buildSafePortal({})
@@ -303,6 +392,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }, [currentLead, projectId])
   const projectIsArchived = Boolean(currentLead?.isArchived || currentLead?.archivedAt || isArchived)
+  const recordDetailsTitle = t(getRecordDetailsTitleKey(currentLead, { isProjectWorkspace: true }))
   const hasEstimate = hasProjectEstimate(currentLead)
   const hasContract = hasProjectContract(currentLead)
   const hasLeadLink = Boolean(currentLead?.leadId)
@@ -373,7 +463,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     let isCancelled = false
 
     async function loadEstimate() {
-      const draftEstimate = readEstimateDraft(projectId) || readEstimateDraft(relatedLeadId || '')
+      const draftEstimate = readLinkedEstimateDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id])
+      const knownEstimateId = baseProject?.estimateId || baseProject?.estimate_id || lead?.estimateId || draftEstimate?.id || null
 
       if (!projectId) {
         if (!isCancelled) {
@@ -383,20 +474,39 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       }
 
       try {
-        const response = await dataProvider.estimates.list({
-          contractorId,
-          projectId,
-          includeArchived: true,
-        })
+        let resolvedEstimateRecord = null
 
-        if (isCancelled) return
+        if (knownEstimateId) {
+          const estimateByIdResponse = await dataProvider.estimates.getById?.(knownEstimateId, { contractorId })
 
-        if (response?.error) {
-          setEstimateRecord(draftEstimate)
-          return
+          if (estimateByIdResponse?.data && !estimateByIdResponse?.error) {
+            resolvedEstimateRecord = estimateByIdResponse.data
+          }
         }
 
-        setEstimateRecord(response?.data?.[0] || draftEstimate)
+        if (!resolvedEstimateRecord) {
+          const response = await dataProvider.estimates.list({
+            contractorId,
+            projectId,
+            includeArchived: true,
+          })
+
+          if (isCancelled) return
+
+          if (!response?.error) {
+            resolvedEstimateRecord = response?.data?.[0] || null
+          }
+        }
+
+        const nextEstimate = resolvedEstimateRecord || draftEstimate || lead?.portal?.estimate || null
+
+        if (!isCancelled) {
+          setEstimateRecord(nextEstimate)
+
+          if (nextEstimate) {
+            writeLinkedEstimateDrafts([projectId, relatedLeadId, knownEstimateId], nextEstimate)
+          }
+        }
       } catch (error) {
         if (!isCancelled) {
           setEstimateRecord(draftEstimate)
@@ -409,14 +519,118 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [contractorId, projectId, relatedLeadId])
+  }, [baseProject, contractorId, lead, projectId, relatedLeadId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadPayments() {
+      const fallbackPayments = localPaymentRecords
+      const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null
+
+      if (!projectId && !clientId) {
+        setPaymentRecords(fallbackPayments)
+        return
+      }
+
+      try {
+        const response = await dataProvider.payments.list({
+          contractorId,
+          includeArchived: true,
+          ...(clientId ? { clientId } : { projectId }),
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setPaymentRecords(fallbackPayments)
+          return
+        }
+
+        setPaymentRecords(dedupePayments([
+          ...(Array.isArray(response?.data) ? response.data : []),
+          ...fallbackPayments,
+        ]))
+      } catch (error) {
+        if (!isCancelled) {
+          setPaymentRecords(fallbackPayments)
+        }
+      }
+    }
+
+    loadPayments()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [baseProject?.clientId, baseProject?.client_id, contractorId, lead?.clientId, lead?.client_id, localPaymentRecords, projectId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadProjectEvents() {
+      const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || ''
+      const fallbackEvents = scheduleEvents.filter((event) => matchesProjectScheduleEvent(event, {
+        projectId,
+        relatedLeadId,
+        clientId,
+        projectTitle: baseProject?.projectTitle || lead?.projectTitle || '',
+        projectType: baseProject?.projectType || lead?.projectType || '',
+      }))
+
+      try {
+        const response = await dataProvider.events.list({
+          contractorId,
+          includeArchived: true,
+          ...(clientId ? { clientId } : projectId ? { projectId } : {}),
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setProjectEventRecords(fallbackEvents)
+          return
+        }
+
+        const nextEvents = [
+          ...(Array.isArray(response?.data) ? response.data : []),
+          ...fallbackEvents,
+        ]
+          .filter((event, index, collection) => {
+            const key = event?.id || `${event?.title || 'event'}:${event?.date || ''}:${event?.startTime || ''}:${event?.projectId || event?.leadId || index}`
+            return collection.findIndex((candidate, candidateIndex) => (
+              (candidate?.id || `${candidate?.title || 'event'}:${candidate?.date || ''}:${candidate?.startTime || ''}:${candidate?.projectId || candidate?.leadId || candidateIndex}`) === key
+            )) === index
+          })
+          .filter((event) => matchesProjectScheduleEvent(event, {
+            projectId,
+            relatedLeadId,
+            clientId,
+            projectTitle: baseProject?.projectTitle || lead?.projectTitle || '',
+            projectType: baseProject?.projectType || lead?.projectType || '',
+          }))
+
+        setProjectEventRecords(nextEvents)
+      } catch (error) {
+        if (!isCancelled) {
+          setProjectEventRecords(fallbackEvents)
+        }
+      }
+    }
+
+    loadProjectEvents()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [baseProject?.clientId, baseProject?.client_id, baseProject?.projectTitle, baseProject?.projectType, contractorId, lead?.clientId, lead?.client_id, lead?.projectTitle, lead?.projectType, projectId, relatedLeadId, scheduleEvents])
 
   const activeScheduleEvents = useMemo(() => (
-    scheduleEvents.filter((event) => !archivedScheduleEventIds.includes(event.id))
-  ), [archivedScheduleEventIds, scheduleEvents])
+    projectEventRecords.filter((event) => !archivedScheduleEventIds.includes(event.id) && !event.archivedAt)
+  ), [archivedScheduleEventIds, projectEventRecords])
   const archivedScheduleEvents = useMemo(() => (
-    scheduleEvents.filter((event) => archivedScheduleEventIds.includes(event.id))
-  ), [archivedScheduleEventIds, scheduleEvents])
+    projectEventRecords.filter((event) => archivedScheduleEventIds.includes(event.id) || event.archivedAt)
+  ), [archivedScheduleEventIds, projectEventRecords])
 
   if (USE_SUPABASE_PROJECTS && isLoadingProject) {
     return (
@@ -442,10 +656,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     primary: !hasEstimate,
   }
   const contractAction = {
-    label: portal.contract?.number ? t('openContract') : t('convertToContract'),
+    label: hasContract ? t('openContract') : t('convertToContract'),
     icon: FileText,
     action: () => navigate(`/projects/${currentLead.id}/contract`),
-    primary: hasEstimate,
+    primary: hasEstimate && !hasContract,
   }
   const actionButtons = [
     estimateAction,
@@ -561,11 +775,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             </button>
           )}
         </InfoCard>
-        <InfoCard title={t('projectInformation')}>
+        <InfoCard title={recordDetailsTitle}>
           <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
-          <DetailRow label={t('startDate')} value={portal.startDate} />
-          <DetailRow label={t('targetCompletion')} value={portal.estimatedCompletion} />
-          <DetailRow label={t('nextStep')} value={currentLead.nextStep} />
+          <DetailRow label={t('priority')} value={currentLead.priority} />
+          <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
+          <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
         </InfoCard>
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('homeownerPortalPreviewHelp')}</p>
@@ -697,13 +911,30 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         onClose={() => setShowPaymentModal(false)}
         onSave={async (payment) => {
           try {
-            const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
-            await dataProvider.payments.create({ ...paymentEntry, projectId: currentLead.id, leadId: currentLead.id })
-          } catch (err) {
-            // ignore in local mode
+            const paymentEntry = normalizePaymentRecord({
+              id: `payment-${Date.now()}`,
+              ...payment,
+              clientId: currentLead.clientId || currentLead.client_id || null,
+              projectId: currentLead.id,
+              invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
+              leadId: linkedLeadId || currentLead.leadId || currentLead.id,
+            })
+            const response = await dataProvider.payments.create(paymentEntry, { contractorId })
+
+            if (response?.error) {
+              throw response.error
+            }
+
+            const savedPayment = normalizePaymentRecord(response?.data || paymentEntry, paymentEntry)
+
+            setPaymentRecords((current) => dedupePayments([savedPayment, ...current]))
+            onRecordPayment?.(savedPayment)
+            setShowPaymentModal(false)
+          } catch (error) {
+            logProjectDetailDevError('[dev] ProjectDetailPage failed to record payment.', error, {
+              projectId: currentLead.id,
+            })
           }
-          onRecordPayment?.(payment)
-          setShowPaymentModal(false)
         }}
         t={t}
       />

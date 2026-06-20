@@ -55,17 +55,17 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key, po
 
         <InfoCard title={t('timeline')}>
           <div className="space-y-4">
-            {portal.timeline.map((item) => (
-              <div key={item.title} className="flex gap-3">
+            {portal.timeline.map((item, index) => (
+              <div key={item.id || `${item.titleKey || item.title}-${item.date}-${index}`} className="flex gap-3">
                 <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${item.status === 'Complete' ? 'bg-emerald-50 text-emerald-600' : item.status === 'In Progress' ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
                   <CheckCircle2 className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1 rounded-2xl bg-slate-50 p-4">
                   <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-center">
-                    <h3 className="font-bold text-slate-950">{t(item.title)}</h3>
+                    <h3 className="font-bold text-slate-950">{t(item.titleKey || item.title, item.titleParams || {})}</h3>
                     <span className="text-xs font-semibold text-slate-500">{item.date}</span>
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">{t(item.note)}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{t(item.noteKey || item.note, item.noteParams || {})}</p>
                 </div>
               </div>
             ))}
@@ -92,8 +92,10 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key, po
       <div className="space-y-5">
         {showPayments && (
         <InfoCard title={t('paymentProgress')}>
-          <DetailRow label={t('depositRequired')} value={currency.format(portal.depositRequired)} />
-          <DetailRow label={t('depositPaid')} value={currency.format(Math.min(portal.amountPaid, portal.depositRequired))} />
+          {Number(portal.depositRequired) > 0 ? (
+            <DetailRow label={t('depositRequired')} value={currency.format(portal.depositRequired)} />
+          ) : null}
+          <DetailRow label={t('depositPaid')} value={currency.format(portal.depositPaid ?? Math.min(portal.amountPaid, portal.depositRequired))} />
           <DetailRow label={t('outstandingBalance')} value={currency.format(portal.outstandingBalance)} />
           <DetailRow label={t('paymentStatus')} value={tStatus(t, portal.paymentStatus)} />
         </InfoCard>

@@ -51,7 +51,7 @@ function logSupabaseJobsDebug(message, meta) {
   console.info(message, meta)
 }
 
-export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
+export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [projects, setProjects] = useState([])
@@ -60,6 +60,9 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
   const isArchivedJob = (job) => Boolean(job?.isArchived || job?.archivedAt || archivedIds.includes(job?.id))
+  const clientNameById = useMemo(() => new Map(
+    clients.map((client) => [client.id, client.displayName || client.name || ''])
+  ), [clients])
 
   useEffect(() => {
     let isCancelled = false
@@ -110,6 +113,12 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
           : ['Won', 'Signed'].includes(lead.status) || ['Signed', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid'].includes(lead.projectStatus)
       ))
       .map((lead) => {
+        const relatedLead = leads.find((item) => (
+          item.id === lead?.leadId
+          || item.id === lead?.lead_id
+          || item.projectId === lead?.id
+          || item.project_id === lead?.id
+        ))
         const portal = getPortalData(lead)
         const projectValue = Number(lead.projectValue ?? portal.contractAmount ?? lead.value ?? lead.estimatedValue ?? lead.contractValue ?? 0) || 0
         const amountPaid = Number(lead.amountPaid ?? lead.paid ?? portal.amountPaid ?? 0) || 0
@@ -118,10 +127,28 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
           ? toDisplayJobStatus(lead.status)
           : (lead.projectStatus || (lead.status === 'Won' ? 'Scheduled' : 'In Progress'))
         const derivedStatus = remainingBalance === 0 && ['Completed', 'Paid'].includes(normalizedStatus) ? 'Paid' : normalizedStatus
+        const clientName = lead.client
+          || lead.clientName
+          || lead.customerName
+          || clientNameById.get(lead.clientId)
+          || clientNameById.get(lead.client_id)
+          || relatedLead?.client
+          || relatedLead?.clientName
+          || relatedLead?.customerName
+          || ''
+        const projectTitle = lead.projectTitle
+          || lead.title
+          || lead.projectType
+          || relatedLead?.projectTitle
+          || relatedLead?.projectType
+          || t('unknownProject')
 
         return {
           ...lead,
-          client: lead.client || lead.clientName || lead.customerName || '',
+          client: clientName,
+          clientDisplayName: clientName || t('noClientLinked'),
+          projectDisplayTitle: projectTitle,
+          projectTitle,
           jobStatus: derivedStatus,
           startDate: lead.startDate || portal.startDate,
           projectValue,
@@ -130,7 +157,7 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
           nextStep: lead.nextStep || lead.notes || t('projectStatus'),
         }
       })
-  }, [leads, projects, t])
+  }, [clientNameById, leads, projects, t])
 
   const activeJobsList = jobs.filter((job) => !isArchivedJob(job))
   const filteredJobs = selectedFilter === 'All'
@@ -307,8 +334,8 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
               {filteredJobs.map((job) => (
                 <tr key={job.id} onClick={() => onViewJob(job.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4">
-                    <p className="font-bold text-slate-950">{job.client || job.projectTitle || job.projectType}</p>
-                    <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
+                    <p className="font-bold text-slate-950">{job.clientDisplayName}</p>
+                    <p className="text-sm text-slate-500">{job.projectDisplayTitle}</p>
                   </td>
                   <td className="px-4 py-4"><StatusBadge status={isArchivedJob(job) ? 'Archived' : job.jobStatus} t={t} /></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{job.startDate}</td>
@@ -328,8 +355,8 @@ export function JobsPage({ leads, archivedIds = [], onViewJob, onCreateJob, onAr
             <article key={job.id} onClick={() => onViewJob(job.id)} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-bold text-slate-950">{job.client || job.projectTitle || job.projectType}</h3>
-                  <p className="text-sm text-slate-500">{job.projectTitle || job.projectType}</p>
+                  <h3 className="font-bold text-slate-950">{job.clientDisplayName}</h3>
+                  <p className="text-sm text-slate-500">{job.projectDisplayTitle}</p>
                 </div>
                 <StatusBadge status={isArchivedJob(job) ? 'Archived' : job.jobStatus} t={t} />
               </div>

@@ -25,9 +25,31 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function matchesLeadRecord(lead, value) {
+  return lead.id === value || lead.projectId === value || lead.project_id === value
+}
+
+function parseTimeToMinutes(value) {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) return null
+
+  const [hours, minutes] = value.split(':').map(Number)
+  return (hours * 60) + minutes
+}
+
+function addHourToTime(value) {
+  const totalMinutes = parseTimeToMinutes(value)
+
+  if (totalMinutes === null) return '10:00'
+
+  const normalizedMinutes = (totalMinutes + 60) % (24 * 60)
+  const hours = String(Math.floor(normalizedMinutes / 60)).padStart(2, '0')
+  const minutes = String(normalizedMinutes % 60).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
 export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', context = 'event', editingEvent = null, onClose, onSave, t }) {
   const dateRef = useRef(null)
-  const defaultLead = useMemo(() => leads.find((lead) => lead.id === initialLeadId) || leads[0], [initialLeadId, leads])
+  const defaultLead = useMemo(() => leads.find((lead) => matchesLeadRecord(lead, initialLeadId)) || leads[0], [initialLeadId, leads])
   const buildDefaultForm = () => {
     if (editingEvent) {
       return {
@@ -64,15 +86,39 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
 
   if (!isOpen) return null
 
-  const selectedLead = leads.find((lead) => lead.id === form.leadId)
+  const selectedLead = leads.find((lead) => matchesLeadRecord(lead, form.leadId))
 
   function updateField(field, value) {
+    if (field === 'startTime') {
+      setForm((current) => {
+        const previousStartTime = current.startTime
+        const shouldAutoAdjustEndTime = !current.endTime
+          || current.endTime <= previousStartTime
+          || current.endTime <= value
+
+        return {
+          ...current,
+          startTime: value,
+          endTime: shouldAutoAdjustEndTime ? addHourToTime(value) : current.endTime,
+        }
+      })
+      return
+    }
+
+    if (field === 'endTime') {
+      setForm((current) => ({
+        ...current,
+        endTime: !value || value <= current.startTime ? addHourToTime(current.startTime) : value,
+      }))
+      return
+    }
+
     setForm((current) => ({
       ...current,
       [field]: value,
       ...(field === 'leadId'
         ? {
-            location: leads.find((lead) => lead.id === value)?.address || leads.find((lead) => lead.id === value)?.location || current.location,
+            location: leads.find((lead) => matchesLeadRecord(lead, value))?.address || leads.find((lead) => matchesLeadRecord(lead, value))?.location || current.location,
           }
         : {}),
     }))
@@ -87,20 +133,22 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
 
   function submitForm(event) {
     event.preventDefault()
-    const lead = leads.find((item) => item.id === form.leadId)
+    const lead = leads.find((item) => matchesLeadRecord(item, form.leadId))
     onSave({
       ...(editingEvent ? { id: editingEvent.id } : {}),
       ...form,
       title: form.title.trim() || tStatus(t, form.type),
       leadId: lead?.id || form.leadId,
+      clientId: lead?.clientId || lead?.client_id || editingEvent?.clientId || null,
+      projectId: editingEvent?.projectId || lead?.projectId || lead?.project_id || lead?.id || null,
       clientName: lead?.client || t('unknownClient'),
       projectTitle: lead?.projectTitle || lead?.projectType || t('unknownProject'),
-      time: '',
+      eventType: form.type,
+      time: form.startTime ? (form.endTime ? `${form.startTime} - ${form.endTime}` : form.startTime) : '',
       displayDate: '',
       location: form.location || lead?.address || lead?.location || '',
       status: 'Scheduled',
     })
-    onClose()
   }
 
   return (

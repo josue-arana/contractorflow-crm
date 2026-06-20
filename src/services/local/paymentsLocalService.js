@@ -1,35 +1,145 @@
-// Local payments service used while app runs in local/mock mode.
-// Methods mirror the Supabase-ready service shape but return skipped
-// responses so the App's in-memory state remains the source-of-truth.
+import { dedupePayments, normalizePaymentRecord } from '../../utils/projectPayments'
+
+const STORAGE_KEY = 'contractorflow.payments'
+
+function canUseStorage() {
+  return typeof window !== 'undefined' && Boolean(window.localStorage)
+}
+
+function readStoredPayments() {
+  if (!canUseStorage()) return []
+
+  try {
+    const rawValue = window.localStorage.getItem(STORAGE_KEY)
+
+    if (!rawValue) {
+      return []
+    }
+
+    const parsedValue = JSON.parse(rawValue)
+    return Array.isArray(parsedValue) ? dedupePayments(parsedValue) : []
+  } catch {
+    window.localStorage.removeItem(STORAGE_KEY)
+    return []
+  }
+}
+
+function writeStoredPayments(payments) {
+  if (!canUseStorage()) return
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(dedupePayments(payments)))
+}
+
+function sortPayments(payments = []) {
+  return [...payments].sort((left, right) => {
+    const leftTimestamp = new Date(left.paymentDate || left.createdAt || 0).getTime()
+    const rightTimestamp = new Date(right.paymentDate || right.createdAt || 0).getTime()
+    return rightTimestamp - leftTimestamp
+  })
+}
+
+function matchesFilter(payment, filters = {}) {
+  if (!filters.includeArchived && payment.archivedAt) return false
+  if (filters.clientId && payment.clientId !== filters.clientId) return false
+  if (filters.projectId && payment.projectId !== filters.projectId) return false
+  if (filters.invoiceId && payment.invoiceId !== filters.invoiceId) return false
+  if (filters.status && payment.status !== filters.status) return false
+  if (filters.contractorId && payment.contractorId && payment.contractorId !== filters.contractorId) return false
+  return true
+}
 
 export async function list({ includeArchived = false, clientId, projectId, invoiceId, status, contractorId } = {}) {
-  // contractorId accepted for future isolation (ignored in local mode)
-  return { data: [], skipped: true, message: 'Local mode: payments are sourced from App state' }
+  const payments = sortPayments(readStoredPayments().filter((payment) => matchesFilter(payment, {
+    includeArchived,
+    clientId,
+    projectId,
+    invoiceId,
+    status,
+    contractorId,
+  })))
+
+  return {
+    data: payments,
+    error: null,
+    skipped: false,
+  }
 }
 
 export async function getById(id) {
-  return { data: null, skipped: true, message: 'Local mode: payments are sourced from App state' }
+  const payment = readStoredPayments().find((entry) => entry.id === id) || null
+
+  return {
+    data: payment,
+    error: null,
+    skipped: false,
+  }
 }
 
 export async function create(paymentData, opts = {}) {
-  // opts.contractorId supported for future contractor isolation.
-  return { data: paymentData, skipped: true, message: 'Local mode: payment created in App state' }
+  const now = new Date().toISOString()
+  const payment = normalizePaymentRecord(paymentData, {
+    id: paymentData?.id || `payment-${Date.now()}`,
+    contractorId: opts.contractorId || paymentData?.contractorId || paymentData?.contractor_id,
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+    status: paymentData?.status || 'Recorded',
+  })
+  const payments = readStoredPayments()
+
+  writeStoredPayments([payment, ...payments])
+
+  return {
+    data: payment,
+    error: null,
+    skipped: false,
+  }
 }
 
 export async function update(id, updates) {
-  return { data: { id, ...(updates || {}) }, skipped: true, message: 'Local mode: payment updated in App state' }
+  const payments = readStoredPayments()
+  let updatedPayment = null
+  const nextPayments = payments.map((payment) => {
+    if (payment.id !== id) return payment
+
+    updatedPayment = normalizePaymentRecord({
+      ...payment,
+      ...(updates || {}),
+      id,
+      updatedAt: new Date().toISOString(),
+    })
+
+    return updatedPayment
+  })
+
+  writeStoredPayments(nextPayments)
+
+  return {
+    data: updatedPayment,
+    error: null,
+    skipped: false,
+  }
 }
 
 export async function archive(id) {
-  return { data: { id, archived: true }, skipped: true, message: 'Local mode: payment archived in App state' }
+  return update(id, { archivedAt: new Date().toISOString() })
 }
 
 export async function restore(id) {
-  return { data: { id, archived: false }, skipped: true, message: 'Local mode: payment restored in App state' }
+  return update(id, { archivedAt: null })
 }
 
 export async function deletePermanently(id) {
-  return { data: { id, deleted: true }, skipped: true, message: 'Local mode: payment deleted in App state' }
+  const payments = readStoredPayments()
+  const deletedPayment = payments.find((payment) => payment.id === id) || null
+  const nextPayments = payments.filter((payment) => payment.id !== id)
+
+  writeStoredPayments(nextPayments)
+
+  return {
+    data: deletedPayment || { id, deleted: true },
+    error: null,
+    skipped: false,
+  }
 }
 
 export default { list, getById, create, update, archive, restore, deletePermanently }

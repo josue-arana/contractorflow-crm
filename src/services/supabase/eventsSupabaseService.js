@@ -180,6 +180,28 @@ function buildEventTimestamp(dateValue, timeValue) {
   return parsedDate.toISOString()
 }
 
+function buildEndEventTimestamp(dateValue, startTimeValue, endTimeValue) {
+  const endTimestamp = buildEventTimestamp(dateValue, endTimeValue)
+
+  if (!endTimestamp) return null
+
+  const startTimestamp = buildEventTimestamp(dateValue, startTimeValue)
+
+  if (!startTimestamp) {
+    return endTimestamp
+  }
+
+  const startDate = new Date(startTimestamp)
+  const endDate = new Date(endTimestamp)
+
+  if (endDate.getTime() <= startDate.getTime()) {
+    endDate.setDate(endDate.getDate() + 1)
+    return endDate.toISOString()
+  }
+
+  return endTimestamp
+}
+
 function serializeDescription(event = {}) {
   const descriptionText = readField(event, ['description'])
   const reminder = readField(event, ['reminder'])
@@ -188,7 +210,7 @@ function serializeDescription(event = {}) {
   const projectTitle = readField(event, ['projectTitle', 'project_title'])
   const displayDate = readField(event, ['displayDate', 'display_date'])
   const time = readField(event, ['time'])
-  const uiType = readField(event, ['type'])
+  const uiType = readField(event, ['type', 'eventType', 'event_type'])
   const uiStatus = readField(event, ['status'])
 
   const hasStructuredFields = [
@@ -277,6 +299,7 @@ function toAppEvent(row) {
     title: row?.title || '',
     description: parsedDescription.summary,
     type: parsedDescription.uiType || mapTypeToUi(row?.type),
+    eventType: parsedDescription.uiType || mapTypeToUi(row?.type),
     status: parsedDescription.uiStatus || mapStatusToUi(row?.status),
     date: row?.starts_at ? new Date(row.starts_at).toISOString().slice(0, 10) : '',
     displayDate: parsedDescription.displayDate || (row?.starts_at ? formatDisplayDate(row.starts_at) : ''),
@@ -300,7 +323,7 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
   const payload = {}
   const titleInput = readField(event, ['title'])
   const descriptionInput = serializeDescription(event)
-  const typeInput = readField(event, ['type'])
+  const typeInput = readField(event, ['type', 'eventType', 'event_type'])
   const statusInput = readField(event, ['status'])
   const dateInput = readField(event, ['date'])
   const startTimeInput = readField(event, ['startTime'])
@@ -355,7 +378,7 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
   if (endsAtInput !== undefined) {
     payload.ends_at = endsAtInput || null
   } else if (isCreate || dateInput !== undefined || endTimeInput !== undefined) {
-    payload.ends_at = buildEventTimestamp(dateInput, endTimeInput)
+    payload.ends_at = buildEndEventTimestamp(dateInput, startTimeInput, endTimeInput)
   }
 
   if (isCreate || locationInput !== undefined) {

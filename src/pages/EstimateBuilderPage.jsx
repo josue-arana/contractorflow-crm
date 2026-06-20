@@ -10,9 +10,9 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
 import dataProvider from '../services/dataProvider'
-import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -339,7 +339,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         return
       }
 
-      const cachedEstimate = readEstimateDraft(projectId) || readEstimateDraft(lead.id)
+      const cachedEstimate = readLinkedEstimateDraft(lead || projectId, [projectId, lead.id])
       const relatedProjectId = lead.projectId || lead.project_id || projectId || null
 
       try {
@@ -363,7 +363,12 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
           return
         }
 
-        setLoadedEstimate(response?.data?.[0] || cachedEstimate)
+        const nextEstimate = response?.data?.[0] || cachedEstimate
+
+        setLoadedEstimate(nextEstimate)
+        if (nextEstimate) {
+          writeLinkedEstimateDrafts([projectId, lead.id, nextEstimate.id], nextEstimate)
+        }
       } catch (error) {
         if (!isCancelled) {
           setLoadedEstimate(cachedEstimate)
