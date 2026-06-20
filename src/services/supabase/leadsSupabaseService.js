@@ -1,5 +1,7 @@
 import { USE_SUPABASE, USE_SUPABASE_LEADS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { readLeadPipelineStage } from '../local/leadPipelineStorage'
+import { getLeadPipelineStage } from '../../utils/leadPipeline'
 
 const TABLE_NAME = 'leads'
 
@@ -140,28 +142,39 @@ function normalizeOptionalUuid(value, fieldName) {
   return null
 }
 
+function hasOwnField(object, fieldName) {
+  return Boolean(object) && Object.prototype.hasOwnProperty.call(object, fieldName)
+}
+
 export function mapLeadRowToUiLead(row) {
   const archivedAt = row?.archived_at || null
-
-  return {
+  const clientName = row?.name || 'Unknown Client'
+  const projectType = row?.service_type || ''
+  const estimatedValue = toNumber(row?.estimated_value)
+  const storedPipelineStage = row?.lead_pipeline_stage || readLeadPipelineStage(row?.id)
+  const nextLead = {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     projectId: row?.project_id || null,
-    name: row?.name || 'Unknown Client',
-    client: row?.name || 'Unknown Client',
+    name: clientName,
+    client: clientName,
+    clientName,
+    customerName: clientName,
     phone: row?.phone || '',
     email: row?.email || '',
     address: row?.address || '',
     location: row?.address || '',
-    title: row?.service_type || '',
-    projectTitle: row?.service_type || '',
-    projectType: row?.service_type || '',
-    value: toNumber(row?.estimated_value),
+    title: projectType,
+    projectTitle: projectType,
+    projectType,
+    jobType: projectType,
+    value: estimatedValue,
+    estimatedValue,
     source: row?.source || '',
     priority: mapPriorityToUi(row?.priority),
     notes: row?.notes || '',
-    nextStep: row?.notes || '',
+    nextStep: '',
     status: mapStatusToUi(row?.status),
     projectStatus: row?.status === 'won' ? 'Signed' : 'Lead',
     archivedAt,
@@ -169,6 +182,12 @@ export function mapLeadRowToUiLead(row) {
     isArchived: Boolean(archivedAt),
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
+    leadPipelineStage: storedPipelineStage || undefined,
+  }
+
+  return {
+    ...nextLead,
+    leadPipelineStage: nextLead.leadPipelineStage || getLeadPipelineStage(nextLead),
   }
 }
 
@@ -188,6 +207,65 @@ export function mapUiLeadToLeadRow(contractorId, lead = {}) {
     priority: mapPriorityToDb(lead.priority),
     notes: lead.notes || lead.nextStep || null,
   }
+}
+
+function mapUiLeadUpdatesToLeadRow(updates = {}) {
+  const payload = {}
+
+  if (hasOwnField(updates, 'clientId') || hasOwnField(updates, 'client_id')) {
+    payload.client_id = normalizeOptionalUuid(updates.clientId || updates.client_id, 'client_id')
+  }
+
+  if (hasOwnField(updates, 'projectId') || hasOwnField(updates, 'project_id')) {
+    payload.project_id = normalizeOptionalUuid(updates.projectId || updates.project_id, 'project_id')
+  }
+
+  if (
+    hasOwnField(updates, 'client')
+    || hasOwnField(updates, 'clientName')
+    || hasOwnField(updates, 'customerName')
+    || hasOwnField(updates, 'name')
+  ) {
+    payload.name = updates.client || updates.clientName || updates.customerName || updates.name || 'Unknown Client'
+  }
+
+  if (hasOwnField(updates, 'phone')) {
+    payload.phone = updates.phone || null
+  }
+
+  if (hasOwnField(updates, 'email')) {
+    payload.email = updates.email || null
+  }
+
+  if (hasOwnField(updates, 'address') || hasOwnField(updates, 'location')) {
+    payload.address = updates.address || updates.location || null
+  }
+
+  if (hasOwnField(updates, 'projectType') || hasOwnField(updates, 'projectTitle') || hasOwnField(updates, 'service_type')) {
+    payload.service_type = updates.projectType || updates.projectTitle || updates.service_type || null
+  }
+
+  if (hasOwnField(updates, 'source')) {
+    payload.source = updates.source || null
+  }
+
+  if (hasOwnField(updates, 'value') || hasOwnField(updates, 'estimatedValue') || hasOwnField(updates, 'estimated_value')) {
+    payload.estimated_value = toNumber(updates.value ?? updates.estimatedValue ?? updates.estimated_value)
+  }
+
+  if (hasOwnField(updates, 'status')) {
+    payload.status = mapStatusToDb(updates.status)
+  }
+
+  if (hasOwnField(updates, 'priority')) {
+    payload.priority = mapPriorityToDb(updates.priority)
+  }
+
+  if (hasOwnField(updates, 'notes') || hasOwnField(updates, 'nextStep')) {
+    payload.notes = updates.notes || updates.nextStep || null
+  }
+
+  return payload
 }
 
 function buildContractorQuery(contractorId, extraQuery = {}) {
@@ -350,11 +428,9 @@ export async function update(id, updates, { contractorId } = {}) {
 
   try {
     const payload = {
-      ...mapUiLeadToLeadRow(contractorId, updates),
+      ...mapUiLeadUpdatesToLeadRow(updates),
       updated_at: new Date().toISOString(),
     }
-
-    delete payload.contractor_id
 
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'PATCH',

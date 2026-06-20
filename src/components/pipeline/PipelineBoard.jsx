@@ -1,6 +1,7 @@
 import { SelectField } from '../ui/SelectField'
 import { currency } from '../../utils/formatters'
 import { tStatus } from '../../translations'
+import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageLabelKey } from '../../utils/leadPipeline'
 
 export function PipelineBoard({
   leads,
@@ -13,7 +14,7 @@ export function PipelineBoard({
   setSelectedMobileStage,
   t = (key) => key,
 }) {
-  const selectedStageLeads = leads.filter((lead) => lead.status === selectedMobileStage)
+  const selectedStageLeads = leads.filter((lead) => getLeadPipelineStage(lead) === selectedMobileStage)
 
   return (
     <section>
@@ -38,12 +39,12 @@ export function PipelineBoard({
         />
       </div>
 
-      <div className="hidden gap-4 overflow-x-auto pb-4 lg:grid lg:grid-cols-4">
+      <div className="hidden gap-4 overflow-x-auto pb-4 lg:flex">
         {statuses.map((status) => (
           <PipelineColumn
             key={status}
             status={status}
-            leads={leads.filter((lead) => lead.status === status)}
+            leads={leads.filter((lead) => getLeadPipelineStage(lead) === status)}
             draggedLeadId={draggedLeadId}
             setDraggedLeadId={setDraggedLeadId}
             moveLead={moveLead}
@@ -62,7 +63,7 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
       <label htmlFor="mobile-stage" className="mb-2 block text-sm font-semibold text-slate-700">
-        Pipeline stage
+        {t('pipelineStage')}
       </label>
       <SelectField
         id="mobile-stage"
@@ -73,14 +74,14 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
       >
         {statuses.map((status) => (
           <option key={status} value={status}>
-            {tStatus(t, status)}
+            {t(getLeadPipelineStageLabelKey(status))}
           </option>
         ))}
       </SelectField>
 
       <div className="mb-4 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
         <div>
-          <h3 className="font-bold text-slate-900">{tStatus(t, selectedStage)}</h3>
+          <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(selectedStage))}</h3>
           <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(selectedTotal)}</p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
@@ -122,7 +123,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
     >
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="font-bold text-slate-900">{tStatus(t, status)}</h3>
+          <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(status))}</h3>
           <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(total)}</p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
@@ -183,7 +184,7 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
 
       <div className="mt-4 rounded-2xl bg-slate-50 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('nextStep')}</p>
-        <p className="mt-1 text-sm font-medium text-slate-700">{t(lead.nextStep)}</p>
+        <p className="mt-1 text-sm font-medium text-slate-700">{t(getLeadNextStepKey(getLeadPipelineStage(lead)))}</p>
       </div>
 
       {mobile && (
@@ -193,13 +194,13 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
           </label>
           <SelectField
             id={`status-${lead.id}`}
-            value={lead.status}
+            value={getLeadPipelineStage(lead)}
             onChange={(event) => moveLead(lead.id, event.target.value)}
             className="bg-white"
           >
             {statuses.map((status) => (
               <option key={status} value={status}>
-                {status}
+                {t(getLeadPipelineStageLabelKey(status))}
               </option>
             ))}
           </SelectField>
@@ -208,5 +209,3 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
     </article>
   )
 }
-
-

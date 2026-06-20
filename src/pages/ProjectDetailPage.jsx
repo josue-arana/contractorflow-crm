@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { Component, useEffect, useMemo, useState } from 'react'
 import { Archive, ArrowLeft, CalendarDays, Camera, ClipboardList, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { ActionMenu } from '../components/common/ActionMenu'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
 import { PortalSummary } from '../components/portal/PortalSummary'
@@ -12,11 +13,242 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
+import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
+import { readEstimateDraft } from '../services/local/estimateDraftStorage'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 
-export function ProjectDetailPage({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
-  const portal = getPortalData(lead)
+function logProjectDetailDevError(message, error, meta) {
+  if (!import.meta.env.DEV) return
+
+  // eslint-disable-next-line no-console
+  console.error(message, {
+    error,
+    ...meta,
+  })
+}
+
+function toSafeNumber(value) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function buildSafePortal(project = {}) {
+  const value = toSafeNumber(project.value ?? project.estimatedValue ?? project.contractValue)
+  const paid = toSafeNumber(project.amountPaid ?? project.paid)
+  const remaining = toSafeNumber(project.remainingBalance ?? project.remaining ?? Math.max(value - paid, 0))
+  const sourcePortal = project.portal && typeof project.portal === 'object' ? project.portal : {}
+
+  return {
+    ...sourcePortal,
+    shareUrl: sourcePortal.shareUrl || '',
+    percentComplete: toSafeNumber(sourcePortal.percentComplete ?? 0),
+    contractAmount: toSafeNumber(sourcePortal.contractAmount ?? project.contractValue ?? value),
+    depositRequired: toSafeNumber(sourcePortal.depositRequired ?? 0),
+    amountPaid: toSafeNumber(sourcePortal.amountPaid ?? paid),
+    outstandingBalance: toSafeNumber(sourcePortal.outstandingBalance ?? remaining),
+    paymentStatus: sourcePortal.paymentStatus || '',
+    startDate: sourcePortal.startDate || project.startDate || '',
+    estimatedCompletion: sourcePortal.estimatedCompletion || project.targetCompletion || '',
+    timeline: Array.isArray(sourcePortal.timeline) ? sourcePortal.timeline : [],
+    photos: Array.isArray(sourcePortal.photos) ? sourcePortal.photos : [],
+    documents: Array.isArray(sourcePortal.documents) ? sourcePortal.documents : [],
+    estimate: sourcePortal.estimate && typeof sourcePortal.estimate === 'object' ? sourcePortal.estimate : {},
+    contract: sourcePortal.contract && typeof sourcePortal.contract === 'object' ? sourcePortal.contract : {},
+    invoices: Array.isArray(sourcePortal.invoices) ? sourcePortal.invoices : [],
+    payments: Array.isArray(sourcePortal.payments) ? sourcePortal.payments : [],
+  }
+}
+
+function hasProjectEstimate(project = {}) {
+  const estimate = project?.portal?.estimate
+
+  if (!estimate || typeof estimate !== 'object') return false
+  if (estimate.id || estimate.number || estimate.updatedAt || estimate.updated_at) return true
+  if (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0) return true
+  if (estimate.total !== undefined || estimate.totalAmount !== undefined) return true
+  return false
+}
+
+function hasProjectContract(project = {}) {
+  const contract = project?.portal?.contract
+
+  if (!contract || typeof contract !== 'object') return false
+  if (contract.id || contract.number || contract.contractNumber || contract.updatedAt || contract.updated_at) return true
+  if (contract.total !== undefined || contract.totalAmount !== undefined || contract.contractAmount !== undefined) return true
+  return false
+}
+
+function normalizeProjectEstimate(estimate) {
+  if (!estimate || typeof estimate !== 'object') return null
+
+  const hasContent = Boolean(
+    estimate.id
+      || estimate.number
+      || estimate.estimateNumber
+      || estimate.title
+      || estimate.projectTitle
+      || estimate.summary
+      || estimate.scopeOfWork
+      || estimate.updatedAt
+      || estimate.updated_at
+      || (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0)
+      || estimate.total !== undefined
+      || estimate.totalAmount !== undefined
+  )
+
+  if (!hasContent) return null
+
+  return {
+    ...estimate,
+    id: estimate.id || null,
+    projectId: estimate.projectId || estimate.project_id || null,
+    clientId: estimate.clientId || estimate.client_id || null,
+    title: estimate.title || estimate.projectTitle || 'Estimate',
+    number: estimate.number || estimate.estimateNumber || '',
+    total: toSafeNumber(estimate.total ?? estimate.totalAmount ?? estimate.amount),
+    status: estimate.status || 'Draft',
+    summary: estimate.summary || estimate.scopeOfWork || '',
+    lineItems: Array.isArray(estimate.lineItems) ? estimate.lineItems : [],
+  }
+}
+
+function normalizeProjectContract(contract) {
+  if (!contract || typeof contract !== 'object') return null
+
+  const hasContent = Boolean(
+    contract.id
+      || contract.number
+      || contract.contractNumber
+      || contract.total !== undefined
+      || contract.totalAmount !== undefined
+      || contract.contractAmount !== undefined
+      || contract.status
+      || contract.signedDate
+      || contract.signed_at
+  )
+
+  if (!hasContent) return null
+
+  return {
+    ...contract,
+    id: contract.id || null,
+    number: contract.number || contract.contractNumber || '',
+    total: toSafeNumber(contract.total ?? contract.totalAmount ?? contract.contractAmount),
+    status: contract.status || '',
+    signedDate: contract.signedDate || contract.signed_at || '',
+  }
+}
+
+function createSafeProject(project, fallbackId = '') {
+  if (!project) return null
+
+  const value = toSafeNumber(project.value ?? project.estimatedValue ?? project.contractValue)
+  const estimatedValue = toSafeNumber(project.estimatedValue ?? value)
+  const contractValue = toSafeNumber(project.contractValue ?? value)
+  const paid = toSafeNumber(project.amountPaid ?? project.paid)
+  const remaining = toSafeNumber(project.remainingBalance ?? project.remaining ?? Math.max(value - paid, 0))
+  const clientName = project.client || project.clientName || project.customerName || ''
+  const address = project.address || project.location || ''
+  const projectType = project.projectType || project.jobType || project.projectTitle || ''
+  const notes = project.notes || ''
+  const description = project.description || ''
+  const portal = buildSafePortal({
+    ...project,
+    value,
+    estimatedValue,
+    contractValue,
+    amountPaid: paid,
+    remainingBalance: remaining,
+  })
+
+  return {
+    ...project,
+    id: project.id || fallbackId,
+    client: clientName,
+    clientName,
+    customerName: clientName,
+    phone: project.phone || '',
+    email: project.email || '',
+    address,
+    location: address,
+    value,
+    estimatedValue,
+    contractValue,
+    paid,
+    amountPaid: paid,
+    remaining,
+    remainingBalance: remaining,
+    nextStep: project.nextStep || notes || description || '',
+    description,
+    notes,
+    status: project.status || 'scheduled',
+    projectStatus: project.projectStatus || project.status || 'scheduled',
+    projectTitle: project.projectTitle || project.title || projectType,
+    projectType,
+    jobType: project.jobType || projectType,
+    events: Array.isArray(project.events) ? project.events : [],
+    schedule: Array.isArray(project.schedule) ? project.schedule : [],
+    scheduleEvents: Array.isArray(project.scheduleEvents) ? project.scheduleEvents : [],
+    photos: Array.isArray(project.photos) ? project.photos : [],
+    estimates: Array.isArray(project.estimates) ? project.estimates : [],
+    contracts: Array.isArray(project.contracts) ? project.contracts : [],
+    invoices: Array.isArray(project.invoices) ? project.invoices : [],
+    payments: Array.isArray(project.payments) ? project.payments : [],
+    portal,
+  }
+}
+
+function ProjectDetailFallbackState({ onBack, t }) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+      <h1 className="text-2xl font-bold text-slate-950">{t('projectNotFound')}</h1>
+      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('projectNotFoundHelp')}</p>
+      <button onClick={onBack} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">
+        {t('backToDashboardAction')}
+      </button>
+    </section>
+  )
+}
+
+class ProjectDetailErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error, errorInfo) {
+    logProjectDetailDevError('[dev] ProjectDetailPage crashed while rendering.', error, {
+      componentStack: errorInfo?.componentStack || '',
+    })
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <ProjectDetailFallbackState onBack={this.props.onBack} t={this.props.t} />
+    }
+
+    return this.props.children
+  }
+}
+
+function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+  const { id, leadId } = useParams()
   const navigate = useNavigate()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getProjectsContractorId({ contractor, company, session })
+  const projectId = id || leadId || lead?.id || ''
+  const [project, setProject] = useState(USE_SUPABASE_PROJECTS ? null : lead)
+  const [isLoadingProject, setIsLoadingProject] = useState(Boolean(USE_SUPABASE_PROJECTS))
+  const [hasLoadedProject, setHasLoadedProject] = useState(!USE_SUPABASE_PROJECTS)
+  const [projectLoadError, setProjectLoadError] = useState(null)
+  const [estimateRecord, setEstimateRecord] = useState(() => readEstimateDraft(projectId || lead?.id || ''))
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -24,21 +256,245 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
   const [scheduleConfirmAction, setScheduleConfirmAction] = useState(null)
+  const baseProject = useMemo(() => (
+    USE_SUPABASE_PROJECTS
+      ? { ...(lead || {}), ...(project || {}) }
+      : (project || lead)
+  ), [lead, project])
+  const relatedLeadId = useMemo(() => (
+    baseProject?.leadId
+    || baseProject?.lead_id
+    || ((lead?.projectId === projectId || lead?.project_id === projectId) ? lead?.id : null)
+    || null
+  ), [baseProject, lead, projectId])
+  const resolvedEstimate = useMemo(() => normalizeProjectEstimate(
+    estimateRecord
+    || baseProject?.portal?.estimate
+    || readEstimateDraft(projectId)
+    || readEstimateDraft(relatedLeadId || '')
+  ), [baseProject, estimateRecord, projectId, relatedLeadId])
+  const resolvedContract = useMemo(() => normalizeProjectContract(baseProject?.portal?.contract), [baseProject])
+  const currentLead = useMemo(() => createSafeProject({
+    ...(baseProject || {}),
+    estimateId: baseProject?.estimateId || resolvedEstimate?.id || null,
+    value: resolvedEstimate?.total ?? baseProject?.value ?? baseProject?.estimatedValue ?? 0,
+    estimatedValue: resolvedEstimate?.total ?? baseProject?.estimatedValue ?? baseProject?.value ?? 0,
+    portal: {
+      ...(baseProject?.portal || {}),
+      estimate: resolvedEstimate || {},
+      contract: resolvedContract || {},
+    },
+  }, projectId), [baseProject, projectId, resolvedContract, resolvedEstimate])
+  const portal = useMemo(() => {
+    if (!currentLead) {
+      return buildSafePortal({})
+    }
 
-  const activeScheduleEvents = scheduleEvents.filter((event) => !archivedScheduleEventIds.includes(event.id))
-  const archivedScheduleEvents = scheduleEvents.filter((event) => archivedScheduleEventIds.includes(event.id))
+    try {
+      return buildSafePortal({
+        ...currentLead,
+        portal: getPortalData(currentLead),
+      })
+    } catch (error) {
+      logProjectDetailDevError('[dev] ProjectDetailPage failed to build portal data.', error, {
+        projectId,
+      })
+      return buildSafePortal(currentLead)
+    }
+  }, [currentLead, projectId])
+  const projectIsArchived = Boolean(currentLead?.isArchived || currentLead?.archivedAt || isArchived)
+  const hasEstimate = hasProjectEstimate(currentLead)
+  const hasContract = hasProjectContract(currentLead)
+  const hasLeadLink = Boolean(currentLead?.leadId)
+  const hasClientLink = Boolean(currentLead?.clientId)
 
+  useEffect(() => {
+    if (!USE_SUPABASE_PROJECTS) {
+      setProject(lead || null)
+      setIsLoadingProject(false)
+      setHasLoadedProject(true)
+      setProjectLoadError(null)
+      return undefined
+    }
+
+    if (!projectId) {
+      setProject(null)
+      setIsLoadingProject(false)
+      setHasLoadedProject(true)
+      setProjectLoadError(null)
+      return undefined
+    }
+
+    let isCancelled = false
+
+    async function loadProject() {
+      setIsLoadingProject(true)
+      setProjectLoadError(null)
+
+      try {
+        const response = await dataProvider.projects.getById(projectId, { contractorId })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setProject(null)
+          setProjectLoadError(response.error)
+          logProjectDetailDevError('[dev] ProjectDetailPage failed to load project.', response.error, {
+            projectId,
+          })
+          return
+        }
+
+        setProject(response?.data || null)
+      } catch (error) {
+        if (isCancelled) return
+
+        setProject(null)
+        setProjectLoadError(error)
+        logProjectDetailDevError('[dev] ProjectDetailPage threw while loading project.', error, {
+          projectId,
+        })
+      } finally {
+        if (!isCancelled) {
+          setHasLoadedProject(true)
+          setIsLoadingProject(false)
+        }
+      }
+    }
+
+    loadProject()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, lead, projectId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEstimate() {
+      const draftEstimate = readEstimateDraft(projectId) || readEstimateDraft(relatedLeadId || '')
+
+      if (!projectId) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+        return
+      }
+
+      try {
+        const response = await dataProvider.estimates.list({
+          contractorId,
+          projectId,
+          includeArchived: true,
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setEstimateRecord(draftEstimate)
+          return
+        }
+
+        setEstimateRecord(response?.data?.[0] || draftEstimate)
+      } catch (error) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+      }
+    }
+
+    loadEstimate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, projectId, relatedLeadId])
+
+  const activeScheduleEvents = useMemo(() => (
+    scheduleEvents.filter((event) => !archivedScheduleEventIds.includes(event.id))
+  ), [archivedScheduleEventIds, scheduleEvents])
+  const archivedScheduleEvents = useMemo(() => (
+    scheduleEvents.filter((event) => archivedScheduleEventIds.includes(event.id))
+  ), [archivedScheduleEventIds, scheduleEvents])
+
+  if (USE_SUPABASE_PROJECTS && isLoadingProject) {
+    return (
+      <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <h1 className="text-2xl font-bold text-slate-950">{t('loadingProject')}</h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('projectLoadingHelp')}</p>
+      </section>
+    )
+  }
+
+  if (projectLoadError) {
+    return <ProjectDetailFallbackState onBack={onBack} t={t} />
+  }
+
+  if (!currentLead && hasLoadedProject) {
+    return <ProjectDetailFallbackState onBack={onBack} t={t} />
+  }
+
+  const estimateAction = {
+    label: hasEstimate ? t('viewEditEstimate') : t('createEstimate'),
+    icon: ClipboardList,
+    action: () => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } }),
+    primary: !hasEstimate,
+  }
+  const contractAction = {
+    label: portal.contract?.number ? t('openContract') : t('convertToContract'),
+    icon: FileText,
+    action: () => navigate(`/projects/${currentLead.id}/contract`),
+    primary: hasEstimate,
+  }
   const actionButtons = [
-    { label: portal.estimate?.number && portal.estimate.number !== 'Draft' ? t('openEstimate') : t('createEstimate'), icon: ClipboardList, action: () => navigate(`/projects/${lead.id}/estimate`), primary: true },
-    { label: portal.contract?.number ? t('openContract') : t('convertToContract'), icon: FileText, action: () => navigate(`/projects/${lead.id}/contract`) },
+    estimateAction,
+    contractAction,
     { label: t('recordPayment'), icon: DollarSign, action: () => setShowPaymentModal(true) },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },
-    { label: t('editLead'), icon: Edit3, action: () => setIsEditOpen(true) },
-    isArchived
-      ? { label: t('restore'), icon: Undo2, action: onRestoreProject }
-      : { label: t('archive'), icon: Archive, action: () => setConfirmAction({ mode: 'archive' }) },
   ]
+  const moreMenuItems = [
+    hasClientLink
+      ? {
+          id: 'view-client',
+          label: t('viewClient'),
+          icon: <ExternalLink className="mr-2 h-4 w-4" />,
+          onClick: () => navigate(`/clients/${currentLead.clientId}`),
+        }
+      : null,
+    hasLeadLink
+      ? {
+        id: 'edit-lead',
+        label: t('editLinkedLead'),
+        icon: <Edit3 className="mr-2 h-4 w-4" />,
+        onClick: () => setIsEditOpen(true),
+      }
+      : null,
+    projectIsArchived
+      ? {
+          id: 'restore-project',
+          label: t('restore'),
+          icon: <Undo2 className="mr-2 h-4 w-4" />,
+          onClick: async () => {
+            try {
+              await dataProvider?.projects?.restore?.(currentLead.id, { contractorId })
+              setProject((current) => (current ? { ...current, archivedAt: null, archived_at: null, isArchived: false } : current))
+            } catch (err) {
+              // ignore in local mode
+            }
+            onRestoreProject?.()
+          },
+        }
+      : {
+          id: 'archive-project',
+          label: t('archive'),
+          icon: <Archive className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'archive' }),
+          className: archiveMenuItemClasses,
+        },
+  ].filter(Boolean)
+  const linkedLeadId = currentLead?.leadId || relatedLeadId || null
 
   return (
     <div className="space-y-6">
@@ -50,13 +506,13 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('projectWorkspace')}</p>
-            <h1 className="mt-2 text-3xl font-bold tracking-tight">{lead.projectTitle || lead.projectType}</h1>
-            <p className="mt-2 text-slate-300">{lead.client} · {lead.location}</p>
-            {isArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">{currentLead.projectTitle || currentLead.projectType}</h1>
+            <p className="mt-2 text-slate-300">{currentLead.client} · {currentLead.location}</p>
+            {projectIsArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
           </div>
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 lg:block">
             <p className="text-xs text-slate-300">{t('projectValue')}</p>
-            <p className="text-2xl font-bold">{currency.format(lead.value)}</p>
+            <p className="text-2xl font-bold">{currency.format(currentLead.value)}</p>
           </div>
         </div>
       </section>
@@ -79,8 +535,11 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
               </button>
             )
           })}
+          {moreMenuItems.length > 0 && (
+            <ActionMenu label={t('more')} items={moreMenuItems} />
+          )}
         </div>
-        {isArchived && (
+        {projectIsArchived && (
           <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
             <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
           </button>
@@ -88,17 +547,25 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <InfoCard title={t('customerInformation')}>
-          <DetailRow label={t('name')} value={lead.client} />
-          <DetailRow label={t('phone')} value={lead.phone || '(410) 555-0198'} />
-          <DetailRow label={t('email')} value={lead.email || 'customer@example.com'} />
-          <DetailRow label={t('address')} value={lead.address || lead.location} />
+        <InfoCard title={t('clientInformation')}>
+          <DetailRow label={t('name')} value={currentLead.client} />
+          <DetailRow label={t('phone')} value={currentLead.phone || '(410) 555-0198'} />
+          <DetailRow label={t('email')} value={currentLead.email || 'customer@example.com'} />
+          <DetailRow label={t('address')} value={currentLead.address || currentLead.location} />
+          {hasClientLink && (
+            <button
+              onClick={() => navigate(`/clients/${currentLead.clientId}`)}
+              className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+            >
+              {t('viewClient')}
+            </button>
+          )}
         </InfoCard>
         <InfoCard title={t('projectInformation')}>
-          <DetailRow label={t('status')} value={tStatus(t, lead.projectStatus || lead.status)} />
+          <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
           <DetailRow label={t('startDate')} value={portal.startDate} />
           <DetailRow label={t('targetCompletion')} value={portal.estimatedCompletion} />
-          <DetailRow label={t('nextStep')} value={lead.nextStep} />
+          <DetailRow label={t('nextStep')} value={currentLead.nextStep} />
         </InfoCard>
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('homeownerPortalPreviewHelp')}</p>
@@ -136,7 +603,7 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
                   <div className="mt-2 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
                     <p className="inline-flex items-center gap-1"><CalendarDays className="h-4 w-4 text-slate-400" /> {event.displayDate || event.date}</p>
                     <p className="inline-flex items-center gap-1"><Clock className="h-4 w-4 text-slate-400" /> {event.time || `${event.startTime || ''}${event.endTime ? ` - ${event.endTime}` : ''}`}</p>
-                    <p className="inline-flex items-center gap-1"><MapPin className="h-4 w-4 text-slate-400" /> {event.location || lead.address || lead.location}</p>
+                    <p className="inline-flex items-center gap-1"><MapPin className="h-4 w-4 text-slate-400" /> {event.location || currentLead.address || currentLead.location}</p>
                   </div>
                   {event.notes && <p className="mt-2 text-sm text-slate-500">{event.notes}</p>}
                 </div>
@@ -152,7 +619,8 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
                       <button onClick={() => { onEditScheduleEvent?.(event); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
                         {t('edit')}
                       </button>
-                      <button onClick={() => { setScheduleConfirmAction({ mode: 'archive', event }); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      <button onClick={() => { setScheduleConfirmAction({ mode: 'archive', event }); setOpenScheduleMenuId(null) }} className={archiveMenuItemClasses}>
+                        <Archive className="mr-2 h-4 w-4" />
                         {t('archive')}
                       </button>
                     </div>
@@ -181,7 +649,7 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
                       <h4 className="font-bold text-slate-950">{t(event.title)}</h4>
                       <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>
                     </div>
-                    <p className="mt-1 text-sm text-slate-600">{event.displayDate || event.date} · {event.location || lead.address || lead.location}</p>
+                    <p className="mt-1 text-sm text-slate-600">{event.displayDate || event.date} · {event.location || currentLead.address || currentLead.location}</p>
                   </div>
                   <div className="relative">
                     <button onClick={() => setOpenScheduleMenuId((current) => current === event.id ? null : event.id)} className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50" aria-label={t('eventActions')}>
@@ -212,15 +680,15 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
             <p className="text-sm text-slate-500">{t('homeownerPortalPreviewHelp')}</p>
           </div>
         </div>
-        <PortalSummary lead={lead} portal={portal} t={t} portalSettings={companySettings?.portal} />
+        <PortalSummary lead={currentLead} portal={portal} t={t} portalSettings={companySettings?.portal} />
       </section>
       <LeadFormModal
         isOpen={isEditOpen}
         mode="edit"
-        lead={lead}
+        lead={currentLead}
         clients={clients}
         onClose={() => setIsEditOpen(false)}
-        onSave={(updatedLead) => { onUpdateLead(lead.id, updatedLead); setIsEditOpen(false) }}
+        onSave={(updatedLead) => { if (linkedLeadId) onUpdateLead(linkedLeadId, updatedLead); setIsEditOpen(false) }}
         t={t}
       />
       <RecordPaymentModal
@@ -230,7 +698,7 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         onSave={async (payment) => {
           try {
             const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
-            await dataProvider.payments.create({ ...paymentEntry, projectId: lead.id, leadId: lead.id })
+            await dataProvider.payments.create({ ...paymentEntry, projectId: currentLead.id, leadId: currentLead.id })
           } catch (err) {
             // ignore in local mode
           }
@@ -248,8 +716,8 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
       <SendToCustomerModal
         isOpen={showPortalLinkModal}
         documentType="portalLink"
-        customer={{ name: lead.client, phone: lead.phone, email: lead.email }}
-        projectTitle={lead.projectTitle || lead.projectType}
+        customer={{ name: currentLead.client, phone: currentLead.phone, email: currentLead.email }}
+        projectTitle={currentLead.projectTitle || currentLead.projectType}
         portalUrl={portal.shareUrl}
         onClose={() => setShowPortalLinkModal(false)}
         onSent={() => setShowPortalLinkModal(false)}
@@ -265,11 +733,12 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         onConfirm={async () => {
           try {
             if (confirmAction?.mode === 'archive') {
-              await dataProvider?.projects?.archive?.(lead.id)
+              await dataProvider?.projects?.archive?.(currentLead.id, { contractorId })
+              setProject((current) => (current ? { ...current, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true } : current))
               onArchiveProject?.()
             }
             if (confirmAction?.mode === 'delete') {
-              await dataProvider?.projects?.deletePermanently?.(lead.id)
+              await dataProvider?.projects?.deletePermanently?.(currentLead.id, { contractorId })
               onDeleteProject?.()
               onBack?.()
             }
@@ -305,5 +774,13 @@ export function ProjectDetailPage({ lead, companySettings, clients = [], schedul
         t={t}
       />
     </div>
+  )
+}
+
+export function ProjectDetailPage(props) {
+  return (
+    <ProjectDetailErrorBoundary onBack={props.onBack} t={props.t}>
+      <ProjectDetailPageContent {...props} />
+    </ProjectDetailErrorBoundary>
   )
 }

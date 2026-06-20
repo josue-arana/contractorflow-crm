@@ -6,18 +6,24 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { useToast } from '../components/common/ToastProvider'
+import { useAuth } from '../contexts/AuthContext'
 import { currency } from '../utils/formatters'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
+import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
+import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageCounts } from '../utils/leadPipeline'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
-export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
+export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getLeadsContractorId({ contractor, company, session })
 
   const activeLeads = useMemo(() => leads.filter((lead) => !archivedIds.includes(lead.id)), [leads, archivedIds])
 
@@ -37,28 +43,26 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     })
   }, [leads, archivedIds, searchTerm, selectedFilter])
 
-  const newLeadCount = activeLeads.filter((lead) => lead.status === 'New Lead').length
-  const contactedCount = activeLeads.filter((lead) => lead.status === 'Contacted').length
-  const estimateSentCount = activeLeads.filter((lead) => lead.status === 'Estimate Sent').length
+  const pipelineCounts = useMemo(() => getLeadPipelineStageCounts(activeLeads), [activeLeads])
+  const newLeadCount = pipelineCounts.newLeads
+  const contactedCount = pipelineCounts.estimatesToSend
+  const estimateSentCount = pipelineCounts.followUpsDue
   const totalValue = activeLeads.reduce((sum, lead) => sum + (lead.value || 0), 0)
 
   const summaryCards = [
     { label: t('newLeads'), value: newLeadCount, helper: t('newLeadsHelper'), icon: UserPlus },
-    { label: t('contactedLeads'), value: contactedCount, helper: t('contactedLeadsHelper'), icon: Users },
-    { label: t('estimatesSent'), value: estimateSentCount, helper: t('estimatesSentHelper'), icon: ClipboardList },
+    { label: t('estimatesToSend'), value: contactedCount, helper: t('estimatesToSendHelper'), icon: Users },
+    { label: t('followUpsDue'), value: estimateSentCount, helper: t('followUpsDueHelper'), icon: ClipboardList },
     { label: t('leadPipelineValue'), value: currency.format(totalValue), helper: t('leadPipelineValueHelper'), icon: WalletCards },
   ]
 
   async function handleCreateLead(lead) {
     try {
-      const response = await dataProvider?.leads?.create?.(lead)
-
-      if (response?.error) {
-        showToast(response.error.message || t('leadSaveFailed'), 'error')
+      const savedLead = await onCreateLead?.(lead)
+      if (!savedLead) {
         return
       }
 
-      onCreateLead(response?.data || lead)
       setIsCreateOpen(false)
     } catch (err) {
       showToast(err?.message || t('leadSaveFailed'), 'error')
@@ -77,17 +81,40 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider?.leads?.archive?.(confirmAction.lead.id)
+        const response = await dataProvider?.leads?.archive?.(confirmAction.lead.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('archiveFailed'), 'error')
+          return
+        }
         onArchiveLead(confirmAction.lead.id)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider?.leads?.deletePermanently?.(confirmAction.lead.id)
+        const response = await dataProvider?.leads?.deletePermanently?.(confirmAction.lead.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('deleteFailed'), 'error')
+          return
+        }
         onDeleteLead(confirmAction.lead.id)
       }
     } catch (err) {
-      // ignore local-mode persistence errors
+      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
     }
     setConfirmAction(null)
+  }
+
+  async function handleRestoreLead(event, leadId) {
+    event.stopPropagation()
+
+    try {
+      const response = await dataProvider?.leads?.restore?.(leadId, { contractorId })
+      if (response?.error) {
+        showToast(response.error.message || t('restoreFailed'), 'error')
+        return
+      }
+      onRestoreLead(leadId)
+    } catch (err) {
+      showToast(err?.message || t('restoreFailed'), 'error')
+    }
   }
 
   function renderLeadActions(lead, compact = false) {
@@ -95,7 +122,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={async (event) => { event.stopPropagation(); try { await dataProvider?.leads?.restore?.(lead.id) } catch (err) {} onRestoreLead(lead.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={(event) => handleRestoreLead(event, lead.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(lead) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )
@@ -103,8 +130,8 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
 
     return (
       <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onViewProject(lead.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(lead) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(lead) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }
@@ -166,7 +193,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredLeads.map((lead) => (
-                <tr key={lead.id} onClick={() => !archivedIds.includes(lead.id) && onViewProject(lead.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr key={lead.id} onClick={() => !archivedIds.includes(lead.id) && onViewLead(lead.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{lead.client}</p><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(lead.value || 0)}</td>
@@ -190,7 +217,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewProject
               <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p><p className="font-bold text-slate-950">{currency.format(lead.value || 0)}</p></div>
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{tStatus(t, lead.priority)}</p></div>
-                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{lead.nextStep || t('followUpWithClient')}</p></div>
+                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{t(getLeadNextStepKey(getLeadPipelineStage(lead)))}</p></div>
               </div>
               <div className="mt-3">{renderLeadActions(lead, true)}</div>
             </article>

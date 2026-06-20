@@ -8,6 +8,38 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key, po
   const showPayments = portalSettings.showPayments !== false
   const showPhotos = portalSettings.showPhotos !== false
   const showDocuments = portalSettings.showDocuments !== false
+  const hasEstimate = Boolean(
+    portal?.estimate
+      && typeof portal.estimate === 'object'
+      && (
+        portal.estimate.id
+        || portal.estimate.number
+        || portal.estimate.projectTitle
+        || portal.estimate.title
+        || portal.estimate.summary
+        || portal.estimate.total !== undefined
+      )
+  )
+  const hasContract = Boolean(
+    portal?.contract
+      && typeof portal.contract === 'object'
+      && (
+        portal.contract.id
+        || portal.contract.number
+        || portal.contract.contractNumber
+        || portal.contract.total !== undefined
+        || portal.contract.status
+        || portal.contract.signedDate
+      )
+  )
+  const estimateTitle = portal?.estimate?.title || portal?.estimate?.projectTitle || t('estimate')
+  const estimateNumber = portal?.estimate?.number || ''
+  const estimateTotal = Number.isFinite(Number(portal?.estimate?.total)) ? Number(portal.estimate.total) : 0
+  const estimateStatus = portal?.estimate?.status || t('draft')
+  const estimateSummary = portal?.estimate?.summary || ''
+  const contractNumber = portal?.contract?.number || ''
+  const contractStatus = portal?.contract?.status || ''
+  const contractSignedDate = portal?.contract?.signedDate || t('notAdded')
   return (
     <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
       <div className="space-y-5">
@@ -88,10 +120,20 @@ export function PortalSummary({ lead, portal, full = false, t = (key) => key, po
 
         {showDocuments && (
         <InfoCard title={t('estimateContract')}>
-          <DetailRow label={t('estimate')} value={`${portal.estimate.number} · ${currency.format(portal.estimate.total)}`} />
-          <p className="mb-4 text-sm leading-6 text-slate-600">{t(portal.estimate.summary)}</p>
-          <DetailRow label={t('contract')} value={`${portal.contract.number} · ${tStatus(t, portal.contract.status)}`} />
-          <DetailRow label={t('signedDate')} value={portal.contract.signedDate} />
+          <DetailRow
+            label={t('estimate')}
+            value={hasEstimate ? (estimateNumber ? `${estimateTitle} · ${estimateNumber}` : estimateTitle) : t('noEstimates')}
+          />
+          <DetailRow label={t('value')} value={hasEstimate ? currency.format(estimateTotal) : currency.format(0)} />
+          <DetailRow label={t('status')} value={hasEstimate ? tStatus(t, estimateStatus) : t('notAdded')} />
+          {hasEstimate && estimateSummary && (
+            <p className="mb-4 text-sm leading-6 text-slate-600">{t(estimateSummary)}</p>
+          )}
+          <DetailRow
+            label={t('contract')}
+            value={hasContract && contractNumber ? `${contractNumber} · ${tStatus(t, contractStatus)}` : t('noContractYet')}
+          />
+          <DetailRow label={t('signedDate')} value={hasContract ? contractSignedDate : t('notAdded')} />
         </InfoCard>
         )}
 

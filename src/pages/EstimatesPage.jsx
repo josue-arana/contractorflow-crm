@@ -4,6 +4,7 @@ import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
+import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import dataProvider from '../services/dataProvider'
@@ -94,7 +95,7 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
         <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
         <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
         <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('convertToContract')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+        <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
   }

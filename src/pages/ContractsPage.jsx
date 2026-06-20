@@ -213,7 +213,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const projectId = id || leadId
-  const lead = leads.find((item) => item.id === projectId)
+  const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
 
   if (!lead) {
     return (
@@ -232,7 +232,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
       lead={lead}
       t={t}
       companySettings={companySettings}
-      onBack={() => navigate(`/projects/${lead.id}/estimate`)}
+      onBack={() => navigate(`/projects/${projectId}/estimate`)}
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
       onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
     />
