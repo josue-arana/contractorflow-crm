@@ -1,6 +1,7 @@
 import { Component, useEffect, useMemo, useState } from 'react'
 import { Archive, ArrowLeft, CalendarDays, Camera, ClipboardList, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ActionMenu } from '../components/common/ActionMenu'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
 import { PortalSummary } from '../components/portal/PortalSummary'
@@ -15,8 +16,9 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
+import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
-import { archiveMenuItemClasses, archivePanelButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 
 function logProjectDetailDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -42,6 +44,7 @@ function buildSafePortal(project = {}) {
   return {
     ...sourcePortal,
     shareUrl: sourcePortal.shareUrl || '',
+    percentComplete: toSafeNumber(sourcePortal.percentComplete ?? 0),
     contractAmount: toSafeNumber(sourcePortal.contractAmount ?? project.contractValue ?? value),
     depositRequired: toSafeNumber(sourcePortal.depositRequired ?? 0),
     amountPaid: toSafeNumber(sourcePortal.amountPaid ?? paid),
@@ -56,6 +59,86 @@ function buildSafePortal(project = {}) {
     contract: sourcePortal.contract && typeof sourcePortal.contract === 'object' ? sourcePortal.contract : {},
     invoices: Array.isArray(sourcePortal.invoices) ? sourcePortal.invoices : [],
     payments: Array.isArray(sourcePortal.payments) ? sourcePortal.payments : [],
+  }
+}
+
+function hasProjectEstimate(project = {}) {
+  const estimate = project?.portal?.estimate
+
+  if (!estimate || typeof estimate !== 'object') return false
+  if (estimate.id || estimate.number || estimate.updatedAt || estimate.updated_at) return true
+  if (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0) return true
+  if (estimate.total !== undefined || estimate.totalAmount !== undefined) return true
+  return false
+}
+
+function hasProjectContract(project = {}) {
+  const contract = project?.portal?.contract
+
+  if (!contract || typeof contract !== 'object') return false
+  if (contract.id || contract.number || contract.contractNumber || contract.updatedAt || contract.updated_at) return true
+  if (contract.total !== undefined || contract.totalAmount !== undefined || contract.contractAmount !== undefined) return true
+  return false
+}
+
+function normalizeProjectEstimate(estimate) {
+  if (!estimate || typeof estimate !== 'object') return null
+
+  const hasContent = Boolean(
+    estimate.id
+      || estimate.number
+      || estimate.estimateNumber
+      || estimate.title
+      || estimate.projectTitle
+      || estimate.summary
+      || estimate.scopeOfWork
+      || estimate.updatedAt
+      || estimate.updated_at
+      || (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0)
+      || estimate.total !== undefined
+      || estimate.totalAmount !== undefined
+  )
+
+  if (!hasContent) return null
+
+  return {
+    ...estimate,
+    id: estimate.id || null,
+    projectId: estimate.projectId || estimate.project_id || null,
+    clientId: estimate.clientId || estimate.client_id || null,
+    title: estimate.title || estimate.projectTitle || 'Estimate',
+    number: estimate.number || estimate.estimateNumber || '',
+    total: toSafeNumber(estimate.total ?? estimate.totalAmount ?? estimate.amount),
+    status: estimate.status || 'Draft',
+    summary: estimate.summary || estimate.scopeOfWork || '',
+    lineItems: Array.isArray(estimate.lineItems) ? estimate.lineItems : [],
+  }
+}
+
+function normalizeProjectContract(contract) {
+  if (!contract || typeof contract !== 'object') return null
+
+  const hasContent = Boolean(
+    contract.id
+      || contract.number
+      || contract.contractNumber
+      || contract.total !== undefined
+      || contract.totalAmount !== undefined
+      || contract.contractAmount !== undefined
+      || contract.status
+      || contract.signedDate
+      || contract.signed_at
+  )
+
+  if (!hasContent) return null
+
+  return {
+    ...contract,
+    id: contract.id || null,
+    number: contract.number || contract.contractNumber || '',
+    total: toSafeNumber(contract.total ?? contract.totalAmount ?? contract.contractAmount),
+    status: contract.status || '',
+    signedDate: contract.signedDate || contract.signed_at || '',
   }
 }
 
@@ -165,6 +248,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [isLoadingProject, setIsLoadingProject] = useState(Boolean(USE_SUPABASE_PROJECTS))
   const [hasLoadedProject, setHasLoadedProject] = useState(!USE_SUPABASE_PROJECTS)
   const [projectLoadError, setProjectLoadError] = useState(null)
+  const [estimateRecord, setEstimateRecord] = useState(() => readEstimateDraft(projectId || lead?.id || ''))
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -172,7 +256,35 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
   const [scheduleConfirmAction, setScheduleConfirmAction] = useState(null)
-  const currentLead = useMemo(() => createSafeProject(USE_SUPABASE_PROJECTS ? project : lead, projectId), [lead, project, projectId])
+  const baseProject = useMemo(() => (
+    USE_SUPABASE_PROJECTS
+      ? { ...(lead || {}), ...(project || {}) }
+      : (project || lead)
+  ), [lead, project])
+  const relatedLeadId = useMemo(() => (
+    baseProject?.leadId
+    || baseProject?.lead_id
+    || ((lead?.projectId === projectId || lead?.project_id === projectId) ? lead?.id : null)
+    || null
+  ), [baseProject, lead, projectId])
+  const resolvedEstimate = useMemo(() => normalizeProjectEstimate(
+    estimateRecord
+    || baseProject?.portal?.estimate
+    || readEstimateDraft(projectId)
+    || readEstimateDraft(relatedLeadId || '')
+  ), [baseProject, estimateRecord, projectId, relatedLeadId])
+  const resolvedContract = useMemo(() => normalizeProjectContract(baseProject?.portal?.contract), [baseProject])
+  const currentLead = useMemo(() => createSafeProject({
+    ...(baseProject || {}),
+    estimateId: baseProject?.estimateId || resolvedEstimate?.id || null,
+    value: resolvedEstimate?.total ?? baseProject?.value ?? baseProject?.estimatedValue ?? 0,
+    estimatedValue: resolvedEstimate?.total ?? baseProject?.estimatedValue ?? baseProject?.value ?? 0,
+    portal: {
+      ...(baseProject?.portal || {}),
+      estimate: resolvedEstimate || {},
+      contract: resolvedContract || {},
+    },
+  }, projectId), [baseProject, projectId, resolvedContract, resolvedEstimate])
   const portal = useMemo(() => {
     if (!currentLead) {
       return buildSafePortal({})
@@ -191,6 +303,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }, [currentLead, projectId])
   const projectIsArchived = Boolean(currentLead?.isArchived || currentLead?.archivedAt || isArchived)
+  const hasEstimate = hasProjectEstimate(currentLead)
+  const hasContract = hasProjectContract(currentLead)
+  const hasLeadLink = Boolean(currentLead?.leadId)
+  const hasClientLink = Boolean(currentLead?.clientId)
 
   useEffect(() => {
     if (!USE_SUPABASE_PROJECTS) {
@@ -253,6 +369,48 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }, [contractorId, lead, projectId])
 
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEstimate() {
+      const draftEstimate = readEstimateDraft(projectId) || readEstimateDraft(relatedLeadId || '')
+
+      if (!projectId) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+        return
+      }
+
+      try {
+        const response = await dataProvider.estimates.list({
+          contractorId,
+          projectId,
+          includeArchived: true,
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setEstimateRecord(draftEstimate)
+          return
+        }
+
+        setEstimateRecord(response?.data?.[0] || draftEstimate)
+      } catch (error) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+      }
+    }
+
+    loadEstimate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, projectId, relatedLeadId])
+
   const activeScheduleEvents = useMemo(() => (
     scheduleEvents.filter((event) => !archivedScheduleEventIds.includes(event.id))
   ), [archivedScheduleEventIds, scheduleEvents])
@@ -277,18 +435,48 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return <ProjectDetailFallbackState onBack={onBack} t={t} />
   }
 
+  const estimateAction = {
+    label: hasEstimate ? t('viewEditEstimate') : t('createEstimate'),
+    icon: ClipboardList,
+    action: () => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } }),
+    primary: !hasEstimate,
+  }
+  const contractAction = {
+    label: portal.contract?.number ? t('openContract') : t('convertToContract'),
+    icon: FileText,
+    action: () => navigate(`/projects/${currentLead.id}/contract`),
+    primary: hasEstimate,
+  }
   const actionButtons = [
-    { label: portal.estimate?.number && portal.estimate.number !== 'Draft' ? t('openEstimate') : t('createEstimate'), icon: ClipboardList, action: () => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } }), primary: true },
-    { label: portal.contract?.number ? t('openContract') : t('convertToContract'), icon: FileText, action: () => navigate(`/projects/${currentLead.id}/contract`) },
+    estimateAction,
+    contractAction,
     { label: t('recordPayment'), icon: DollarSign, action: () => setShowPaymentModal(true) },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },
-    { label: t('editLead'), icon: Edit3, action: () => setIsEditOpen(true) },
+  ]
+  const moreMenuItems = [
+    hasClientLink
+      ? {
+          id: 'view-client',
+          label: t('viewClient'),
+          icon: <ExternalLink className="mr-2 h-4 w-4" />,
+          onClick: () => navigate(`/clients/${currentLead.clientId}`),
+        }
+      : null,
+    hasLeadLink
+      ? {
+        id: 'edit-lead',
+        label: t('editLinkedLead'),
+        icon: <Edit3 className="mr-2 h-4 w-4" />,
+        onClick: () => setIsEditOpen(true),
+      }
+      : null,
     projectIsArchived
       ? {
+          id: 'restore-project',
           label: t('restore'),
-          icon: Undo2,
-          action: async () => {
+          icon: <Undo2 className="mr-2 h-4 w-4" />,
+          onClick: async () => {
             try {
               await dataProvider?.projects?.restore?.(currentLead.id, { contractorId })
               setProject((current) => (current ? { ...current, archivedAt: null, archived_at: null, isArchived: false } : current))
@@ -298,8 +486,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             onRestoreProject?.()
           },
         }
-      : { label: t('archive'), icon: Archive, action: () => setConfirmAction({ mode: 'archive' }), tone: 'archive' },
-  ]
+      : {
+          id: 'archive-project',
+          label: t('archive'),
+          icon: <Archive className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'archive' }),
+          className: archiveMenuItemClasses,
+        },
+  ].filter(Boolean)
+  const linkedLeadId = currentLead?.leadId || relatedLeadId || null
 
   return (
     <div className="space-y-6">
@@ -334,12 +529,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
               <button
                 key={button.label}
                 onClick={button.action}
-                className={`flex min-h-[58px] items-center justify-center gap-2 px-4 py-3 text-sm font-bold transition ${button.primary ? 'rounded-2xl bg-blue-600 text-white hover:bg-blue-700' : button.tone === 'archive' ? archivePanelButtonClasses : 'rounded-2xl border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
+                className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
               >
                 <Icon className="h-4 w-4" /> {button.label}
               </button>
             )
           })}
+          {moreMenuItems.length > 0 && (
+            <ActionMenu label={t('more')} items={moreMenuItems} />
+          )}
         </div>
         {projectIsArchived && (
           <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
@@ -349,11 +547,19 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <InfoCard title={t('customerInformation')}>
+        <InfoCard title={t('clientInformation')}>
           <DetailRow label={t('name')} value={currentLead.client} />
           <DetailRow label={t('phone')} value={currentLead.phone || '(410) 555-0198'} />
           <DetailRow label={t('email')} value={currentLead.email || 'customer@example.com'} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location} />
+          {hasClientLink && (
+            <button
+              onClick={() => navigate(`/clients/${currentLead.clientId}`)}
+              className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+            >
+              {t('viewClient')}
+            </button>
+          )}
         </InfoCard>
         <InfoCard title={t('projectInformation')}>
           <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
@@ -482,7 +688,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         lead={currentLead}
         clients={clients}
         onClose={() => setIsEditOpen(false)}
-        onSave={(updatedLead) => { onUpdateLead(currentLead.id, updatedLead); setIsEditOpen(false) }}
+        onSave={(updatedLead) => { if (linkedLeadId) onUpdateLead(linkedLeadId, updatedLead); setIsEditOpen(false) }}
         t={t}
       />
       <RecordPaymentModal

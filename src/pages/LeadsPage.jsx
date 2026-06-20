@@ -12,6 +12,7 @@ import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
+import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageCounts } from '../utils/leadPipeline'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -42,15 +43,16 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     })
   }, [leads, archivedIds, searchTerm, selectedFilter])
 
-  const newLeadCount = activeLeads.filter((lead) => lead.status === 'New Lead').length
-  const contactedCount = activeLeads.filter((lead) => lead.status === 'Contacted').length
-  const estimateSentCount = activeLeads.filter((lead) => lead.status === 'Estimate Sent').length
+  const pipelineCounts = useMemo(() => getLeadPipelineStageCounts(activeLeads), [activeLeads])
+  const newLeadCount = pipelineCounts.newLeads
+  const contactedCount = pipelineCounts.estimatesToSend
+  const estimateSentCount = pipelineCounts.followUpsDue
   const totalValue = activeLeads.reduce((sum, lead) => sum + (lead.value || 0), 0)
 
   const summaryCards = [
     { label: t('newLeads'), value: newLeadCount, helper: t('newLeadsHelper'), icon: UserPlus },
-    { label: t('contactedLeads'), value: contactedCount, helper: t('contactedLeadsHelper'), icon: Users },
-    { label: t('estimatesSent'), value: estimateSentCount, helper: t('estimatesSentHelper'), icon: ClipboardList },
+    { label: t('estimatesToSend'), value: contactedCount, helper: t('estimatesToSendHelper'), icon: Users },
+    { label: t('followUpsDue'), value: estimateSentCount, helper: t('followUpsDueHelper'), icon: ClipboardList },
     { label: t('leadPipelineValue'), value: currency.format(totalValue), helper: t('leadPipelineValueHelper'), icon: WalletCards },
   ]
 
@@ -215,7 +217,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
               <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p><p className="font-bold text-slate-950">{currency.format(lead.value || 0)}</p></div>
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{tStatus(t, lead.priority)}</p></div>
-                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{lead.nextStep || t('followUpWithClient')}</p></div>
+                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{t(getLeadNextStepKey(getLeadPipelineStage(lead)))}</p></div>
               </div>
               <div className="mt-3">{renderLeadActions(lead, true)}</div>
             </article>

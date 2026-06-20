@@ -1,7 +1,7 @@
 import { Zap } from 'lucide-react'
-import { pipelineStatuses } from '../data/mockLeads'
 import { MetricCard } from '../components/ui/MetricCard'
 import { PipelineBoard } from '../components/pipeline/PipelineBoard'
+import { leadPipelineStageOrder } from '../utils/leadPipeline'
 
 export function DashboardPage({
   leads,
@@ -45,7 +45,7 @@ export function DashboardPage({
 
       <PipelineBoard
         leads={leads}
-        statuses={pipelineStatuses}
+        statuses={leadPipelineStageOrder}
         draggedLeadId={draggedLeadId}
         setDraggedLeadId={setDraggedLeadId}
         moveLead={moveLead}
@@ -57,5 +57,4 @@ export function DashboardPage({
     </>
   )
 }
-
 

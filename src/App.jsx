@@ -4,7 +4,7 @@ import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'l
 import { Sidebar } from './components/layout/Sidebar'
 import { ScrollToTop } from './components/layout/ScrollToTop'
 import { Topbar } from './components/layout/Topbar'
-import { initialLeads, pipelineStatuses } from './data/mockLeads'
+import { initialLeads } from './data/mockLeads'
 import { mockScheduleEvents } from './data/mockScheduleEvents'
 import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
@@ -12,7 +12,8 @@ import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
-import { writeEstimateDraft } from './services/local/estimateDraftStorage'
+import { readEstimateDraft, writeEstimateDraft } from './services/local/estimateDraftStorage'
+import { readLeadPipelineStage, writeLeadPipelineStage } from './services/local/leadPipelineStorage'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
@@ -42,11 +43,12 @@ import { useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS } from './config/backendConfig'
+import { USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
+import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -57,6 +59,16 @@ const emptyArchiveState = {
   deletedClientIds: [],
   deletedInvoiceIds: [],
   deletedScheduleEventIds: [],
+}
+
+function logLeadConversionDevError(message, error, meta) {
+  if (!import.meta.env.DEV) return
+
+  // eslint-disable-next-line no-console
+  console.error(message, {
+    error,
+    ...meta,
+  })
 }
 
 function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
@@ -88,6 +100,64 @@ function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) 
     notes: persistedJob.notes || jobDraft.notes || '',
     nextStep: persistedJob.nextStep || jobDraft.nextStep || jobDraft.notes || '',
     source: persistedJob.source || jobDraft.source || 'Direct Job',
+    leadPipelineStage: persistedJob.leadPipelineStage || jobDraft.leadPipelineStage || leadPipelineStages.CONVERTED_TO_JOB,
+  }
+}
+
+function buildProjectFromLead(lead, projectId = '') {
+  const clientName = lead?.client || lead?.clientName || lead?.customerName || ''
+  const address = lead?.address || lead?.location || ''
+  const projectTitle = lead?.projectTitle || lead?.title || lead?.projectType || 'Untitled Project'
+  const projectType = lead?.projectType || lead?.jobType || lead?.projectTitle || ''
+  const estimatedValue = Number(lead?.portal?.estimate?.total ?? lead?.estimatedValue ?? lead?.value ?? 0) || 0
+  const estimateId = lead?.portal?.estimate?.id || null
+
+  return {
+    ...(projectId ? { id: projectId } : {}),
+    clientId: lead?.clientId || lead?.client_id || null,
+    leadId: lead?.id || null,
+    estimateId,
+    client: clientName,
+    clientName,
+    customerName: clientName,
+    phone: lead?.phone || '',
+    email: lead?.email || '',
+    title: projectTitle,
+    projectTitle,
+    projectType,
+    address,
+    location: address,
+    estimatedValue,
+    value: estimatedValue,
+    status: 'scheduled',
+    projectStatus: 'Scheduled',
+    startDate: lead?.startDate || lead?.portal?.startDate || '',
+    notes: lead?.notes || '',
+    description: lead?.description || lead?.notes || '',
+    portal: {
+      ...(lead?.portal || {}),
+      estimate: lead?.portal?.estimate || {},
+      contract: lead?.portal?.contract || {},
+      contractAmount: estimatedValue,
+      outstandingBalance: estimatedValue,
+    },
+  }
+}
+
+function withLeadPipelineStage(lead) {
+  if (!lead) return lead
+
+  const explicitPipelineStage = normalizeLeadPipelineStage(lead.leadPipelineStage || lead.lead_pipeline_stage)
+  const storedPipelineStage = readLeadPipelineStage(lead.id)
+  const nextLead = explicitPipelineStage
+    ? { ...lead, leadPipelineStage: explicitPipelineStage }
+    : storedPipelineStage
+    ? { ...lead, leadPipelineStage: storedPipelineStage }
+    : lead
+
+  return {
+    ...nextLead,
+    leadPipelineStage: nextLead.leadPipelineStage || getLeadPipelineStage(nextLead),
   }
 }
 
@@ -149,7 +219,7 @@ function App() {
 }
 
 function ContractorFlowApp() {
-  const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads)
+  const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads.map(withLeadPipelineStage))
   const [customClients, setCustomClients] = useState([])
   const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
   const [invoices, setInvoices] = useState(mockInvoices)
@@ -160,7 +230,7 @@ function ContractorFlowApp() {
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
-  const [selectedMobileStage, setSelectedMobileStage] = useState(pipelineStatuses[0])
+  const [selectedMobileStage, setSelectedMobileStage] = useState(leadPipelineStageOrder[0])
   const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
   const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
@@ -185,16 +255,17 @@ function ContractorFlowApp() {
   useClientsBootstrap(setCustomClients)
   useLeadsBootstrap(setLeads)
 
-  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)), [leads, archives.deletedLeadIds])
+  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)).map(withLeadPipelineStage), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id)), [scheduleEvents, archives.deletedScheduleEventIds])
   const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id)), [visibleScheduleEvents, archives.scheduleEventIds])
 
   const metrics = useMemo(() => {
-    const newLeads = activeLeads.filter((lead) => lead.status === 'New Lead').length
-    const estimates = activeLeads.filter((lead) => lead.status === 'Estimate Sent').length
-    const activeJobs = activeLeads.filter((lead) => ['Contacted', 'Estimate Sent', 'Won'].includes(lead.status)).length
+    const pipelineCounts = getLeadPipelineStageCounts(activeLeads)
+    const newLeads = pipelineCounts.newLeads
+    const estimates = pipelineCounts.estimatesToSend + pipelineCounts.followUpsDue
+    const activeJobs = pipelineCounts.readyForJob + pipelineCounts.byStage[leadPipelineStages.CONVERTED_TO_JOB]
     const pipelineValue = activeLeads.reduce((sum, lead) => sum + lead.value, 0)
 
     return [
@@ -232,11 +303,22 @@ function ContractorFlowApp() {
 
   function archiveLeadRecord(id) {
     updateArchiveList('leadIds', id, 'add')
+    const archivedAt = new Date().toISOString()
+    setLeads((current) => current.map((lead) => (
+      lead.id === id
+        ? { ...lead, archivedAt, archived_at: archivedAt, isArchived: true }
+        : lead
+    )))
     showToast(t('itemArchived'))
   }
 
   function restoreLeadRecord(id) {
     updateArchiveList('leadIds', id, 'remove')
+    setLeads((current) => current.map((lead) => (
+      lead.id === id
+        ? { ...lead, archivedAt: null, archived_at: null, isArchived: false }
+        : lead
+    )))
     showToast(t('itemRestored'))
   }
 
@@ -275,16 +357,23 @@ function ContractorFlowApp() {
     scheduleEvent: (id) => { updateArchiveList('deletedScheduleEventIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
   }
 
-  function createLead(lead) {
-    const id = lead.id || `lead-${Date.now()}`
+  function upsertLeadState(leadRecord) {
+    if (!leadRecord) return null
+
+    const id = leadRecord.id || `lead-${Date.now()}`
+    const nextLead = withLeadPipelineStage({
+      id,
+      ...leadRecord,
+      value: Number(leadRecord.value) || 0,
+      estimatedValue: Number(leadRecord.estimatedValue ?? leadRecord.value) || 0,
+      projectStatus: leadRecord.projectStatus || (leadRecord.status === 'Won' ? 'Signed' : 'Lead'),
+    })
+
+    if (nextLead.leadPipelineStage) {
+      writeLeadPipelineStage(id, nextLead.leadPipelineStage)
+    }
+
     setLeads((current) => {
-      const nextLead = {
-        id,
-        ...lead,
-        value: Number(lead.value) || 0,
-        estimatedValue: Number(lead.estimatedValue ?? lead.value) || 0,
-        projectStatus: lead.projectStatus || (lead.status === 'Won' ? 'Signed' : 'Lead'),
-      }
       const existing = current.find((item) => item.id === id)
 
       if (existing) {
@@ -293,9 +382,18 @@ function ContractorFlowApp() {
 
       return [nextLead, ...current]
     })
+
+    return nextLead
+  }
+
+  function createLead(lead) {
+    const persistedLead = upsertLeadState({
+      ...lead,
+      leadPipelineStage: lead.leadPipelineStage || getLeadPipelineStage(lead),
+    })
     showToast(t('leadCreated'))
     addNotification('notificationLeadCreatedTitle', 'notificationLeadCreatedMessage')
-    return id
+    return persistedLead?.id || ''
   }
 
   function buildWorkspaceJobRecord(job, clientRecord = null) {
@@ -343,16 +441,23 @@ function ContractorFlowApp() {
 
   function createJob(job, clientRecord = null) {
     const workspaceJob = buildWorkspaceJobRecord(job, clientRecord)
+    const nextJob = {
+      ...workspaceJob,
+      leadPipelineStage: workspaceJob.leadPipelineStage || leadPipelineStages.CONVERTED_TO_JOB,
+    }
 
-    updateArchiveList('leadIds', workspaceJob.id, 'remove')
-    updateArchiveList('deletedLeadIds', workspaceJob.id, 'remove')
+    updateArchiveList('leadIds', nextJob.id, 'remove')
+    updateArchiveList('deletedLeadIds', nextJob.id, 'remove')
+    if (nextJob.leadPipelineStage) {
+      writeLeadPipelineStage(nextJob.id, nextJob.leadPipelineStage)
+    }
     setLeads((current) => {
-      const existing = current.find((item) => item.id === workspaceJob.id)
+      const existing = current.find((item) => item.id === nextJob.id)
       if (existing) {
-        return current.map((item) => (item.id === workspaceJob.id ? { ...item, ...workspaceJob, id: workspaceJob.id } : item))
+        return current.map((item) => (item.id === nextJob.id ? { ...item, ...nextJob, id: nextJob.id } : item))
       }
 
-      return [workspaceJob, ...current]
+      return [nextJob, ...current]
     })
     showToast(t('jobCreated'))
   }
@@ -405,6 +510,7 @@ function ContractorFlowApp() {
 
       const response = await dataProvider?.leads?.create?.({
         ...leadDraft,
+        leadPipelineStage: leadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD,
         ...(clientId ? { clientId } : {}),
       }, {
         contractorId: leadsContractorId,
@@ -418,7 +524,7 @@ function ContractorFlowApp() {
         return null
       }
 
-      const persistedLead = response?.data || { ...leadDraft, ...(clientId ? { clientId } : {}) }
+      const persistedLead = response?.data || { ...leadDraft, leadPipelineStage: leadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD, ...(clientId ? { clientId } : {}) }
       createLead(persistedLead)
       return persistedLead
     } catch (err) {
@@ -468,16 +574,19 @@ function ContractorFlowApp() {
   }
 
   function updateLead(leadId, updates) {
-    setLeads((current) => current.map((lead) => (
-      lead.id === leadId
-        ? {
-            ...lead,
-            ...updates,
-            id: lead.id,
-            value: updates.value !== undefined ? Number(updates.value) || 0 : lead.value,
-          }
-        : lead
-    )))
+    const existingLead = leads.find((lead) => lead.id === leadId)
+    const nextLead = withLeadPipelineStage({
+      ...(existingLead || {}),
+      ...updates,
+      id: leadId,
+      value: updates.value !== undefined ? Number(updates.value) || 0 : existingLead?.value,
+    })
+
+    if (nextLead?.leadPipelineStage) {
+      writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
+    }
+
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? nextLead : lead)))
     showToast(t('leadUpdated'))
   }
 
@@ -548,8 +657,278 @@ function ContractorFlowApp() {
     showToast(t('itemDeletedPermanently'))
   }
 
+  async function transitionLeadStage(leadId, targetStage, { silent = false } = {}) {
+    const sourceLead = leads.find((lead) => lead.id === leadId)
+
+    if (!sourceLead) {
+      return null
+    }
+
+    const isArchivedLead = archives.leadIds.includes(leadId) || Boolean(sourceLead.archivedAt || sourceLead.archived_at || sourceLead.isArchived)
+
+    if (targetStage === leadPipelineStages.ARCHIVED) {
+      try {
+        const response = await dataProvider?.leads?.archive?.(leadId, { contractorId: leadsContractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('archiveFailed'), 'error')
+          return null
+        }
+      } catch (error) {
+        if (USE_SUPABASE_LEADS) {
+          showToast(error?.message || t('archiveFailed'), 'error')
+          return null
+        }
+      }
+
+      updateArchiveList('leadIds', leadId, 'add')
+      setLeads((current) => current.map((lead) => (
+        lead.id === leadId
+          ? { ...lead, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
+          : lead
+      )))
+
+      if (!silent) {
+        showToast(t('itemArchived'))
+      }
+
+      return { ...sourceLead, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
+    }
+
+    if (isArchivedLead) {
+      try {
+        const response = await dataProvider?.leads?.restore?.(leadId, { contractorId: leadsContractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('restoreFailed'), 'error')
+          return null
+        }
+      } catch (error) {
+        if (USE_SUPABASE_LEADS) {
+          showToast(error?.message || t('restoreFailed'), 'error')
+          return null
+        }
+      }
+
+      updateArchiveList('leadIds', leadId, 'remove')
+    }
+
+    if (targetStage === leadPipelineStages.CONVERTED_TO_JOB) {
+      const existingProjectId = sourceLead.projectId || sourceLead.project_id || ''
+      const fallbackProjectId = existingProjectId || (USE_SUPABASE_PROJECTS ? '' : leadId)
+      const projectDraft = buildProjectFromLead(sourceLead, fallbackProjectId)
+      let linkedProject = existingProjectId ? { id: existingProjectId } : null
+
+      if (!existingProjectId) {
+        try {
+          const projectResponse = await dataProvider?.projects?.create?.(projectDraft, {
+            contractorId: projectsContractorId,
+          })
+
+          if (projectResponse?.error) {
+            showToast(projectResponse.error.message || t('jobCreateFailed'), 'error')
+            logLeadConversionDevError('[dev] Failed to create project during lead conversion.', projectResponse.error, {
+              leadId,
+              projectDraft,
+            })
+            return null
+          }
+
+          linkedProject = projectResponse?.data || projectDraft
+        } catch (error) {
+          showToast(error?.message || t('jobCreateFailed'), 'error')
+          logLeadConversionDevError('[dev] Project creation threw during lead conversion.', error, {
+            leadId,
+            projectDraft,
+          })
+          return null
+        }
+      }
+
+      const linkedProjectId = linkedProject?.id || fallbackProjectId
+      const sourceEstimate = sourceLead?.portal?.estimate || readEstimateDraft(leadId) || null
+
+      if (!linkedProjectId) {
+        showToast(t('jobCreateFailed'), 'error')
+        logLeadConversionDevError('[dev] Lead conversion did not receive a project id.', null, {
+          leadId,
+          linkedProject,
+        })
+        return null
+      }
+
+      if (sourceEstimate) {
+        const linkedEstimate = {
+          ...sourceEstimate,
+          projectId: linkedProjectId,
+          clientId: sourceLead?.clientId || sourceLead?.client_id || sourceEstimate?.clientId || null,
+        }
+
+        writeEstimateDraft(leadId, linkedEstimate)
+        writeEstimateDraft(linkedProjectId, linkedEstimate)
+
+        try {
+          const estimateResponse = sourceEstimate?.id
+            ? await dataProvider?.estimates?.update?.(sourceEstimate.id, linkedEstimate, { contractorId: projectsContractorId })
+            : await dataProvider?.estimates?.create?.(linkedEstimate, { contractorId: projectsContractorId })
+
+          if (estimateResponse?.error) {
+            showToast(estimateResponse.error.message || t('estimateLinkToProjectFailed'), 'error')
+            logLeadConversionDevError('[dev] Failed to link estimate to the new project during lead conversion.', estimateResponse.error, {
+              leadId,
+              projectId: linkedProjectId,
+              estimate: linkedEstimate,
+            })
+            return null
+          }
+        } catch (error) {
+          if (!sourceEstimate?.id || USE_SUPABASE_PROJECTS) {
+            showToast(error?.message || t('estimateLinkToProjectFailed'), 'error')
+            logLeadConversionDevError('[dev] Estimate linkage threw during lead conversion.', error, {
+              leadId,
+              projectId: linkedProjectId,
+              estimate: linkedEstimate,
+            })
+            return null
+          }
+        }
+      }
+
+      const nextLead = withLeadPipelineStage(buildLeadPipelineTransition({
+        ...sourceLead,
+        projectId: linkedProjectId,
+        project_id: linkedProjectId,
+        estimateId: sourceEstimate?.id || sourceLead?.estimateId || null,
+        projectStatus: 'Scheduled',
+      }, targetStage))
+
+      let responseData = null
+
+      try {
+        const response = await dataProvider?.leads?.update?.(leadId, {
+          projectId: linkedProjectId,
+          status: nextLead.status,
+          leadPipelineStage: nextLead.leadPipelineStage,
+        }, {
+          contractorId: leadsContractorId,
+        })
+
+        if (response?.error) {
+          showToast(response.error.message || t('leadLinkToJobFailed'), 'error')
+          logLeadConversionDevError('[dev] Lead conversion could not link the new project to the lead.', response.error, {
+            leadId,
+            projectId: linkedProjectId,
+          })
+          return null
+        }
+
+        responseData = response?.data || null
+      } catch (error) {
+        showToast(error?.message || t('leadLinkToJobFailed'), 'error')
+        logLeadConversionDevError('[dev] Lead update threw after project creation during conversion.', error, {
+          leadId,
+          projectId: linkedProjectId,
+        })
+        return null
+      }
+
+      writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
+      const persistedLead = withLeadPipelineStage({
+        ...sourceLead,
+        ...(responseData || {}),
+        ...nextLead,
+        id: leadId,
+        projectId: linkedProjectId,
+        project_id: linkedProjectId,
+        estimateId: sourceEstimate?.id || sourceLead?.estimateId || null,
+        projectStatus: 'Scheduled',
+        archivedAt: null,
+        archived_at: null,
+        isArchived: false,
+        portal: {
+          ...(sourceLead?.portal || {}),
+          ...(sourceEstimate ? { estimate: { ...sourceEstimate, projectId: linkedProjectId } } : {}),
+        },
+      })
+
+      setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
+
+      if (!silent) {
+        showToast(t('jobCreated'))
+      }
+
+      return persistedLead
+    }
+
+    const nextLead = withLeadPipelineStage(buildLeadPipelineTransition(sourceLead, targetStage))
+
+    let responseData = null
+
+    try {
+      const response = await dataProvider?.leads?.update?.(leadId, {
+        status: nextLead.status,
+        leadPipelineStage: nextLead.leadPipelineStage,
+      }, {
+        contractorId: leadsContractorId,
+      })
+
+      if (response?.error) {
+        showToast(response.error.message || t('leadSaveFailed'), 'error')
+        return null
+      }
+
+      responseData = response?.data || null
+    } catch (error) {
+      if (USE_SUPABASE_LEADS) {
+        showToast(error?.message || t('leadSaveFailed'), 'error')
+        return null
+      }
+    }
+
+    writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
+    const persistedLead = withLeadPipelineStage({
+      ...sourceLead,
+      ...(responseData || {}),
+      ...nextLead,
+      id: leadId,
+      archivedAt: null,
+      archived_at: null,
+      isArchived: false,
+    })
+
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
+
+    if (!silent) {
+      showToast(t('leadStageUpdated'))
+    }
+
+    return persistedLead
+  }
+
   function moveLead(leadId, targetStatus) {
-    setLeads((current) => current.map((lead) => (lead.id === leadId ? { ...lead, status: targetStatus } : lead)))
+    transitionLeadStage(leadId, targetStatus, { silent: true })
+  }
+
+  async function duplicateLead(leadId) {
+    const sourceLead = leads.find((lead) => lead.id === leadId)
+
+    if (!sourceLead) {
+      return null
+    }
+
+    const duplicatedLead = {
+      ...sourceLead,
+      id: undefined,
+      projectId: null,
+      project_id: null,
+      projectStatus: 'Lead',
+      status: 'New Lead',
+      leadPipelineStage: leadPipelineStages.NEW_LEAD,
+      archivedAt: null,
+      archived_at: null,
+      isArchived: false,
+      portal: {},
+    }
+
+    return saveLeadRecord(duplicatedLead)
   }
 
   function recordProjectPayment(leadId, payment) {
@@ -655,8 +1034,12 @@ function ContractorFlowApp() {
         lineItems: Array.isArray(response?.data?.lineItems) ? response.data.lineItems : lineItems,
         pricingMode: nextEstimateDraft.pricingMode,
       }
+      const nextPipelineStage = [leadPipelineStages.ESTIMATE_SENT, leadPipelineStages.FOLLOW_UP, leadPipelineStages.ESTIMATE_APPROVED, leadPipelineStages.READY_FOR_JOB, leadPipelineStages.CONVERTED_TO_JOB].includes(getLeadPipelineStage(sourceLead))
+        ? getLeadPipelineStage(sourceLead)
+        : leadPipelineStages.ESTIMATE_CREATED
 
       writeEstimateDraft(leadId, persistedEstimate)
+      writeLeadPipelineStage(leadId, nextPipelineStage)
 
       setLeads((current) => current.map((lead) => {
         if (lead.id !== leadId) return lead
@@ -679,7 +1062,8 @@ function ContractorFlowApp() {
           ...lead,
           value: contractAmount,
           estimatedValue: contractAmount,
-          status: lead.status === 'New Lead' || lead.status === 'Contacted' ? 'Estimate Sent' : lead.status,
+          leadPipelineStage: nextPipelineStage,
+          status: nextPipelineStage === leadPipelineStages.ESTIMATE_CREATED ? 'Contacted' : lead.status,
           portal: {
             ...currentPortal,
             estimate: persistedEstimate,
@@ -709,8 +1093,10 @@ function ContractorFlowApp() {
       const portal = lead.portal || {}
       const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
       const amountPaid = Number(portal.amountPaid || 0)
+      writeLeadPipelineStage(lead.id, leadPipelineStages.ESTIMATE_APPROVED)
       return {
         ...lead,
+        leadPipelineStage: leadPipelineStages.ESTIMATE_APPROVED,
         portal: {
           ...portal,
           contractAmount,
@@ -744,10 +1130,12 @@ function ContractorFlowApp() {
       const nextDocuments = hasSignedContract
         ? documents.map((doc) => (doc.name === 'Signed Contract' ? { ...doc, status: 'Available' } : doc))
         : [{ name: 'Signed Contract', type: 'PDF', status: 'Available' }, ...documents]
+      writeLeadPipelineStage(lead.id, leadPipelineStages.READY_FOR_JOB)
       return {
         ...lead,
         status: 'Won',
         projectStatus: 'Signed',
+        leadPipelineStage: leadPipelineStages.READY_FOR_JOB,
         portal: {
           ...portal,
           contractAmount,
@@ -907,18 +1295,7 @@ function ContractorFlowApp() {
   }
 
   function openLead(leadId) {
-    const selectedLead = visibleLeads.find((item) => item.id === leadId)
-
-    if (!USE_SUPABASE_LEADS) {
-      openProject(leadId)
-      return
-    }
-
-    if (selectedLead?.projectId) {
-      navigate(`/projects/${selectedLead.projectId}`)
-    } else {
-      navigate(`/leads/${leadId}`)
-    }
+    navigate(`/leads/${leadId}`)
     setSidebarOpen(false)
   }
 
@@ -953,7 +1330,7 @@ function ContractorFlowApp() {
       <Route path={appRoutes.root} element={dashboardPage} />
       <Route path={appRoutes.dashboard} element={dashboardPage} />
       <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewLead={openLead} onCreateLead={saveLeadRecord} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
-      <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
+      <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
@@ -1040,7 +1417,7 @@ function ContractorFlowApp() {
 function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
-  const lead = leads.find((item) => item.id === projectId)
+  const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
 
   return (
     <ProjectDetailPage
@@ -1069,7 +1446,7 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
   )
 }
 
-function LeadRoute({ leads, clients, archivedIds = [], onBack, onUpdateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
+function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, onDuplicateLead, onConvertLeadToJob, onTransitionLeadStage, onUpdateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
   const { id } = useParams()
   const lead = leads.find((item) => item.id === id)
 
@@ -1079,6 +1456,10 @@ function LeadRoute({ leads, clients, archivedIds = [], onBack, onUpdateLead, onA
       clients={clients}
       archivedIds={archivedIds}
       onBack={onBack}
+      onOpenProject={onOpenProject}
+      onDuplicateLead={onDuplicateLead}
+      onConvertLeadToJob={onConvertLeadToJob}
+      onTransitionLeadStage={onTransitionLeadStage}
       onUpdateLead={onUpdateLead}
       onArchiveLead={onArchiveLead}
       onRestoreLead={onRestoreLead}

@@ -305,7 +305,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = id || leadId
-  const lead = leads.find((item) => item.id === projectId)
+  const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
   const estimateSource = location.state?.source
   const sourceLeadId = location.state?.leadId
   const sourceProjectId = location.state?.projectId || projectId
@@ -339,8 +339,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         return
       }
 
-      const cachedEstimate = readEstimateDraft(lead.id)
-      const relatedProjectId = lead.projectId || lead.project_id || null
+      const cachedEstimate = readEstimateDraft(projectId) || readEstimateDraft(lead.id)
+      const relatedProjectId = lead.projectId || lead.project_id || projectId || null
 
       try {
         if (!relatedProjectId) {
