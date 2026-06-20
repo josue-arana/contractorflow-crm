@@ -3,12 +3,14 @@ import { Archive, ArrowLeft, BriefcaseBusiness, ClipboardList, Edit3, Trash2, Un
 import { useNavigate, useParams } from 'react-router-dom'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { useToast } from '../components/common/ToastProvider'
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { USE_SUPABASE_LEADS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { currency } from '../utils/formatters'
@@ -29,12 +31,117 @@ function toSafeNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function hasSavedEstimate(estimate) {
+  if (!estimate || typeof estimate !== 'object') return false
+
+  if (estimate.id || estimate.updatedAt || estimate.updated_at) return true
+  if (Array.isArray(estimate.lineItems) && estimate.lineItems.length > 0) return true
+  if (estimate.total !== undefined || estimate.totalAmount !== undefined) return true
+  return Boolean(estimate.number)
+}
+
+function hasSavedContract(contract) {
+  if (!contract || typeof contract !== 'object') return false
+
+  if (contract.id || contract.updatedAt || contract.updated_at) return true
+  if (contract.total !== undefined || contract.totalAmount !== undefined || contract.contractAmount !== undefined) return true
+  return Boolean(contract.number || contract.contractNumber)
+}
+
+function normalizeWorkflowStatus(status) {
+  if (!status) return ''
+
+  return String(status)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+}
+
+function getLeadRecommendedAction({ lead, estimate, contract }) {
+  if (lead?.isArchived || lead?.archivedAt || lead?.archived_at) {
+    return {
+      messageKey: 'leadNextStepArchived',
+      ctaLabelKey: null,
+      actionType: 'none',
+    }
+  }
+
+  if (hasSavedContract(contract)) {
+    const contractStatus = normalizeWorkflowStatus(contract?.status)
+
+    if (!contractStatus || contractStatus === 'draft' || contractStatus === 'not_generated') {
+      return {
+        messageKey: 'leadNextStepSendContract',
+        ctaLabelKey: 'sendContract',
+        actionType: 'sendContract',
+      }
+    }
+
+    if (contractStatus === 'sent') {
+      return {
+        messageKey: 'leadNextStepFollowUpContract',
+        ctaLabelKey: 'followUp',
+        actionType: 'followUpContract',
+      }
+    }
+
+    if (contractStatus === 'signed') {
+      return {
+        messageKey: 'leadNextStepScheduleProject',
+        ctaLabelKey: 'convertToJob',
+        actionType: 'convertToJob',
+      }
+    }
+  }
+
+  if (!hasSavedEstimate(estimate)) {
+    return {
+      messageKey: 'leadNextStepCreateEstimate',
+      ctaLabelKey: 'createEstimate',
+      actionType: 'createEstimate',
+    }
+  }
+
+  const estimateStatus = normalizeWorkflowStatus(estimate?.status)
+
+  if (!estimateStatus || estimateStatus === 'draft' || estimateStatus === 'saved') {
+    return {
+      messageKey: 'leadNextStepSendEstimate',
+      ctaLabelKey: 'sendToCustomer',
+      actionType: 'sendEstimate',
+    }
+  }
+
+  if (estimateStatus === 'sent') {
+    return {
+      messageKey: 'leadNextStepFollowUpEstimate',
+      ctaLabelKey: 'followUp',
+      actionType: 'followUpEstimate',
+    }
+  }
+
+  if (estimateStatus === 'approved' || estimateStatus === 'accepted' || estimateStatus === 'converted' || estimateStatus === 'converted_to_contract') {
+    return {
+      messageKey: 'leadNextStepConvertToJob',
+      ctaLabelKey: 'convertToJob',
+      actionType: 'convertToJob',
+    }
+  }
+
+  return {
+    messageKey: 'leadNextStepReview',
+    ctaLabelKey: 'reviewLead',
+    actionType: 'reviewLead',
+  }
+}
+
 function createSafeLead(lead, fallbackId = '') {
   if (!lead) return null
 
   const clientName = lead.client || lead.clientName || lead.customerName || lead.name || ''
   const projectType = lead.projectType || lead.projectTitle || lead.title || ''
   const estimateDrivenValue = lead.portal?.estimate?.total ?? lead.value ?? lead.estimatedValue
+  const rawNextStep = typeof lead.nextStep === 'string' ? lead.nextStep.trim() : ''
 
   return {
     ...lead,
@@ -54,7 +161,7 @@ function createSafeLead(lead, fallbackId = '') {
     source: lead.source || '',
     priority: lead.priority || 'Medium',
     notes: lead.notes || '',
-    nextStep: lead.nextStep || lead.notes || '',
+    nextStep: rawNextStep,
     status: lead.status || 'New Lead',
     archivedAt: lead.archivedAt || lead.archived_at || null,
     isArchived: Boolean(lead.isArchived || lead.archivedAt || lead.archived_at),
@@ -87,9 +194,99 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
   const [isLoading, setIsLoading] = useState(Boolean(USE_SUPABASE_LEADS))
   const [hasLoaded, setHasLoaded] = useState(!USE_SUPABASE_LEADS)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const [showSendModal, setShowSendModal] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
-  const currentLead = useMemo(() => createSafeLead(USE_SUPABASE_LEADS ? record : lead, leadId), [lead, leadId, record])
+  const [estimateRecord, setEstimateRecord] = useState(() => readEstimateDraft(leadId || lead?.id || ''))
+  const mergedLead = useMemo(() => {
+    const baseLead = USE_SUPABASE_LEADS ? record : lead
+
+    if (!baseLead) return null
+    if (!hasSavedEstimate(estimateRecord)) return baseLead
+
+    const nextEstimate = {
+      ...(baseLead.portal?.estimate || {}),
+      ...estimateRecord,
+    }
+    const estimateValue = toSafeNumber(nextEstimate.total ?? nextEstimate.totalAmount)
+
+    return {
+      ...baseLead,
+      value: estimateValue || toSafeNumber(baseLead.value ?? baseLead.estimatedValue),
+      estimatedValue: estimateValue || toSafeNumber(baseLead.estimatedValue ?? baseLead.value),
+      portal: {
+        ...(baseLead.portal || {}),
+        estimate: nextEstimate,
+      },
+    }
+  }, [estimateRecord, lead, record, leadId])
+  const currentLead = useMemo(() => createSafeLead(mergedLead, leadId), [mergedLead, leadId])
   const isArchived = Boolean(currentLead?.isArchived || archivedIds.includes(currentLead?.id))
+  const currentEstimate = currentLead?.portal?.estimate || null
+  const currentContract = currentLead?.portal?.contract || null
+  const leadHasEstimate = hasSavedEstimate(currentEstimate)
+  const estimatedValueDisplay = leadHasEstimate ? currency.format(currentLead?.value || 0) : t('notEstimated')
+  const recommendedAction = useMemo(() => getLeadRecommendedAction({
+    lead: currentLead,
+    estimate: currentEstimate,
+    contract: currentContract,
+  }), [currentContract, currentEstimate, currentLead])
+  const nextStepDisplay = t(recommendedAction.messageKey)
+
+  function openEstimateBuilder() {
+    navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'lead', leadId: currentLead.id } })
+  }
+
+  function handleFollowUp() {
+    showToast(t('followUpToolsComingSoon'))
+  }
+
+  function handleConvertToJob() {
+    showToast(t('convertToJobComingSoon'))
+  }
+
+  function handleRecommendedAction() {
+    switch (recommendedAction.actionType) {
+      case 'createEstimate':
+      case 'reviewLead':
+        openEstimateBuilder()
+        return
+      case 'sendEstimate':
+      case 'sendContract':
+        setShowSendModal(true)
+        return
+      case 'followUpEstimate':
+      case 'followUpContract':
+        handleFollowUp()
+        return
+      case 'convertToJob':
+        handleConvertToJob()
+        return
+      default:
+        return
+    }
+  }
+
+  function renderRecommendedActionIcon() {
+    if (recommendedAction.actionType === 'convertToJob') {
+      return <BriefcaseBusiness className="h-4 w-4" />
+    }
+
+    return <ClipboardList className="h-4 w-4" />
+  }
+
+  const primaryActionButton = recommendedAction.ctaLabelKey
+    ? {
+        label: t(recommendedAction.ctaLabelKey),
+        onClick: handleRecommendedAction,
+      }
+    : null
+
+  const secondaryEstimateAction = leadHasEstimate && recommendedAction.actionType !== 'createEstimate'
+    ? {
+        label: t('editEstimate'),
+        onClick: openEstimateBuilder,
+      }
+    : null
 
   useEffect(() => {
     if (!USE_SUPABASE_LEADS) {
@@ -141,6 +338,52 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
       isCancelled = true
     }
   }, [contractorId, lead, leadId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEstimate() {
+      const draftEstimate = readEstimateDraft(leadId)
+      const activeLead = USE_SUPABASE_LEADS ? record : lead
+      const relatedProjectId = activeLead?.projectId || activeLead?.project_id || null
+
+      if (!relatedProjectId) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+        return
+      }
+
+      try {
+        const response = await dataProvider.estimates.list({
+          contractorId,
+          projectId: relatedProjectId,
+          includeArchived: true,
+        })
+
+        if (isCancelled || response?.error) {
+          if (!isCancelled) {
+            setEstimateRecord(draftEstimate)
+          }
+          return
+        }
+
+        if (!isCancelled) {
+          setEstimateRecord(response?.data?.[0] || draftEstimate)
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setEstimateRecord(draftEstimate)
+        }
+      }
+    }
+
+    loadEstimate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, lead, leadId, record])
 
   if (USE_SUPABASE_LEADS && isLoading) {
     return (
@@ -242,7 +485,7 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
           </div>
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 lg:block">
             <p className="text-xs text-slate-300">{t('estimatedValue')}</p>
-            <p className="text-2xl font-bold">{currency.format(currentLead.value)}</p>
+            <p className="text-2xl font-bold">{estimatedValueDisplay}</p>
           </div>
         </div>
       </section>
@@ -256,12 +499,21 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
           <button onClick={() => setIsEditOpen(true)} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
             <Edit3 className="h-4 w-4" /> {t('editLead')}
           </button>
-          <button onClick={() => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'lead', leadId: currentLead.id } })} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
-            <ClipboardList className="h-4 w-4" /> {t('createEstimate')}
-          </button>
-          <button onClick={() => showToast(t('convertToJobComingSoon'))} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
-            <BriefcaseBusiness className="h-4 w-4" /> {t('convertToJob')}
-          </button>
+          {primaryActionButton && (
+            <button onClick={primaryActionButton.onClick} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
+              {renderRecommendedActionIcon()}
+              {primaryActionButton.label}
+            </button>
+          )}
+          {secondaryEstimateAction ? (
+            <button onClick={secondaryEstimateAction.onClick} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
+              <ClipboardList className="h-4 w-4" /> {secondaryEstimateAction.label}
+            </button>
+          ) : (
+            <button onClick={handleConvertToJob} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
+              <BriefcaseBusiness className="h-4 w-4" /> {t('convertToJob')}
+            </button>
+          )}
           {isArchived ? (
             <button
               onClick={handleRestoreLead}
@@ -296,7 +548,13 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
           <DetailRow label={t('projectType')} value={currentLead.projectType || t('unknownProject')} />
         </InfoCard>
         <InfoCard title={t('nextStep')}>
-          <p className="text-sm leading-6 text-slate-600">{currentLead.nextStep || t('followUpWithClient')}</p>
+          <p className="text-sm leading-6 text-slate-600">{nextStepDisplay}</p>
+          {primaryActionButton && (
+            <button onClick={primaryActionButton.onClick} className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
+              {renderRecommendedActionIcon()}
+              {primaryActionButton.label}
+            </button>
+          )}
         </InfoCard>
       </section>
 
@@ -322,6 +580,17 @@ export function LeadDetailPage({ lead, clients = [], archivedIds = [], onBack, o
         confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')}
         onCancel={() => setConfirmAction(null)}
         onConfirm={runConfirmAction}
+        t={t}
+      />
+      <SendToCustomerModal
+        isOpen={showSendModal}
+        documentType={recommendedAction.actionType === 'sendContract' ? 'contract' : 'estimate'}
+        customer={{ name: currentLead.client, phone: currentLead.phone, email: currentLead.email }}
+        projectTitle={currentLead.projectTitle || currentLead.projectType}
+        amountLabel={recommendedAction.actionType === 'sendContract' ? t('projectTotal') : t('estimatedTotal')}
+        amountValue={currency.format(Number(currentContract?.total ?? currentEstimate?.total ?? currentLead.value ?? 0))}
+        onClose={() => setShowSendModal(false)}
+        onSent={() => setShowSendModal(false)}
         t={t}
       />
     </div>

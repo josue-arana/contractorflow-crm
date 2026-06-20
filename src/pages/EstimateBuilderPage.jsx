@@ -9,6 +9,10 @@ import { archivePanelButtonClasses } from '../utils/buttonStyles'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
+import dataProvider from '../services/dataProvider'
+import { readEstimateDraft } from '../services/local/estimateDraftStorage'
+import { useAuth } from '../contexts/AuthContext'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -19,7 +23,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
   const savedLineItems = Array.isArray(savedEstimate.lineItems) ? savedEstimate.lineItems : []
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
   const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
-  const [total, setTotal] = useState(Number(savedEstimate.total || lead.value || 0))
+  const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(savedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
   const [pricingMode, setPricingMode] = useState(hasSavedLineItems ? detailedPricingMode : simplePricingMode)
@@ -58,20 +62,27 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
   function getEstimatePayload() {
     return {
+      id: savedEstimate.id || undefined,
       number: savedEstimate.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
       total: estimateTotal,
       summary: scope,
       lineItems: isDetailedPricing ? lineItems : [],
       materialsIncluded,
       paymentTerms,
+      pricingMode,
       updatedAt: new Date().toISOString(),
       status: 'Draft',
     }
   }
 
-  function saveEstimate() {
-    onSaveEstimate?.(getEstimatePayload())
+  async function saveEstimate() {
+    const result = await onSaveEstimate?.(getEstimatePayload())
+    if (!result) {
+      return null
+    }
+
     setIsEditing(false)
+    return result
   }
 
   function updateLineItem(index, field, value) {
@@ -204,10 +215,12 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
-          <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
+          {isEditing && (
+            <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
+          )}
           <button onClick={() => setShowPreviewModal(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-          <button onClick={() => { saveEstimate(); onConvert?.(getEstimatePayload()) }} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
+          <button onClick={() => onConvert?.(getEstimatePayload())} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
           {isArchived ? (
             <>
               <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
@@ -289,11 +302,14 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId)
   const estimateSource = location.state?.source
   const sourceLeadId = location.state?.leadId
   const sourceProjectId = location.state?.projectId || projectId
+  const [loadedEstimate, setLoadedEstimate] = useState(null)
   const backLabel = useMemo(() => {
     if (estimateSource === 'lead' && sourceLeadId) return t('backToLeadDetails')
     if (estimateSource === 'project' && sourceProjectId) return t('backToProjectWorkspace')
@@ -314,6 +330,54 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     navigate(-1)
   }
 
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEstimate() {
+      if (!lead?.id) {
+        setLoadedEstimate(null)
+        return
+      }
+
+      const cachedEstimate = readEstimateDraft(lead.id)
+      const relatedProjectId = lead.projectId || lead.project_id || null
+
+      try {
+        if (!relatedProjectId) {
+          if (!isCancelled) {
+            setLoadedEstimate(cachedEstimate)
+          }
+          return
+        }
+
+        const response = await dataProvider.estimates.list({
+          contractorId,
+          projectId: relatedProjectId,
+          includeArchived: true,
+        })
+
+        if (isCancelled || response?.error) {
+          if (!isCancelled) {
+            setLoadedEstimate(cachedEstimate)
+          }
+          return
+        }
+
+        setLoadedEstimate(response?.data?.[0] || cachedEstimate)
+      } catch (error) {
+        if (!isCancelled) {
+          setLoadedEstimate(cachedEstimate)
+        }
+      }
+    }
+
+    loadEstimate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, lead?.id])
+
   if (!lead) {
     return (
       <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -326,17 +390,39 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     )
   }
 
+  const mergedLead = loadedEstimate
+    ? {
+        ...lead,
+        value: Number(loadedEstimate.total ?? lead.value ?? 0),
+        estimatedValue: Number(loadedEstimate.total ?? lead.estimatedValue ?? lead.value ?? 0),
+        portal: {
+          ...(lead.portal || {}),
+          estimate: loadedEstimate,
+        },
+      }
+    : lead
+
   return (
     <EstimateBuilderPage
-      lead={lead}
+      lead={mergedLead}
       t={t}
       companySettings={companySettings}
       onBack={handleBack}
       backLabel={backLabel}
       isArchived={archivedIds.includes(lead.id)}
-      onSaveEstimate={(estimate) => onSaveEstimate?.(lead.id, estimate)}
-      onConvert={(estimate) => {
-        onSaveEstimate?.(lead.id, { ...estimate, status: 'Converted to Contract' })
+      onSaveEstimate={async (estimate) => {
+        const result = await onSaveEstimate?.(lead.id, estimate)
+        if (result) {
+          setLoadedEstimate(result)
+        }
+        return result
+      }}
+      onConvert={async (estimate) => {
+        const result = await onSaveEstimate?.(lead.id, { ...estimate, status: 'Converted to Contract' })
+        if (!result) {
+          return
+        }
+        setLoadedEstimate(result)
         navigate(`/projects/${lead.id}/contract`)
       }}
       onArchiveEstimate={() => onArchiveEstimate?.(lead.id)}

@@ -465,6 +465,58 @@ const projectsDataProvider = {
   },
 }
 
+const estimatesDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.list(options)
+    }
+
+    return estimatesSupabaseService.list(options)
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.getById(id, options)
+    }
+
+    return estimatesSupabaseService.getById(id, options)
+  },
+  create: async (estimateData, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.create(estimateData, options)
+    }
+
+    return estimatesSupabaseService.create(estimateData, options)
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.update(id, updates, options)
+    }
+
+    return estimatesSupabaseService.update(id, updates, options)
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.archive(id, options)
+    }
+
+    return estimatesSupabaseService.archive(id, options)
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.restore(id, options)
+    }
+
+    return estimatesSupabaseService.restore(id, options)
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE) {
+      return estimatesLocalService.deletePermanently(id, options)
+    }
+
+    return estimatesSupabaseService.deletePermanently(id, options)
+  },
+}
+
 const entityProvider = USE_SUPABASE ? supabaseImpl : localImpl
 
 export const dataProvider = {
@@ -472,6 +524,7 @@ export const dataProvider = {
   clients: clientsDataProvider,
   leads: leadsDataProvider,
   projects: projectsDataProvider,
+  estimates: estimatesDataProvider,
   settings: settingsDataProvider,
 }
 

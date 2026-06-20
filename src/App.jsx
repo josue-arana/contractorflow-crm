@@ -12,6 +12,7 @@ import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
+import { writeEstimateDraft } from './services/local/estimateDraftStorage'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
@@ -115,6 +116,16 @@ function isUuid(value) {
 }
 
 function logLeadDevError(message, error, meta) {
+  if (!import.meta.env.DEV) return
+
+  // eslint-disable-next-line no-console
+  console.error(message, {
+    error,
+    ...meta,
+  })
+}
+
+function logEstimateDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
 
   // eslint-disable-next-line no-console
@@ -582,46 +593,114 @@ function ContractorFlowApp() {
     showToast(t('photosUploaded'))
   }
 
-  function saveEstimate(leadId, estimate) {
-    setLeads((current) => current.map((lead) => {
-      if (lead.id !== leadId) return lead
-      const portal = lead.portal || {}
-      const estimateNumber = portal.estimate?.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`
-      const nextEstimate = {
-        ...(portal.estimate || {}),
-        ...estimate,
-        number: estimate?.number || estimateNumber,
-        total: Number(estimate?.total ?? portal.estimate?.total ?? lead.value ?? 0),
-      }
-      const contractAmount = Number(nextEstimate.total || portal.contractAmount || lead.value || 0)
-      const amountPaid = Number(portal.amountPaid || 0)
-      const nextContract = estimate?.status === 'Converted to Contract'
-        ? {
-            ...(portal.contract || {}),
-            number: portal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
-            status: portal.contract?.status || 'Draft',
-            total: contractAmount,
-            scope: portal.contract?.scope || nextEstimate.summary,
-            paymentTerms: portal.contract?.paymentTerms || nextEstimate.paymentTerms || companySettings.defaults.paymentTerms,
-            updatedAt: new Date().toISOString(),
-          }
-        : portal.contract
+  async function saveEstimate(leadId, estimate) {
+    const sourceLead = leads.find((item) => item.id === leadId)
+    const portal = sourceLead?.portal || {}
+    const existingEstimate = portal.estimate || {}
+    const estimateNumber = existingEstimate.number || `EST-${String(leadId).replace(/\D/g, '').padStart(4, '0')}`
+    const lineItems = Array.isArray(estimate?.lineItems) ? estimate.lineItems : []
+    const relatedProjectId = estimate?.projectId || existingEstimate.projectId || sourceLead?.projectId || null
+    const nextEstimateDraft = {
+      ...existingEstimate,
+      ...estimate,
+      id: estimate?.id || existingEstimate.id,
+      projectId: relatedProjectId,
+      clientId: estimate?.clientId || existingEstimate.clientId || sourceLead?.clientId || null,
+      number: estimate?.number || estimateNumber,
+      total: Number(estimate?.total ?? existingEstimate.total ?? sourceLead?.value ?? 0),
+      lineItems,
+      pricingMode: estimate?.pricingMode || (lineItems.length ? 'detailed' : 'simple'),
+      status: estimate?.status || existingEstimate.status || 'Draft',
+    }
 
-      return {
-        ...lead,
-        value: Number(nextEstimate.total || lead.value || 0),
-        status: lead.status === 'New Lead' || lead.status === 'Contacted' ? 'Estimate Sent' : lead.status,
-        portal: {
-          ...portal,
-          estimate: nextEstimate,
-          ...(nextContract ? { contract: nextContract } : {}),
-          contractAmount,
-          outstandingBalance: Math.max(contractAmount - amountPaid, 0),
-        },
+    try {
+      let estimateId = nextEstimateDraft.id || null
+
+      if (!estimateId && relatedProjectId) {
+        const existingEstimateResponse = await dataProvider.estimates.list({
+          contractorId: projectsContractorId,
+          projectId: relatedProjectId,
+          includeArchived: true,
+        })
+
+        if (existingEstimateResponse?.error) {
+          showToast(existingEstimateResponse.error.message || t('estimateSaveFailed'), 'error')
+          logEstimateDevError('[dev] Failed to look up existing estimate before save.', existingEstimateResponse.error, {
+            leadId,
+            estimate: nextEstimateDraft,
+          })
+          return null
+        }
+
+        estimateId = existingEstimateResponse?.data?.[0]?.id || null
       }
-    }))
-    showToast(t('estimateSaved'))
-    addNotification('notificationEstimateSavedTitle', 'notificationEstimateSavedMessage')
+
+      const response = estimateId
+        ? await dataProvider.estimates.update(estimateId, nextEstimateDraft, { contractorId: projectsContractorId })
+        : await dataProvider.estimates.create(nextEstimateDraft, { contractorId: projectsContractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('estimateSaveFailed'), 'error')
+        logEstimateDevError('[dev] Estimate save failed.', response.error, {
+          leadId,
+          estimate: nextEstimateDraft,
+        })
+        return null
+      }
+
+      const persistedEstimate = {
+        ...nextEstimateDraft,
+        ...(response?.data || {}),
+        id: response?.data?.id || estimateId || nextEstimateDraft.id,
+        lineItems: Array.isArray(response?.data?.lineItems) ? response.data.lineItems : lineItems,
+        pricingMode: nextEstimateDraft.pricingMode,
+      }
+
+      writeEstimateDraft(leadId, persistedEstimate)
+
+      setLeads((current) => current.map((lead) => {
+        if (lead.id !== leadId) return lead
+        const currentPortal = lead.portal || {}
+        const contractAmount = Number(persistedEstimate.total || currentPortal.contractAmount || lead.value || 0)
+        const amountPaid = Number(currentPortal.amountPaid || 0)
+        const nextContract = persistedEstimate.status === 'Converted to Contract'
+          ? {
+              ...(currentPortal.contract || {}),
+              number: currentPortal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+              status: currentPortal.contract?.status || 'Draft',
+              total: contractAmount,
+              scope: currentPortal.contract?.scope || persistedEstimate.summary,
+              paymentTerms: currentPortal.contract?.paymentTerms || persistedEstimate.paymentTerms || companySettings.defaults.paymentTerms,
+              updatedAt: new Date().toISOString(),
+            }
+          : currentPortal.contract
+
+        return {
+          ...lead,
+          value: contractAmount,
+          estimatedValue: contractAmount,
+          status: lead.status === 'New Lead' || lead.status === 'Contacted' ? 'Estimate Sent' : lead.status,
+          portal: {
+            ...currentPortal,
+            estimate: persistedEstimate,
+            ...(nextContract ? { contract: nextContract } : {}),
+            contractAmount,
+            outstandingBalance: Math.max(contractAmount - amountPaid, 0),
+          },
+        }
+      }))
+
+      showToast(t('estimateSaved'))
+      addNotification('notificationEstimateSavedTitle', 'notificationEstimateSavedMessage')
+      return persistedEstimate
+    } catch (error) {
+      showToast(error?.message || t('estimateSaveFailed'), 'error')
+      logEstimateDevError('[dev] Estimate save threw an unexpected error.', error, {
+        leadId,
+        estimate: nextEstimateDraft,
+      })
+      return null
+    }
   }
 
   function saveContract(leadId, contract) {
