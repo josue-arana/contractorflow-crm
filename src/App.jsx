@@ -50,6 +50,7 @@ import { getProjectsContractorId } from './services/system/projectsRuntimeServic
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
+import { findPortalProject, resolvePortalRouteId } from './utils/portal'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -1497,7 +1498,14 @@ function recordProjectPayment(leadId, payment) {
   }
 
   function openPortal(leadId) {
-    navigate(`/portal/${leadId}`)
+    const matchingLead = visibleLeads.find((lead) => (
+      lead.id === leadId
+      || lead.projectId === leadId
+      || lead.project_id === leadId
+    ))
+    const portalId = resolvePortalRouteId(matchingLead || { id: leadId })
+
+    navigate(appRoutes.portal.replace(':portalId', portalId))
     setSidebarOpen(false)
   }
 
@@ -1683,15 +1691,27 @@ function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, on
 }
 
 function PortalRoute({ companySettings, leads, onBack, t, language, setLanguage }) {
-  const { id, leadId } = useParams()
-  const projectId = id || leadId
-  const lead = leads.find((item) => item.id === projectId)
+  const { portalId, id, leadId } = useParams()
+  const resolvedPortalId = portalId || id || leadId || ''
+  const lead = findPortalProject(leads, resolvedPortalId)
 
   if (!lead) {
-    return <ProjectNotFound onBack={() => onBack(projectId || '')} t={t} />
+    return <ClientPortalNotFound onBack={() => onBack(resolvedPortalId)} t={t} />
   }
 
   return <CustomerPortalPage lead={lead} onBack={() => onBack(lead.id)} t={t} language={language} setLanguage={setLanguage} companySettings={companySettings} />
+}
+
+function ClientPortalNotFound({ onBack, t }) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+      <h1 className="text-2xl font-bold text-slate-950">{t('clientPortalNotFound')}</h1>
+      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('clientPortalNotFoundHelp')}</p>
+      <button onClick={onBack} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">
+        {t('backToDashboardAction')}
+      </button>
+    </section>
+  )
 }
 
 function ProjectNotFound({ onBack, t }) {

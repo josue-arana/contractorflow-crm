@@ -1,4 +1,41 @@
+export function extractPortalRouteIdFromShareUrl(shareUrl = '') {
+  if (!shareUrl || typeof shareUrl !== 'string') return ''
+
+  const match = shareUrl.match(/\/portal\/([^/?#]+)/i)
+  return match?.[1] || ''
+}
+
+export function resolvePortalRouteId(lead = {}) {
+  return (
+    lead?.portalId
+    || lead?.clientPortalId
+    || lead?.portal?.portalId
+    || lead?.portal?.clientPortalId
+    || extractPortalRouteIdFromShareUrl(lead?.portal?.shareUrl || '')
+    || lead?.projectId
+    || lead?.project_id
+    || lead?.id
+    || ''
+  )
+}
+
+export function findPortalProject(records = [], portalId = '') {
+  if (!portalId) return null
+
+  return records.find((record) => (
+    record?.id === portalId
+    || record?.projectId === portalId
+    || record?.project_id === portalId
+    || record?.portalId === portalId
+    || record?.clientPortalId === portalId
+    || record?.portal?.portalId === portalId
+    || record?.portal?.clientPortalId === portalId
+    || extractPortalRouteIdFromShareUrl(record?.portal?.shareUrl || '') === portalId
+  )) || null
+}
+
 export function getPortalData(lead) {
+  const portalRouteId = resolvePortalRouteId(lead)
   const fallbackContract = lead.value || 0
   const fallbackPaid = Math.round(fallbackContract * 0.5)
   const depositRequired = lead.portal?.depositRequired ?? Math.round(fallbackContract * 0.5)
@@ -6,7 +43,7 @@ export function getPortalData(lead) {
   const depositPaid = lead.portal?.depositPaid ?? Math.min(totalPaid, depositRequired)
 
   return {
-    shareUrl: lead.portal?.shareUrl || `https://contractorflow.app/portal/${lead.id}`,
+    shareUrl: lead.portal?.shareUrl || `https://contractorflow.app/portal/${portalRouteId}`,
     percentComplete: lead.portal?.percentComplete ?? 42,
     contractAmount: lead.portal?.contractAmount ?? fallbackContract,
     depositRequired,

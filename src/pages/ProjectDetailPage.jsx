@@ -658,7 +658,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const contractAction = {
     label: hasContract ? t('openContract') : t('convertToContract'),
     icon: FileText,
-    action: () => navigate(`/projects/${currentLead.id}/contract`),
+    action: () => navigate(`/projects/${currentLead.id}/contract`, { state: { source: 'project', projectId: currentLead.id } }),
     primary: hasEstimate && !hasContract,
   }
   const actionButtons = [
