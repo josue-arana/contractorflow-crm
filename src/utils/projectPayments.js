@@ -189,6 +189,9 @@ export function calculateProjectPaymentSummary(project = {}, payments = [], { re
   const depositPaid = projectPayments
     .filter((payment) => payment.paymentTypeKey === 'deposit')
     .reduce((sum, payment) => sum + toNumber(payment.amount), 0)
+  const otherPaymentsTotal = projectPayments
+    .filter((payment) => payment.paymentTypeKey !== 'deposit')
+    .reduce((sum, payment) => sum + toNumber(payment.amount), 0)
   const totalPaid = projectPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
   const outstandingBalance = Math.max(projectValue - totalPaid, 0)
 
@@ -206,7 +209,9 @@ export function calculateProjectPaymentSummary(project = {}, payments = [], { re
     payments: projectPayments,
     projectValue,
     depositRequired,
+    depositPaidTotal: depositPaid,
     depositPaid,
+    otherPaymentsTotal,
     totalPaid,
     outstandingBalance,
     paymentStatus,
@@ -231,6 +236,8 @@ export function buildPaymentTimelineEntries(payments = []) {
 
       return {
         id: `payment-timeline-${payment.id || `${payment.paymentDate}-${payment.amount}`}`,
+        sourceType: 'payment',
+        paymentId: payment.id || '',
         titleKey: 'paymentRecordedTimelineTitle',
         date: formatDisplayDate(payment.paymentDate, payment.date || payment.createdAt || ''),
         status: 'Complete',

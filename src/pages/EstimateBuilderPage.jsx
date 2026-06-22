@@ -13,6 +13,7 @@ import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
+import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/estimateNumber'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -59,11 +60,15 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
   const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
+  const previewEstimateNumber = formatEstimateDisplayNumber(
+    savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
+    lead
+  )
 
   function getEstimatePayload() {
     return {
       id: savedEstimate.id || undefined,
-      number: savedEstimate.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+      number: savedEstimate.number || generateEstimateNumber(lead),
       total: estimateTotal,
       summary: scope,
       lineItems: isDetailedPricing ? lineItems : [],
@@ -125,7 +130,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
             {isEditing ? (
               <textarea value={scope} onChange={(event) => setScope(event.target.value)} rows={8} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
             ) : (
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
             )}
           </InfoCard>
 
@@ -239,7 +244,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
             <DocumentCompanyHeader company={companySettings?.company} t={t} />
             <div className="text-right">
               <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('estimate')}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{savedEstimate.number || getEstimatePayload().number}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{previewEstimateNumber}</p>
             </div>
           </div>
           <EstimatePreviewBody lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={t} />
@@ -260,7 +265,7 @@ function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentT
       {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
       <p className="text-sm font-bold text-slate-900">{lead.client}</p>
       <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
-      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
       {lineItems.length > 0 && (
         <div className="mb-4 rounded-2xl border border-slate-200">
           {lineItems.map((item, index) => (

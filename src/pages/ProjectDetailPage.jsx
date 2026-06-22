@@ -13,6 +13,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
+import { useToast } from '../components/common/ToastProvider'
 import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
@@ -73,6 +74,7 @@ function buildSafePortal(project = {}) {
     contractAmount: toSafeNumber(sourcePortal.contractAmount ?? project.contractValue ?? value),
     depositRequired: toSafeNumber(sourcePortal.depositRequired ?? 0),
     depositPaid: toSafeNumber(sourcePortal.depositPaid ?? Math.min(sourcePortal.amountPaid ?? paid, sourcePortal.depositRequired ?? 0)),
+    otherPaymentsTotal: toSafeNumber(sourcePortal.otherPaymentsTotal ?? Math.max((sourcePortal.totalPaid ?? sourcePortal.amountPaid ?? paid) - (sourcePortal.depositPaid ?? 0), 0)),
     totalPaid: toSafeNumber(sourcePortal.totalPaid ?? sourcePortal.amountPaid ?? paid),
     amountPaid: toSafeNumber(sourcePortal.amountPaid ?? paid),
     outstandingBalance: toSafeNumber(sourcePortal.outstandingBalance ?? remaining),
@@ -262,9 +264,10 @@ class ProjectDetailErrorBoundary extends Component {
   }
 }
 
-function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = id || leadId || lead?.id || ''
@@ -278,6 +281,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [editingPayment, setEditingPayment] = useState(null)
+  const [paymentConfirmAction, setPaymentConfirmAction] = useState(null)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
@@ -362,7 +367,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       ...(lead?.portal || {}),
       contractAmount: paymentSummary.projectValue,
       depositRequired: paymentSummary.depositRequired,
-      depositPaid: paymentSummary.depositPaid,
+      depositPaid: paymentSummary.depositPaidTotal,
+      otherPaymentsTotal: paymentSummary.otherPaymentsTotal,
       totalPaid: paymentSummary.totalPaid,
       amountPaid: paymentSummary.totalPaid,
       outstandingBalance: paymentSummary.outstandingBalance,
@@ -664,7 +670,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const actionButtons = [
     estimateAction,
     contractAction,
-    { label: t('recordPayment'), icon: DollarSign, action: () => setShowPaymentModal(true) },
+    { label: t('recordPayment'), icon: DollarSign, action: () => { setEditingPayment(null); setShowPaymentModal(true) } },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },
   ]
@@ -709,6 +715,121 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         },
   ].filter(Boolean)
   const linkedLeadId = currentLead?.leadId || relatedLeadId || null
+  const paymentConfirmTarget = paymentConfirmAction?.payment || null
+
+  function closePaymentModal() {
+    setShowPaymentModal(false)
+    setEditingPayment(null)
+  }
+
+  async function saveProjectPayment(payment) {
+    try {
+      const paymentEntry = normalizePaymentRecord({
+        ...(editingPayment || {}),
+        ...payment,
+        id: editingPayment?.id || `payment-${Date.now()}`,
+        clientId: currentLead.clientId || currentLead.client_id || null,
+        projectId: currentLead.id,
+        invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
+        leadId: linkedLeadId || currentLead.leadId || currentLead.id,
+      }, {
+        createdAt: editingPayment?.createdAt,
+        status: editingPayment?.status || 'Recorded',
+      })
+      const response = editingPayment?.id
+        ? await dataProvider.payments.update(editingPayment.id, paymentEntry, { contractorId })
+        : await dataProvider.payments.create(paymentEntry, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('paymentSaveFailed'), 'error')
+        return
+      }
+
+      const savedPayment = normalizePaymentRecord(response?.data || paymentEntry, paymentEntry)
+
+      setPaymentRecords((current) => dedupePayments([
+        savedPayment,
+        ...current.filter((entry) => entry.id !== savedPayment.id),
+      ]))
+      if (editingPayment?.id) {
+        onUpdatePayment?.(savedPayment)
+      } else {
+        onRecordPayment?.(savedPayment)
+      }
+      closePaymentModal()
+    } catch (error) {
+      showToast(error?.message || t('paymentSaveFailed'), 'error')
+      logProjectDetailDevError('[dev] ProjectDetailPage failed to save payment.', error, {
+        projectId: currentLead.id,
+        paymentId: editingPayment?.id || null,
+      })
+    }
+  }
+
+  async function archiveProjectPayment() {
+    if (!paymentConfirmTarget?.id) {
+      setPaymentConfirmAction(null)
+      return
+    }
+
+    try {
+      const response = await dataProvider.payments.archive(paymentConfirmTarget.id, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('paymentDeleteFailed'), 'error')
+        return
+      }
+
+      const archivedPayment = normalizePaymentRecord(response?.data || {
+        ...paymentConfirmTarget,
+        archivedAt: new Date().toISOString(),
+      }, paymentConfirmTarget)
+
+      setPaymentRecords((current) => current.filter((payment) => payment.id !== paymentConfirmTarget.id))
+      onDeletePayment?.(archivedPayment)
+      setPaymentConfirmAction(null)
+    } catch (error) {
+      showToast(error?.message || t('paymentDeleteFailed'), 'error')
+      logProjectDetailDevError('[dev] ProjectDetailPage failed to delete payment.', error, {
+        projectId: currentLead.id,
+        paymentId: paymentConfirmTarget.id,
+      })
+    }
+  }
+
+  function renderPaymentTimelineActions(item) {
+    if (item?.sourceType !== 'payment' || !item?.paymentId) return null
+
+    const selectedTimelinePayment = paymentSummary.payments.find((payment) => payment.id === item.paymentId)
+
+    if (!selectedTimelinePayment) return null
+
+    return (
+      <ActionMenu
+        label={<MoreVertical className="h-4 w-4" />}
+        ariaLabel={t('paymentActions')}
+        showChevron={false}
+        buttonClassName="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+        menuClassName="min-w-44"
+        items={[
+          {
+            id: `edit-payment-${selectedTimelinePayment.id}`,
+            label: t('editPayment'),
+            onClick: () => {
+              setEditingPayment(selectedTimelinePayment)
+              setShowPaymentModal(true)
+            },
+          },
+          {
+            id: `delete-payment-${selectedTimelinePayment.id}`,
+            label: t('deletePayment'),
+            onClick: () => setPaymentConfirmAction({ payment: selectedTimelinePayment }),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]}
+      />
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -894,7 +1015,14 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             <p className="text-sm text-slate-500">{t('homeownerPortalPreviewHelp')}</p>
           </div>
         </div>
-        <PortalSummary lead={currentLead} portal={portal} t={t} portalSettings={companySettings?.portal} />
+        <PortalSummary
+          lead={currentLead}
+          portal={portal}
+          t={t}
+          portalSettings={companySettings?.portal}
+          paymentLayout="projectWorkspace"
+          renderTimelineActions={renderPaymentTimelineActions}
+        />
       </section>
       <LeadFormModal
         isOpen={isEditOpen}
@@ -908,34 +1036,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       <RecordPaymentModal
         isOpen={showPaymentModal}
         remainingBalance={portal.outstandingBalance}
-        onClose={() => setShowPaymentModal(false)}
-        onSave={async (payment) => {
-          try {
-            const paymentEntry = normalizePaymentRecord({
-              id: `payment-${Date.now()}`,
-              ...payment,
-              clientId: currentLead.clientId || currentLead.client_id || null,
-              projectId: currentLead.id,
-              invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
-              leadId: linkedLeadId || currentLead.leadId || currentLead.id,
-            })
-            const response = await dataProvider.payments.create(paymentEntry, { contractorId })
-
-            if (response?.error) {
-              throw response.error
-            }
-
-            const savedPayment = normalizePaymentRecord(response?.data || paymentEntry, paymentEntry)
-
-            setPaymentRecords((current) => dedupePayments([savedPayment, ...current]))
-            onRecordPayment?.(savedPayment)
-            setShowPaymentModal(false)
-          } catch (error) {
-            logProjectDetailDevError('[dev] ProjectDetailPage failed to record payment.', error, {
-              projectId: currentLead.id,
-            })
-          }
-        }}
+        initialPayment={editingPayment}
+        onClose={closePaymentModal}
+        onSave={saveProjectPayment}
         t={t}
       />
       <PhotoUploadModal
@@ -978,6 +1081,16 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           }
           setConfirmAction(null)
         }}
+        t={t}
+      />
+      <ConfirmRecordModal
+        isOpen={Boolean(paymentConfirmAction)}
+        mode="delete"
+        title={t('confirmDeletePayment')}
+        message={t('deletePaymentHelp')}
+        confirmLabel={t('deletePayment')}
+        onCancel={() => setPaymentConfirmAction(null)}
+        onConfirm={archiveProjectPayment}
         t={t}
       />
       <ConfirmRecordModal

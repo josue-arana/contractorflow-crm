@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 const baseMenuItemClasses = 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50'
+const baseButtonClasses = 'inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
 
-export function ActionMenu({ label, items = [], align = 'right' }) {
+export function ActionMenu({ label, items = [], align = 'right', ariaLabel, buttonClassName = '', menuClassName = '', showChevron = true }) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef(null)
   const visibleItems = items.filter((item) => item && item.hidden !== true)
@@ -33,13 +34,15 @@ export function ActionMenu({ label, items = [], align = 'right' }) {
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+        aria-label={ariaLabel}
+        className={buttonClassName || baseButtonClasses}
       >
-        {label} <ChevronDown className="h-4 w-4" />
+        {label}
+        {showChevron ? <ChevronDown className="h-4 w-4" /> : null}
       </button>
 
       {isOpen && (
-        <div className={`absolute top-[calc(100%+0.5rem)] z-20 min-w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg ${align === 'right' ? 'right-0' : 'left-0'}`}>
+        <div className={`absolute top-[calc(100%+0.5rem)] z-20 min-w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg ${align === 'right' ? 'right-0' : 'left-0'} ${menuClassName}`.trim()}>
           {visibleItems.map((item) => (
             <button
               key={item.id}

@@ -48,6 +48,7 @@ import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
+import { generateEstimateNumber } from './utils/estimateNumber'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 import { findPortalProject, resolvePortalRouteId } from './utils/portal'
@@ -1064,23 +1065,12 @@ function ContractorFlowApp() {
     return saveLeadRecord(duplicatedLead)
   }
 
-function recordProjectPayment(leadId, payment) {
+  function syncProjectPayments(leadId, nextPayments, { toastKey, notify = false } = {}) {
     setLeads((current) => current.map((lead) => {
       if (lead.id !== leadId) return lead
 
       const portal = lead.portal || {}
-      const paymentEntry = normalizePaymentRecord({
-        id: payment?.id || `payment-${Date.now()}`,
-        ...payment,
-        clientId: lead.clientId || lead.client_id || null,
-        projectId: lead.id,
-        leadId: lead.leadId || lead.lead_id || lead.id,
-      })
-      const combinedPayments = dedupePayments([
-        paymentEntry,
-        ...(Array.isArray(portal.payments) ? portal.payments : []),
-        ...(Array.isArray(portal.paymentHistory) ? portal.paymentHistory : []),
-      ])
+      const combinedPayments = dedupePayments(nextPayments)
       const paymentSummary = calculateProjectPaymentSummary({
         ...lead,
         portal,
@@ -1097,7 +1087,8 @@ function recordProjectPayment(leadId, payment) {
           ...portal,
           contractAmount: paymentSummary.projectValue,
           depositRequired: paymentSummary.depositRequired,
-          depositPaid: paymentSummary.depositPaid,
+          depositPaid: paymentSummary.depositPaidTotal,
+          otherPaymentsTotal: paymentSummary.otherPaymentsTotal,
           totalPaid: paymentSummary.totalPaid,
           amountPaid: paymentSummary.totalPaid,
           outstandingBalance: paymentSummary.outstandingBalance,
@@ -1107,8 +1098,85 @@ function recordProjectPayment(leadId, payment) {
         },
       }
     }))
-    showToast(t('paymentRecorded'))
-    addNotification('notificationPaymentRecordedTitle', 'notificationPaymentRecordedMessage')
+
+    if (toastKey) {
+      showToast(t(toastKey))
+    }
+
+    if (notify) {
+      addNotification('notificationPaymentRecordedTitle', 'notificationPaymentRecordedMessage')
+    }
+  }
+
+  function recordProjectPayment(leadId, payment) {
+    const sourceLead = leads.find((item) => item.id === leadId)
+    const portal = sourceLead?.portal || {}
+    const paymentEntry = normalizePaymentRecord({
+      id: payment?.id || `payment-${Date.now()}`,
+      ...payment,
+      clientId: sourceLead?.clientId || sourceLead?.client_id || null,
+      projectId: sourceLead?.id || leadId,
+      leadId: sourceLead?.leadId || sourceLead?.lead_id || sourceLead?.id || leadId,
+    })
+    const existingPayments = dedupePayments([
+      ...(Array.isArray(portal.payments) ? portal.payments : []),
+      ...(Array.isArray(portal.paymentHistory) ? portal.paymentHistory : []),
+    ])
+    const combinedPayments = [
+      paymentEntry,
+      ...existingPayments.filter((entry) => entry.id !== paymentEntry.id),
+    ]
+
+    syncProjectPayments(leadId, combinedPayments, {
+      toastKey: 'paymentRecorded',
+      notify: true,
+    })
+  }
+
+  function updateProjectPayment(leadId, payment) {
+    const sourceLead = leads.find((item) => item.id === leadId)
+    const portal = sourceLead?.portal || {}
+    const paymentEntry = normalizePaymentRecord({
+      id: payment?.id || `payment-${Date.now()}`,
+      ...payment,
+      clientId: sourceLead?.clientId || sourceLead?.client_id || null,
+      projectId: sourceLead?.id || leadId,
+      leadId: sourceLead?.leadId || sourceLead?.lead_id || sourceLead?.id || leadId,
+    })
+    const existingPayments = dedupePayments([
+      ...(Array.isArray(portal.payments) ? portal.payments : []),
+      ...(Array.isArray(portal.paymentHistory) ? portal.paymentHistory : []),
+    ])
+
+    syncProjectPayments(leadId, [
+      paymentEntry,
+      ...existingPayments.filter((entry) => entry.id !== paymentEntry.id),
+    ], {
+      toastKey: 'paymentUpdated',
+    })
+  }
+
+  function deleteProjectPayment(leadId, payment) {
+    const sourceLead = leads.find((item) => item.id === leadId)
+    const portal = sourceLead?.portal || {}
+    const timestamp = new Date().toISOString()
+    const existingPayments = dedupePayments([
+      ...(Array.isArray(portal.payments) ? portal.payments : []),
+      ...(Array.isArray(portal.paymentHistory) ? portal.paymentHistory : []),
+    ]).map((entry) => (
+      entry.id === payment?.id
+        ? normalizePaymentRecord({
+            ...entry,
+            ...payment,
+            archivedAt: payment?.archivedAt || timestamp,
+            updatedAt: timestamp,
+          }, entry)
+        : entry
+    ))
+
+    syncProjectPayments(leadId, existingPayments, {
+      toastKey: 'paymentDeleted',
+    })
   }
 
   function uploadProjectPhotos(leadId, photos) {
@@ -1131,7 +1199,7 @@ function recordProjectPayment(leadId, payment) {
     const existingEstimate = hasEstimateData(portal.estimate)
       ? portal.estimate
       : readLinkedEstimateDraft(sourceLead || leadId, leadId) || {}
-    const estimateNumber = existingEstimate.number || `EST-${String(leadId).replace(/\D/g, '').padStart(4, '0')}`
+    const estimateNumber = existingEstimate.number || generateEstimateNumber(sourceLead || { id: leadId })
     const lineItems = Array.isArray(estimate?.lineItems) ? estimate.lineItems : []
     const relatedProjectId = estimate?.projectId || existingEstimate.projectId || sourceLead?.projectId || null
     const nextEstimateDraft = {
@@ -1545,7 +1613,7 @@ function recordProjectPayment(leadId, payment) {
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
-      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
+      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
@@ -1635,7 +1703,7 @@ function recordProjectPayment(leadId, payment) {
   )
 }
 
-function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
@@ -1650,6 +1718,8 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onOpenPortal={() => onOpenPortal(projectId)}
       onUpdateLead={onUpdateLead}
       onRecordPayment={(payment) => onRecordPayment?.(projectId, payment)}
+      onUpdatePayment={(payment) => onUpdatePayment?.(projectId, payment)}
+      onDeletePayment={(payment) => onDeletePayment?.(projectId, payment)}
       onUploadPhotos={(photos) => onUploadPhotos?.(projectId, photos)}
       scheduleEvents={scheduleEvents}
       archivedScheduleEventIds={archivedScheduleEventIds}

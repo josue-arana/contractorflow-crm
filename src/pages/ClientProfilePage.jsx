@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
 import { archivePanelButtonClasses } from '../utils/buttonStyles'
+import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
@@ -165,7 +166,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
       <section className="grid gap-4 xl:grid-cols-3">
         <InfoCard title={t('estimates')} icon={ClipboardList}>
           <div className="space-y-3">
-            {estimates.length ? estimates.map((estimate) => <DocumentRow key={estimate.number} title={estimate.number} helper={estimate.summary} amount={estimate.total} />) : <p className="text-sm text-slate-500">{t('noEstimates')}</p>}
+            {estimates.length ? estimates.map((estimate, index) => <DocumentRow key={estimate.id || estimate.number || `estimate-${index}`} title={getEstimateDisplayNumber(estimate, estimate)} helper={estimate.summary} amount={estimate.total} />) : <p className="text-sm text-slate-500">{t('noEstimates')}</p>}
           </div>
         </InfoCard>
 

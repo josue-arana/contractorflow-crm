@@ -1,3 +1,5 @@
+import { generateEstimateNumber } from './estimateNumber'
+
 export function extractPortalRouteIdFromShareUrl(shareUrl = '') {
   if (!shareUrl || typeof shareUrl !== 'string') return ''
 
@@ -41,6 +43,7 @@ export function getPortalData(lead) {
   const depositRequired = lead.portal?.depositRequired ?? Math.round(fallbackContract * 0.5)
   const totalPaid = lead.portal?.totalPaid ?? lead.portal?.amountPaid ?? fallbackPaid
   const depositPaid = lead.portal?.depositPaid ?? Math.min(totalPaid, depositRequired)
+  const otherPaymentsTotal = lead.portal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)
 
   return {
     shareUrl: lead.portal?.shareUrl || `https://contractorflow.app/portal/${portalRouteId}`,
@@ -48,6 +51,7 @@ export function getPortalData(lead) {
     contractAmount: lead.portal?.contractAmount ?? fallbackContract,
     depositRequired,
     depositPaid,
+    otherPaymentsTotal,
     totalPaid,
     amountPaid: lead.portal?.amountPaid ?? totalPaid,
     outstandingBalance: lead.portal?.outstandingBalance ?? Math.max(fallbackContract - totalPaid, 0),
@@ -73,7 +77,7 @@ export function getPortalData(lead) {
     ],
     payments: lead.portal?.payments || lead.portal?.paymentHistory || [],
     estimate: lead.portal?.estimate || {
-      number: `EST-${lead.id.replace(/\D/g, '').padStart(4, '0')}`,
+      number: generateEstimateNumber(lead),
       total: fallbackContract,
       summary: lead.projectType || 'Project estimate',
     },
