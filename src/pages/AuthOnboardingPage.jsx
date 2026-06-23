@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { LanguageToggleButton } from '../components/common/LanguageToggleButton'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -12,7 +13,7 @@ function buildInitialForm(user) {
   }
 }
 
-export function AuthOnboardingPage({ t, onCompleted }) {
+export function AuthOnboardingPage({ t, onCompleted, language, setLanguage }) {
   const { completeContractorOnboarding, logout, user } = useAuth()
   const { showToast } = useToast()
   const [form, setForm] = useState(() => buildInitialForm(user))
@@ -44,7 +45,9 @@ export function AuthOnboardingPage({ t, onCompleted }) {
     setIsSubmitting(false)
 
     if (result.error && !result.skipped) {
-      const message = result.error.message || t('contractorOnboardingFailed')
+      // eslint-disable-next-line no-console
+      console.error('Contractor onboarding failed:', result.error)
+      const message = t('contractorOnboardingFailed')
       setErrorMessage(message)
       showToast(message, 'error')
       return
@@ -65,7 +68,10 @@ export function AuthOnboardingPage({ t, onCompleted }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-0">
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('authContractorOnboardingLabel')}</p>
+        <div className="flex items-start justify-between gap-4">
+          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('authContractorOnboardingLabel')}</p>
+          <LanguageToggleButton language={language} setLanguage={setLanguage} t={t} className="border-white/80 bg-white text-slate-900 shadow-sm hover:bg-slate-100" />
+        </div>
         <h1 className="mt-2 text-3xl font-bold">{t('authContractorOnboardingTitle')}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{t('authContractorOnboardingDescription')}</p>
       </section>

@@ -5,6 +5,7 @@ import { appRoutes } from '../../config/appRoutes'
 import { USE_AUTH } from '../../config/backendConfig'
 import { useAuth } from '../../contexts/AuthContext'
 import { useToast } from '../common/ToastProvider'
+import { LanguageToggleButton } from '../common/LanguageToggleButton'
 import { ModalShell } from '../common/ModalShell'
 import { AccountMenu } from './AccountMenu'
 import { NotificationCenter } from './NotificationCenter'
@@ -109,9 +110,7 @@ export function Topbar({
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 px-3 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50" aria-label={t('language')}>
-              {language === 'en' ? '🇪🇸 Español' : '🇺🇸 English'}
-            </button>
+            <LanguageToggleButton language={language} setLanguage={setLanguage} t={t} />
             <button onClick={openNotifications} className="relative rounded-2xl border border-slate-200 p-3 hover:bg-slate-50" aria-label={t('notificationCenter')}>
               <Bell className="h-5 w-5 text-slate-600" />
               {unreadCount > 0 && (

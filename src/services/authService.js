@@ -426,6 +426,32 @@ export async function signUpWithEmail({ email, password, fullName, companyName }
   }
 }
 
+export async function resendSignUpVerificationEmail(email) {
+  if (!USE_AUTH) {
+    return { data: { email }, error: createAuthDisabledError(), skipped: true }
+  }
+
+  try {
+    const redirectTo = getAuthRedirectUrl()
+    const data = await authRequest('/resend', {
+      method: 'POST',
+      body: {
+        type: 'signup',
+        email,
+      },
+      headers: {
+        redirect_to: redirectTo,
+        'x-redirect-to': redirectTo,
+      },
+      skipSessionRecovery: true,
+    })
+
+    return { data, error: null, skipped: false }
+  } catch (error) {
+    return { data: null, error: recordAuthError(error, 'Unable to resend the verification email.'), skipped: false }
+  }
+}
+
 export async function signInWithEmail({ email, password }) {
   if (!USE_AUTH) {
     return {

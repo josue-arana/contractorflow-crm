@@ -5,7 +5,7 @@ import { appRoutes } from '../../config/appRoutes'
 import { useAuth } from '../../contexts/AuthContext'
 import { useToast } from '../../components/common/ToastProvider'
 
-export function ForgotPasswordPage({ t }) {
+export function ForgotPasswordPage({ t, language, setLanguage }) {
   const navigate = useNavigate()
   const { resetPassword, authMode } = useAuth()
   const { showToast } = useToast()
@@ -37,6 +37,8 @@ export function ForgotPasswordPage({ t }) {
       alternatePath={appRoutes.login}
       alternateActionLabel={t('backToLogin')}
       t={t}
+      language={language}
+      setLanguage={setLanguage}
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>

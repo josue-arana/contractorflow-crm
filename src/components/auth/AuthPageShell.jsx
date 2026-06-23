@@ -1,14 +1,18 @@
 import { NavLink } from 'react-router-dom'
 import { appRoutes } from '../../config/appRoutes'
+import { LanguageToggleButton } from '../common/LanguageToggleButton'
 
-export function AuthPageShell({ eyebrow, title, description, alternateLabel, alternatePath, alternateActionLabel, children, t }) {
+export function AuthPageShell({ eyebrow, title, description, alternateLabel, alternatePath, alternateActionLabel, children, t, language, setLanguage }) {
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1.05fr,0.95fr]">
         <section className="rounded-[2rem] bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white shadow-2xl sm:p-8">
-          <NavLink to={appRoutes.dashboard} className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-100">
-            {t('brandName')}
-          </NavLink>
+          <div className="flex items-start justify-between gap-4">
+            <NavLink to={appRoutes.dashboard} className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-100">
+              {t('brandName')}
+            </NavLink>
+            <LanguageToggleButton language={language} setLanguage={setLanguage} t={t} className="border-white/80 bg-white text-slate-900 shadow-sm hover:bg-slate-100" />
+          </div>
           <p className="mt-8 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{eyebrow}</p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">{description}</p>

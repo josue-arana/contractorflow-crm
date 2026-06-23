@@ -1711,9 +1711,9 @@ function ContractorFlowApp() {
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
-      <Route path={appRoutes.login} element={<LoginPage t={t} />} />
-      <Route path={appRoutes.signup} element={<SignupPage t={t} />} />
-      <Route path={appRoutes.forgotPassword} element={<ForgotPasswordPage t={t} />} />
+      <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
+      <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />
+      <Route path={appRoutes.forgotPassword} element={<ForgotPasswordPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.developerHealth} element={<TranslationAuditPage t={t} />} />
       <Route path={appRoutes.developerTranslations} element={<TranslationAuditPage t={t} />} />
       <Route path="*" element={<Navigate to={appRoutes.dashboard} replace />} />
@@ -1742,6 +1742,8 @@ function ContractorFlowApp() {
         <main className="px-4 py-6 sm:px-6 lg:px-8">
           <AuthOnboardingPage
             t={t}
+            language={language}
+            setLanguage={setLanguage}
             onCompleted={(payload) => {
               setCompanySettings(createDefaultCompanySettings({
                 contractorId: payload.contractorId,
