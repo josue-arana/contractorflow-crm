@@ -65,7 +65,7 @@ function createSupabaseHttpError(data, fallbackMessage, status) {
 }
 
 function isSessionRecoveryStatus(status) {
-  return status === 401 || status === 403
+  return status === 401
 }
 
 export function isSupabaseSessionError(error) {

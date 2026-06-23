@@ -121,10 +121,10 @@ export function Topbar({
               )}
             </button>
             <button onClick={() => { setIsAccountOpen((value) => !value); setIsNotificationsOpen(false); setAccountScreen(null) }} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 hover:bg-slate-50" aria-label={t('accountMenu')}>
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">{t('userInitials')}</div>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">{userProfile?.initials || t('userInitials')}</div>
               <div className="hidden text-left sm:block">
                 <p className="text-sm font-semibold">{userProfile?.name || t('userName')}</p>
-                <p className="text-xs text-slate-500">{t('ownerAdmin')}</p>
+                <p className="text-xs text-slate-500">{userProfile?.email || t('email')}</p>
               </div>
               <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
             </button>

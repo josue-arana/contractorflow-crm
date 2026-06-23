@@ -138,7 +138,7 @@ function handleMissingContractorId(methodName) {
   warnDev(`[dev] clientsSupabaseService.${methodName} called without contractorId`)
 
   return createErrorResult(
-    'contractorId is required for client operations.',
+    'Your account is not connected to a contractor profile yet.',
     {
       methodName,
       reason: 'No contractorId was provided to the Clients Supabase service.',

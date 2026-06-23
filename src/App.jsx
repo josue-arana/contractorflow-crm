@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
@@ -35,6 +35,8 @@ import { InvoicesPage } from './pages/InvoicesPage'
 import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { TranslationAuditPage } from './pages/TranslationAuditPage'
+import { AuthSetupPage } from './pages/AuthSetupPage'
+import { AuthOnboardingPage } from './pages/AuthOnboardingPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
 import { appRoutes } from './config/appRoutes'
 import { AuthProvider } from './contexts/AuthContext'
@@ -42,11 +44,13 @@ import { useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS } from './config/backendConfig'
+import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
+import { getSettingsContractorId } from './services/system/settingsRuntimeService'
+import { buildDisplayedUserProfile } from './services/system/userProfileRuntimeService'
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
 import { generateEstimateNumber } from './utils/estimateNumber'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
@@ -218,6 +222,8 @@ const defaultUserProfile = {
   phone: '(410) 555-0188',
   preferredLanguage: 'en',
   timezone: 'America/New_York',
+  source: 'mock',
+  authUserId: 'mock-user',
 }
 
 const initialNotifications = [
@@ -291,20 +297,108 @@ function ContractorFlowApp() {
     },
   }))
   const [notifications, setNotifications] = useState(initialNotifications)
-  const [userProfile, setUserProfile] = useState(defaultUserProfile)
+  const [userProfilesByUserId, setUserProfilesByUserId] = useState({
+    'mock-user': defaultUserProfile,
+  })
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
   const navigate = useNavigate()
   const location = useLocation()
   const { showToast } = useToast()
-  const { contractor, company, session } = useAuth()
+  const { authSetupError, company, contractor, contractorAccess, hasContractorAccess, isAuthenticated, isLoading, logout, onboardingRequired, session, user } = useAuth()
+  const activeUserProfileKey = USE_AUTH ? (user?.id || session?.user?.id || 'anonymous-auth') : 'mock-user'
+  const {
+    profile: userProfile,
+  } = useMemo(() => buildDisplayedUserProfile({
+    contractor,
+    contractorAccess,
+    mockProfile: defaultUserProfile,
+    session,
+    user,
+    profileOverrides: userProfilesByUserId[activeUserProfileKey],
+  }), [activeUserProfileKey, contractor, contractorAccess, session, user, userProfilesByUserId])
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
   const leadsContractorId = getLeadsContractorId({ contractor, company, session })
   const projectsContractorId = getProjectsContractorId({ contractor, company, session })
+  const settingsContractorId = getSettingsContractorId({ contractor, company, session })
+  const isAwaitingResolvedSettings = Boolean(
+    USE_AUTH
+      && contractorAccess?.membershipStatus === 'active'
+      && settingsContractorId
+      && companySettings?.contractorId !== settingsContractorId
+  )
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
+  const isDeveloperRoute = [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
 
   useClientsBootstrap(setCustomClients)
   useLeadsBootstrap(setLeads)
+
+  useEffect(() => {
+    setUserProfilesByUserId((current) => {
+      if (current[activeUserProfileKey]) {
+        return current
+      }
+
+      return {
+        ...current,
+        [activeUserProfileKey]: {
+          preferredLanguage: language,
+          timezone: 'America/New_York',
+        },
+      }
+    })
+  }, [activeUserProfileKey, language])
+
+  useEffect(() => {
+    if (!USE_AUTH || contractorAccess?.membershipStatus !== 'active' || !settingsContractorId) {
+      return
+    }
+
+    setCompanySettings((current) => createDefaultCompanySettings({
+      ...current,
+      contractorId: settingsContractorId,
+      company: {
+        ...(current?.company || {}),
+        name: company?.name || contractorAccess?.contractorRecord?.company_name || current?.company?.name || '',
+        ownerName: contractor?.fullName || contractorAccess?.contractorRecord?.owner_name || current?.company?.ownerName || '',
+        phone: contractorAccess?.contractorRecord?.phone || current?.company?.phone || '',
+        email: contractorAccess?.contractorRecord?.email || user?.email || current?.company?.email || '',
+        address: contractorAccess?.contractorRecord?.business_address || current?.company?.address || '',
+      },
+    }))
+  }, [company?.name, contractor?.fullName, contractorAccess?.contractorRecord?.business_address, contractorAccess?.contractorRecord?.company_name, contractorAccess?.contractorRecord?.email, contractorAccess?.contractorRecord?.owner_name, contractorAccess?.contractorRecord?.phone, contractorAccess?.membershipStatus, settingsContractorId, user?.email])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    if (!USE_SUPABASE_SETTINGS || !settingsContractorId || contractorAccess?.membershipStatus !== 'active') {
+      return undefined
+    }
+
+    async function loadCompanySettings() {
+      const response = await dataProvider?.settings?.getSettings?.({ contractorId: settingsContractorId })
+
+      if (isCancelled) return
+
+      if (response?.error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] App settings bootstrap failed.', response.error)
+        }
+        return
+      }
+
+      if (response?.data) {
+        setCompanySettings(response.data)
+      }
+    }
+
+    loadCompanySettings()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorAccess?.membershipStatus, settingsContractorId])
 
   const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)).map(hydrateLeadEstimateData), [leads, archives.deletedLeadIds])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
@@ -1630,6 +1724,75 @@ function ContractorFlowApp() {
     return routeElements
   }
 
+  if (USE_AUTH && isLoading) {
+    return null
+  }
+
+  if (USE_AUTH && !isAuthenticated) {
+    return <Navigate to={appRoutes.login} replace state={{ from: location.pathname }} />
+  }
+
+  if (isAwaitingResolvedSettings && !isDeveloperRoute) {
+    return null
+  }
+
+  if (USE_AUTH && isAuthenticated && onboardingRequired && !isDeveloperRoute) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <main className="px-4 py-6 sm:px-6 lg:px-8">
+          <AuthOnboardingPage
+            t={t}
+            onCompleted={(payload) => {
+              setCompanySettings(createDefaultCompanySettings({
+                contractorId: payload.contractorId,
+                appLanguage: language,
+                company: {
+                  name: payload.companyName,
+                  ownerName: payload.ownerName,
+                  phone: payload.phone,
+                  email: payload.businessEmail,
+                  address: payload.businessAddress,
+                },
+                portal: {
+                  defaultLanguage: portalLanguage,
+                },
+              }))
+              navigate(appRoutes.dashboard, { replace: true })
+            }}
+          />
+        </main>
+      </div>
+    )
+  }
+
+  if (USE_AUTH && isAuthenticated && !hasContractorAccess && !isDeveloperRoute) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-950">
+        <main className="px-4 py-6 sm:px-6 lg:px-8">
+          <AuthSetupPage
+            title={t('authContractorSetupRequiredTitle')}
+            message={t('authContractorSetupRequiredMessage')}
+            helper={authSetupError?.code === 'MULTIPLE_CONTRACTOR_MEMBERSHIPS'
+              ? t('authContractorMultipleMembershipsHelper')
+              : t('authContractorSetupRequiredHelper')}
+            t={t}
+          >
+            <button
+              type="button"
+              onClick={async () => {
+                await logout()
+                navigate(appRoutes.login, { replace: true })
+              }}
+              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800"
+            >
+              {t('signOut')}
+            </button>
+          </AuthSetupPage>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} />
@@ -1644,7 +1807,15 @@ function ContractorFlowApp() {
           onMarkAllNotificationsRead={markAllNotificationsRead}
           onClearNotifications={clearNotifications}
           userProfile={userProfile}
-          onSaveUserProfile={setUserProfile}
+          onSaveUserProfile={(nextProfile) => {
+            setUserProfilesByUserId((current) => ({
+              ...current,
+              [activeUserProfileKey]: {
+                ...(current[activeUserProfileKey] || {}),
+                ...nextProfile,
+              },
+            }))
+          }}
           onOpenSettings={() => navigate('/settings')}
         />
 

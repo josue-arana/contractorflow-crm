@@ -18,13 +18,13 @@ function warnDev(message, meta) {
 }
 
 export function useClientsBootstrap(setCustomClients) {
-  const { contractor, company, session } = useAuth()
+  const { contractor, company, contractorAccess, session } = useAuth()
   const contractorId = getClientsContractorId({ contractor, company, session })
 
   useEffect(() => {
     let isCancelled = false
 
-    if (!USE_SUPABASE_CLIENTS) {
+    if (!USE_SUPABASE_CLIENTS || contractorAccess?.membershipStatus !== 'active' || !contractorId) {
       return undefined
     }
 
@@ -46,7 +46,7 @@ export function useClientsBootstrap(setCustomClients) {
     return () => {
       isCancelled = true
     }
-  }, [contractorId, setCustomClients])
+  }, [contractorAccess?.membershipStatus, contractorId, setCustomClients])
 }
 
 export default useClientsBootstrap

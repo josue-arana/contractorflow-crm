@@ -5,6 +5,10 @@ import { getClientsContractorId } from '../services/system/clientsRuntimeService
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
+import { isBetaContractorFallbackActive } from '../services/system/contractorRuntimeService'
+import { getSettingsRuntimeStatus } from '../services/supabase/settingsSupabaseService'
+import { getContractorOnboardingRuntimeStatus } from '../services/supabase/contractorOnboardingSupabaseService'
+import { buildDisplayedUserProfile } from '../services/system/userProfileRuntimeService'
 
 function StatusBadge({ status }) {
   const classes = {
@@ -56,15 +60,56 @@ function AuditList({ title, items, emptyLabel, renderItem }) {
   )
 }
 
+function getMembershipStatusLabel(t, status) {
+  if (status === 'active') return t('membershipStatusActive')
+  if (status === 'loading') return t('membershipStatusLoading')
+  if (status === 'multiple') return t('membershipStatusMultiple')
+  if (status === 'mock') return t('membershipStatusMock')
+  if (status === 'error') return t('membershipStatusError')
+  return t('membershipStatusMissing')
+}
+
+function getSettingsLoadStatusLabel(t, status) {
+  if (status === 'loading') return t('settingsLoadStatusLoading')
+  if (status === 'saving') return t('settingsLoadStatusSaving')
+  if (status === 'success') return t('settingsLoadStatusSuccess')
+  if (status === 'error') return t('settingsLoadStatusError')
+  return t('settingsLoadStatusIdle')
+}
+
+function getProfileSourceLabel(t, source) {
+  if (source === 'auth_metadata') return t('profileSourceAuthMetadata')
+  if (source === 'contractor_members') return t('profileSourceContractorMembers')
+  if (source === 'mock') return t('profileSourceMock')
+  return t('profileSourceFallback')
+}
+
 export function TranslationAuditPage({ t }) {
   const snapshot = buildDeveloperHealthSnapshot()
-  const { authMode, authServiceStatus, contractor, company, user, session } = useAuth()
+  const { authMode, authServiceStatus, contractor, company, contractorAccess, onboardingCompleted, onboardingRequired, user, session } = useAuth()
+  const displayedUserProfile = buildDisplayedUserProfile({
+    contractor,
+    contractorAccess,
+    mockProfile: {
+      name: 'Josue Arana',
+      email: 'josue@contractorflow.example',
+      phone: '(410) 555-0188',
+      preferredLanguage: 'en',
+      timezone: 'America/New_York',
+    },
+    session,
+    user,
+  }).profile
   const settingsContractorId = getSettingsContractorId({ contractor, company, session })
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
   const leadsContractorId = getLeadsContractorId({ contractor, company, session })
   const projectsContractorId = getProjectsContractorId({ contractor, company, session })
+  const settingsRuntimeStatus = getSettingsRuntimeStatus()
+  const onboardingRuntimeStatus = getContractorOnboardingRuntimeStatus()
+  const betaFallbackActive = isBetaContractorFallbackActive({ contractor, company, session })
   const hasSettingsSupabaseUser = hasAuthenticatedSupabaseSettingsUser({
     authMode,
+    membershipStatus: contractorAccess?.membershipStatus,
     user,
     session,
   })
@@ -98,9 +143,64 @@ export function TranslationAuditPage({ t }) {
       value: user?.id || t('notAvailable'),
     },
     {
+      id: 'authEmail',
+      label: t('authEmail'),
+      value: user?.email || t('notAvailable'),
+    },
+    {
+      id: 'displayedProfileName',
+      label: t('displayedProfileName'),
+      value: displayedUserProfile?.name || t('notAvailable'),
+    },
+    {
+      id: 'displayedProfileEmail',
+      label: t('displayedProfileEmail'),
+      value: displayedUserProfile?.email || t('notAvailable'),
+    },
+    {
+      id: 'profileSource',
+      label: t('profileSource'),
+      value: getProfileSourceLabel(t, displayedUserProfile?.source),
+    },
+    {
       id: 'settingsContractorId',
       label: t('settingsCurrentContractorId'),
       value: settingsContractorId || t('notAvailable'),
+    },
+    {
+      id: 'contractorMembershipStatus',
+      label: t('contractorMembershipStatus'),
+      value: getMembershipStatusLabel(t, contractorAccess?.membershipStatus),
+    },
+    {
+      id: 'onboardingRequired',
+      label: t('onboardingRequired'),
+      value: t(onboardingRequired ? 'yes' : 'no'),
+    },
+    {
+      id: 'onboardingCompleted',
+      label: t('onboardingCompleted'),
+      value: t(onboardingCompleted ? 'yes' : 'no'),
+    },
+    {
+      id: 'betaFallbackActive',
+      label: t('betaContractorFallbackActive'),
+      value: t(betaFallbackActive ? 'yes' : 'no'),
+    },
+    {
+      id: 'settingsLoadStatus',
+      label: t('settingsLoadStatus'),
+      value: getSettingsLoadStatusLabel(t, settingsRuntimeStatus.loadStatus),
+    },
+    {
+      id: 'lastSettingsError',
+      label: t('lastSettingsError'),
+      value: settingsRuntimeStatus.lastError?.message || t('notAvailable'),
+    },
+    {
+      id: 'onboardingStatus',
+      label: t('onboardingStatus'),
+      value: getSettingsLoadStatusLabel(t, onboardingRuntimeStatus.status === 'submitting' ? 'saving' : onboardingRuntimeStatus.status),
     },
   ]
   const clientsBackendRows = [
@@ -463,6 +563,42 @@ export function TranslationAuditPage({ t }) {
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
               <p className="font-bold text-slate-950">{t('lastAuthSessionError')}</p>
               <p className="text-sm font-semibold text-slate-600">{authServiceStatus.lastSessionError?.message || authServiceStatus.lastAuthError?.message || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('authEmail')}</p>
+              <p className="text-sm font-semibold text-slate-600">{user?.email || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('displayedProfileName')}</p>
+              <p className="text-sm font-semibold text-slate-600">{displayedUserProfile?.name || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('displayedProfileEmail')}</p>
+              <p className="text-sm font-semibold text-slate-600">{displayedUserProfile?.email || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('profileSource')}</p>
+              <p className="text-sm font-semibold text-slate-600">{getProfileSourceLabel(t, displayedUserProfile?.source)}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('resolvedContractorId')}</p>
+              <p className="text-sm font-semibold text-slate-600">{contractorAccess?.contractorId || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('contractorMembershipStatus')}</p>
+              <p className="text-sm font-semibold text-slate-600">{getMembershipStatusLabel(t, contractorAccess?.membershipStatus)}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('onboardingRequired')}</p>
+              <p className="text-sm font-semibold text-slate-600">{t(onboardingRequired ? 'yes' : 'no')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('onboardingCompleted')}</p>
+              <p className="text-sm font-semibold text-slate-600">{t(onboardingCompleted ? 'yes' : 'no')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('betaContractorFallbackActive')}</p>
+              <p className="text-sm font-semibold text-slate-600">{t(betaFallbackActive ? 'yes' : 'no')}</p>
             </div>
           </div>
         </SectionCard>

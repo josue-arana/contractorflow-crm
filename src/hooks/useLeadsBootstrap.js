@@ -18,13 +18,13 @@ function warnDev(message, meta) {
 }
 
 export function useLeadsBootstrap(setLeads) {
-  const { contractor, company, session } = useAuth()
+  const { contractor, company, contractorAccess, session } = useAuth()
   const contractorId = getLeadsContractorId({ contractor, company, session })
 
   useEffect(() => {
     let isCancelled = false
 
-    if (!USE_SUPABASE_LEADS) {
+    if (!USE_SUPABASE_LEADS || contractorAccess?.membershipStatus !== 'active' || !contractorId) {
       return undefined
     }
 
@@ -46,7 +46,7 @@ export function useLeadsBootstrap(setLeads) {
     return () => {
       isCancelled = true
     }
-  }, [contractorId, setLeads])
+  }, [contractorAccess?.membershipStatus, contractorId, setLeads])
 }
 
 export default useLeadsBootstrap
