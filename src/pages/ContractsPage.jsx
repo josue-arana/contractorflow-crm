@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
+import { ContractPdfTemplate } from '../components/contracts/ContractPdfTemplate'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
@@ -9,6 +10,46 @@ import { ModalShell } from '../components/common/ModalShell'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { downloadContractPdf } from '../utils/contractPdf'
+import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
+
+function formatContractDate(value) {
+  if (!value) {
+    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  }
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+function buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t }) {
+  return [
+    {
+      title: t('materialsAndScheduling'),
+      content: materials,
+    },
+    {
+      title: t('projectTimeline'),
+      content: timeline,
+    },
+    {
+      title: t('clientCommunicationAndAdjustments'),
+      content: [changeOrders, clientResponsibilities].filter(Boolean).join('\n\n'),
+    },
+    {
+      title: t('paymentTerms'),
+      content: paymentTerms,
+    },
+    {
+      title: t('acceptanceLegalConfirmation'),
+      content: [t('compactContractAcceptanceText'), warrantyDisclaimer].filter(Boolean).join('\n\n'),
+    },
+  ]
+}
 
 function buildContractEditorState({ lead, portal, savedContract, estimate, t }) {
   return {
@@ -24,6 +65,7 @@ function buildContractEditorState({ lead, portal, savedContract, estimate, t }) 
 
 export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned }) {
   const { showToast } = useToast()
+  const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const portal = getPortalData(lead)
@@ -41,6 +83,28 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   const [clientResponsibilities, setClientResponsibilities] = useState(editorState.clientResponsibilities)
   const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(editorState.warrantyDisclaimer)
   const contractTotal = Number(lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
+  const previewContractDate = useMemo(
+    () => formatContractDate(savedContract.signedDate || savedContract.updatedAt || lead.portal?.contract?.updatedAt || new Date()),
+    [lead.portal?.contract?.updatedAt, savedContract.signedDate, savedContract.updatedAt]
+  )
+  const notesAndTermsItems = useMemo(
+    () => buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t }),
+    [changeOrders, clientResponsibilities, materials, paymentTerms, t, timeline, warrantyDisclaimer]
+  )
+  const previewContractNumber = useMemo(
+    () => formatContractDisplayNumber(savedContract.number || generateContractNumber(lead), { ...lead, ...savedContract }),
+    [lead, savedContract]
+  )
+  const contractPreviewProps = useMemo(() => ({
+    company: companySettings?.company,
+    lead,
+    contractNumber: previewContractNumber,
+    contractDate: previewContractDate,
+    notesAndTermsItems,
+    scope,
+    total: contractTotal,
+    t,
+  }), [companySettings?.company, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope, t])
 
   function resetEditorState() {
     const nextState = buildContractEditorState({
@@ -66,7 +130,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
 
   function getContractPayload(extra = {}) {
     return {
-      number: savedContract.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+      number: savedContract.number || generateContractNumber(lead),
       status: savedContract.status || 'Draft',
       signedDate: savedContract.signedDate || '',
       scope,
@@ -79,6 +143,33 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       total: contractTotal,
       updatedAt: new Date().toISOString(),
       ...extra,
+    }
+  }
+
+  async function handleDownloadPdf() {
+    try {
+      await downloadContractPdf({
+        element: pdfTemplateRef.current,
+        contractNumber: previewContractNumber,
+        contractDate: previewContractDate,
+        notesAndTermsItems,
+        clientName: lead?.client,
+        companyName: companySettings?.company?.name,
+        company: companySettings?.company || {},
+        lead,
+        scope,
+        paymentTerms,
+        materials,
+        timeline,
+        changeOrders,
+        clientResponsibilities,
+        warrantyDisclaimer,
+        total: contractTotal,
+        t,
+      })
+      showToast(t('contractPdfGenerated'))
+    } catch (error) {
+      showToast(error?.message || t('contractPdfGenerateFailed'), 'error')
     }
   }
 
@@ -153,28 +244,24 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <DocumentCompanyHeader company={companySettings?.company} t={t} />
-        <div className="my-6 border-t border-slate-200" />
         <div className="mb-6 grid gap-3 sm:grid-cols-5">
           {isEditing ? (
-            <>
-              <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
-              <button onClick={cancelEditing} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('cancelEditing')}</button>
-            </>
+            <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
           ) : (
             <button onClick={() => setIsEditing(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
           )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
-          {!isEditing ? (
-            <>
-              <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
-              <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
-            </>
-          ) : null}
+          <button onClick={handleDownloadPdf} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('downloadPdf')}</button>
+          <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
+          <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
         </div>
         <ContractDocument
           isEditing={isEditing}
           lead={lead}
+          company={companySettings?.company}
+          contractDate={previewContractDate}
+          contractNumber={previewContractNumber}
+          notesAndTermsItems={notesAndTermsItems}
           contractTotal={contractTotal}
           scope={scope}
           setScope={setScope}
@@ -192,55 +279,54 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
           setWarrantyDisclaimer={setWarrantyDisclaimer}
           t={t}
         />
+        {isEditing ? (
+          <button onClick={cancelEditing} className="mt-4 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('cancelEditing')}</button>
+        ) : null}
       </section>
       <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={t} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
         <div className="rounded-3xl bg-white text-slate-950">
-          <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-            <DocumentCompanyHeader company={companySettings?.company} t={t} />
-            <div className="text-right">
-              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('contract')}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{savedContract.number || getContractPayload().number}</p>
-            </div>
-          </div>
-          <ContractDocument
-            isEditing={false}
-            lead={lead}
-            contractTotal={contractTotal}
-            scope={scope}
-            paymentTerms={paymentTerms}
-            materials={materials}
-            timeline={timeline}
-            changeOrders={changeOrders}
-            clientResponsibilities={clientResponsibilities}
-            warrantyDisclaimer={warrantyDisclaimer}
-            t={t}
-          />
+          <ContractPdfTemplate {...contractPreviewProps} />
           <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
         </div>
       </ModalShell>
+      <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>
+        <div
+          ref={pdfTemplateRef}
+          data-contract-pdf-root="true"
+          style={{ width: '816px', backgroundColor: '#ffffff', color: '#0f172a', padding: '24px', boxSizing: 'border-box' }}
+        >
+          <ContractPdfTemplate {...contractPreviewProps} />
+        </div>
+      </div>
     </div>
   )
 }
 
-function ContractDocument({ isEditing, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
+function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
   return (
     <div className="space-y-5 text-sm leading-6 text-slate-700">
-      <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} />
-      <ContractSection title={t('paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} isEditing={isEditing} />
-      <ContractSection title={t('materials')} value={materials} onChange={setMaterials} isEditing={isEditing} />
-      <ContractSection title={t('timeline')} value={timeline} onChange={setTimeline} isEditing={isEditing} />
-      <ContractSection title={t('changeOrders')} value={changeOrders} onChange={setChangeOrders} isEditing={isEditing} />
-      <ContractSection title={t('clientResponsibilities')} value={clientResponsibilities} onChange={setClientResponsibilities} isEditing={isEditing} />
-      <ContractSection title={t('warrantyDisclaimer')} value={warrantyDisclaimer} onChange={setWarrantyDisclaimer} isEditing={isEditing} />
-      <div className="rounded-2xl bg-slate-50 p-4">
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('projectTotal')}</p>
-        <p className="mt-1 text-2xl font-bold text-slate-950">{currency.format(contractTotal)}</p>
-      </div>
-      <div className="grid gap-4 pt-4 sm:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('contractorSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
-        <div className="rounded-2xl border border-slate-200 p-4"><p className="font-bold">{t('clientSignature')}</p><div className="mt-10 border-t border-slate-300" /></div>
-      </div>
+      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} total={contractTotal} t={t} /> : null}
+      {isEditing ? (
+        <>
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-6">
+            <DocumentCompanyHeader company={company} t={t} />
+            <div className="text-right">
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('contract')}</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{contractNumber}</p>
+              <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{t('date')}</p>
+              <p className="mt-1 text-sm text-slate-600">{contractDate}</p>
+            </div>
+          </div>
+          <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} highlighted />
+          <ContractSection title={t('materialsAndScheduling')} value={materials} onChange={setMaterials} isEditing={isEditing} />
+          <ContractSection title={t('projectTimeline')} value={timeline} onChange={setTimeline} isEditing={isEditing} />
+          <ContractSection title={t('changeOrders')} value={changeOrders} onChange={setChangeOrders} isEditing={isEditing} />
+          <ContractSection title={t('clientResponsibilities')} value={clientResponsibilities} onChange={setClientResponsibilities} isEditing={isEditing} />
+          <ContractSection title={t('paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} isEditing={isEditing} />
+          <ContractSection title={t('warrantyDisclaimer')} value={warrantyDisclaimer} onChange={setWarrantyDisclaimer} isEditing={isEditing} />
+        </>
+      ) : null}
     </div>
   )
 }
@@ -263,14 +349,14 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
-function ContractSection({ title, value, onChange, isEditing }) {
+function ContractSection({ title, value, onChange, isEditing, highlighted = false }) {
   return (
     <section>
       <h2 className="mb-2 text-base font-bold text-slate-950">{title}</h2>
       {isEditing ? (
         <textarea value={value} onChange={(event) => onChange?.(event.target.value)} rows={3} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
       ) : (
-        <p>{value}</p>
+        <div className={`${highlighted ? 'rounded-2xl bg-slate-50 p-4' : ''} whitespace-pre-line break-words text-sm leading-6 text-slate-700`}>{value}</div>
       )}
     </section>
   )

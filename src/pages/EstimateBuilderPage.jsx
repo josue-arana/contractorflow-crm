@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { SelectField } from '../components/ui/SelectField'
 import { InfoCard } from '../components/ui/InfoCard'
-import { DetailRow } from '../components/ui/DetailRow'
 import { EstimatePdfTemplate } from '../components/estimates/EstimatePdfTemplate'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
@@ -22,6 +21,19 @@ import { createTranslator } from '../translations'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
+
+function formatEstimateDate(value) {
+  if (!value) {
+    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  }
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+}
 
 export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
@@ -90,17 +102,30 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
     lead
   )
+  const previewEstimateDate = useMemo(
+    () => (
+      savedEstimate.dateCreated ||
+      savedEstimate.createdAt ||
+      savedEstimate.created_at ||
+      lead?.portal?.estimate?.dateCreated ||
+      lead?.portal?.estimate?.createdAt ||
+      lead?.portal?.estimate?.created_at ||
+      new Date()
+    ),
+    [lead?.portal?.estimate?.createdAt, lead?.portal?.estimate?.created_at, lead?.portal?.estimate?.dateCreated, savedEstimate.createdAt, savedEstimate.created_at, savedEstimate.dateCreated]
+  )
   const estimatePreviewProps = useMemo(() => ({
     company: companySettings?.company,
     lead,
     estimateNumber: previewEstimateNumber,
+    estimateDate: previewEstimateDate,
     scope,
     materialsIncluded,
     paymentTerms,
     total: estimateTotal,
     lineItems: isDetailedPricing ? lineItems : [],
     t: estimateT,
-  }), [companySettings?.company, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateNumber, scope])
+  }), [companySettings?.company, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateDate, previewEstimateNumber, scope])
 
   function getEstimatePayload() {
     return {
@@ -157,6 +182,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       await downloadEstimatePdf({
         element: pdfTemplateRef.current,
         estimateNumber: previewEstimateNumber,
+        estimateDate: previewEstimateDate,
         clientName: lead?.client,
         companyName: companySettings?.company?.name,
         company: companySettings?.company || {},
@@ -283,7 +309,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         </section>
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={estimateT} />
+          <EstimatePreviewCard company={companySettings?.company} lead={lead} estimateDate={previewEstimateDate} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={estimateT} />
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
@@ -338,15 +364,30 @@ function EstimatePreviewCard(props) {
   return <InfoCard title={props.t('previewEstimate')}><EstimatePreviewBody {...props} /></InfoCard>
 }
 
-function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentTerms, total, lineItems = [], t }) {
+function EstimatePreviewBody({ company, lead, estimateDate, scope, materialsIncluded, paymentTerms, total, lineItems = [], t }) {
   return (
     <>
       {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
-      <p className="text-sm font-bold text-slate-900">{lead.client}</p>
-      <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
-      <EstimatePreviewSection title={t('scopeOfWork')} content={scope} className="my-4" />
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <PreviewInfoBlock label={t('client')}>
+            <div className="font-bold text-slate-900">{lead.client}</div>
+            <div>{lead.address || lead.location}</div>
+          </PreviewInfoBlock>
+          <PreviewInfoBlock label={t('date')}>
+            <div>{formatEstimateDate(estimateDate)}</div>
+          </PreviewInfoBlock>
+          <PreviewInfoBlock label={t('materialsIncluded')}>
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${materialsIncluded ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
+              {materialsIncluded ? t('yes') : t('no')}
+            </span>
+          </PreviewInfoBlock>
+        </div>
+      </div>
+      <EstimateCompactSummary title={lead.projectTitle || lead.projectType || t('projectTitle')} total={total} t={t} className="mt-4" />
+      <EstimatePreviewSection title={t('scopeOfWork')} content={scope} className="mt-4" />
       {lineItems.length > 0 && (
-        <div className="mb-4 rounded-2xl border border-slate-200">
+        <div className="mt-4 rounded-2xl border border-slate-200">
           {lineItems.map((item, index) => (
             <div key={index} className="flex justify-between gap-4 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0">
               <span className="text-slate-600">{item.name || t('item')}</span>
@@ -355,21 +396,42 @@ function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentT
           ))}
         </div>
       )}
-      <DetailRow label={t('materialsIncluded')} value={materialsIncluded ? t('yes') : t('no')} />
       <EstimatePreviewSection title={t('paymentTerms')} content={paymentTerms} className="mt-4" />
-      <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-center text-blue-700">
-        <p className="text-xs font-bold uppercase tracking-wide">{t('totalAmount')}</p>
-        <p className="text-3xl font-bold">{currency.format(total)}</p>
-      </div>
     </>
   )
 }
 
 function EstimatePreviewSection({ title, content, className = '' }) {
   return (
-    <div className={`rounded-2xl bg-slate-50 p-4 ${className}`.trim()}>
+    <div className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 ${className}`.trim()}>
       <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{title}</p>
-      <div className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{content}</div>
+      <div className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{content}</div>
+    </div>
+  )
+}
+
+function PreviewInfoBlock({ label, children }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
+      <div className="mt-1 text-sm leading-5 text-slate-700">{children}</div>
+    </div>
+  )
+}
+
+function EstimateCompactSummary({ title, total, t, className = '' }) {
+  return (
+    <div className={`overflow-hidden rounded-2xl border border-slate-200 ${className}`.trim()}>
+      <div className="grid grid-cols-[1fr_170px] bg-slate-50">
+        <div className="border-r border-slate-200 px-4 py-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{t('description')}</p>
+          <p className="mt-1 text-sm font-bold text-slate-900">{title}</p>
+        </div>
+        <div className="px-4 py-3 text-right">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">{t('estimate')} {t('totalAmount')}</p>
+          <p className="mt-1 text-lg font-bold text-slate-900">{currency.format(total)}</p>
+        </div>
+      </div>
     </div>
   )
 }
