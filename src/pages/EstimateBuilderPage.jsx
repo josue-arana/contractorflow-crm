@@ -17,6 +17,7 @@ import { getProjectsContractorId } from '../services/system/projectsRuntimeServi
 import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/estimateNumber'
 import { downloadEstimatePdf } from '../utils/estimatePdf'
+import { printDocumentElement } from '../utils/printDocument'
 import { createTranslator } from '../translations'
 
 const simplePricingMode = 'simple'
@@ -200,6 +201,16 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     }
   }
 
+  async function handlePrint() {
+    try {
+      await printDocumentElement(pdfTemplateRef.current, {
+        documentTitle: `${previewEstimateNumber} ${lead?.client || ''}`.trim(),
+      })
+    } catch (error) {
+      showToast(error?.message || t('estimatePdfGenerateFailed'), 'error')
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {backLabel}</button>
@@ -316,8 +327,9 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           {isEditing && (
             <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
           )}
+          <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
-          <button onClick={handleDownloadPdf} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('downloadPdf')}</button>
+          <button onClick={handleDownloadPdf} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('downloadPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
           <button onClick={() => onConvert?.(getEstimatePayload())} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
           {isArchived ? (
@@ -344,7 +356,10 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           ) : (
             <EstimatePdfTemplate {...estimatePreviewProps} />
           )}
-          <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+            <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
+          </div>
         </div>
       </ModalShell>
       <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>

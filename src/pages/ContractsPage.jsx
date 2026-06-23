@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, MoreVertical } from 'lucide-react'
+import { ActionMenu } from '../components/common/ActionMenu'
 import { ContractPdfTemplate } from '../components/contracts/ContractPdfTemplate'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
@@ -12,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { downloadContractPdf } from '../utils/contractPdf'
 import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
+import { printDocumentElement } from '../utils/printDocument'
 
 function formatContractDate(value) {
   if (!value) {
@@ -235,6 +237,24 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     setIsEditing(false)
   }
 
+  async function handlePrint() {
+    try {
+      await printDocumentElement(pdfTemplateRef.current, {
+        documentTitle: `${previewContractNumber} ${lead?.client || ''}`.trim(),
+      })
+    } catch (error) {
+      showToast(error?.message || t('contractPdfGenerateFailed'), 'error')
+    }
+  }
+
+  const moreMenuItems = [
+    {
+      id: 'download-contract-pdf',
+      label: t('downloadPdf'),
+      onClick: handleDownloadPdf,
+    },
+  ]
+
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('backToProjectWorkspace')}</button>
@@ -244,16 +264,17 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <div className="mb-6 grid gap-3 sm:grid-cols-5">
+        <div className="mb-6 grid gap-3 sm:grid-cols-6">
           {isEditing ? (
             <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
           ) : (
             <button onClick={() => setIsEditing(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
           )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
-          <button onClick={handleDownloadPdf} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('downloadPdf')}</button>
+          <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
           <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
+          <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} />
         </div>
         <ContractDocument
           isEditing={isEditing}
@@ -287,7 +308,10 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
         <div className="rounded-3xl bg-white text-slate-950">
           <ContractPdfTemplate {...contractPreviewProps} />
-          <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+            <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
+          </div>
         </div>
       </ModalShell>
       <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>

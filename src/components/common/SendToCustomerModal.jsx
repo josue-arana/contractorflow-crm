@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ModalShell } from './ModalShell'
 
-export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', onClose, onSent, t }) {
+export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t }) {
   const [channel, setChannel] = useState('text')
 
   useEffect(() => {
@@ -13,6 +13,10 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
   const email = customer.email || ''
   const typeLabel = t(documentType)
   const messageContent = useMemo(() => {
+    const resolvedDocumentStatus = documentLink
+      ? t('documentLinkIncluded', { link: documentLink })
+      : t('documentLinkUnavailable')
+
     const subject = documentType === 'estimate'
       ? t('sendEstimateSubject', { project: projectTitle })
       : documentType === 'contract'
@@ -22,23 +26,23 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
           : t('sendInvoiceSubject', { project: projectTitle })
 
     const smsBody = documentType === 'estimate'
-      ? t('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
+      ? t('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
       : documentType === 'contract'
-        ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue })
+        ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
           ? t('portalSmsMessage', { name: firstName, project: projectTitle, link: portalUrl })
-          : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue })
+          : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue, documentStatus: resolvedDocumentStatus })
 
     const emailBody = documentType === 'estimate'
-      ? t('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue })
+      ? t('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
       : documentType === 'contract'
-        ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue })
+        ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
           ? t('portalEmailBody', { name: firstName, project: projectTitle, link: portalUrl })
-          : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate })
+          : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate, documentStatus: resolvedDocumentStatus })
 
-    return { subject, smsBody, emailBody }
-  }, [amountValue, documentType, dueDate, firstName, portalUrl, projectTitle, t])
+    return { subject, smsBody, emailBody, resolvedDocumentStatus }
+  }, [amountValue, documentLink, documentType, dueDate, firstName, portalUrl, projectTitle, t])
 
   if (!isOpen) return null
 
@@ -66,6 +70,7 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
         <p className="mt-1 text-slate-500">{projectTitle}</p>
         {amountLabel && amountValue && <p className="mt-2 text-slate-700">{amountLabel}: <span className="font-bold">{amountValue}</span></p>}
         {portalUrl && <p className="mt-2 break-all text-slate-700">{t('shareUrl')}: <span className="font-bold">{portalUrl}</span></p>}
+        <p className="mt-2 text-slate-700">{t('documentStatus')}: <span className="font-bold">{messageContent.resolvedDocumentStatus}</span></p>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
