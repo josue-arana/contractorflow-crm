@@ -1,23 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
+import { SelectField } from '../components/ui/SelectField'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
+import { EstimatePdfTemplate } from '../components/estimates/EstimatePdfTemplate'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { archivePanelButtonClasses } from '../utils/buttonStyles'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
+import { useToast } from '../components/common/ToastProvider'
 import dataProvider from '../services/dataProvider'
-import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
+import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/estimateNumber'
+import { downloadEstimatePdf } from '../utils/estimatePdf'
+import { createTranslator } from '../translations'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
 
-export function EstimateBuilderPage({ lead, t, companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+  const { showToast } = useToast()
+  const pdfTemplateRef = useRef(null)
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
   const savedLineItems = Array.isArray(savedEstimate.lineItems) ? savedEstimate.lineItems : []
@@ -26,11 +34,13 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(savedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
+  const [estimateLanguage, setEstimateLanguage] = useState(savedEstimate.estimateLanguage || 'match')
   const [pricingMode, setPricingMode] = useState(hasSavedLineItems ? detailedPricingMode : simplePricingMode)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
+  const [isMobilePreview, setIsMobilePreview] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 640 : false))
   const [lineItems, setLineItems] = useState(hasSavedLineItems ? savedLineItems : [
     { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
     { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
@@ -44,6 +54,7 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
     setMaterialsIncluded(nextSavedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
     setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
+    setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
     if (nextHasSavedLineItems) {
       setLineItems(nextSavedLineItems)
       setPricingMode(detailedPricingMode)
@@ -56,19 +67,51 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
     }
   }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, t])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const mediaQuery = window.matchMedia('(max-width: 639px)')
+    const syncViewport = () => setIsMobilePreview(mediaQuery.matches)
+
+    syncViewport()
+    mediaQuery.addEventListener?.('change', syncViewport)
+
+    return () => {
+      mediaQuery.removeEventListener?.('change', syncViewport)
+    }
+  }, [])
+
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
   const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
+  const estimateOutputLanguage = estimateLanguage === 'match' ? appLanguage : estimateLanguage
+  const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
+  const previewEstimateNumber = formatEstimateDisplayNumber(
+    savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
+    lead
+  )
+  const estimatePreviewProps = useMemo(() => ({
+    company: companySettings?.company,
+    lead,
+    estimateNumber: previewEstimateNumber,
+    scope,
+    materialsIncluded,
+    paymentTerms,
+    total: estimateTotal,
+    lineItems: isDetailedPricing ? lineItems : [],
+    t: estimateT,
+  }), [companySettings?.company, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateNumber, scope])
 
   function getEstimatePayload() {
     return {
       id: savedEstimate.id || undefined,
-      number: savedEstimate.number || `EST-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+      number: savedEstimate.number || generateEstimateNumber(lead),
       total: estimateTotal,
       summary: scope,
       lineItems: isDetailedPricing ? lineItems : [],
       materialsIncluded,
       paymentTerms,
+      estimateLanguage,
       pricingMode,
       updatedAt: new Date().toISOString(),
       status: 'Draft',
@@ -109,6 +152,28 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
     setPricingMode(simplePricingMode)
   }
 
+  async function handleDownloadPdf() {
+    try {
+      await downloadEstimatePdf({
+        element: pdfTemplateRef.current,
+        estimateNumber: previewEstimateNumber,
+        clientName: lead?.client,
+        companyName: companySettings?.company?.name,
+        company: companySettings?.company || {},
+        lead,
+        scope,
+        lineItems: isDetailedPricing ? lineItems : [],
+        materialsIncluded,
+        paymentTerms,
+        total: estimateTotal,
+        t: estimateT,
+      })
+      showToast(t('estimatePdfGenerated'))
+    } catch (error) {
+      showToast(error?.message || t('estimatePdfGenerateFailed'), 'error')
+    }
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {backLabel}</button>
@@ -121,11 +186,21 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
 
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <section className="space-y-5">
+          <InfoCard title={t('estimateLanguage')}>
+            <div className="space-y-3">
+              <p className="text-sm leading-6 text-slate-500">{t('estimateLanguageHelp')}</p>
+              <SelectField value={estimateLanguage} onChange={(event) => setEstimateLanguage(event.target.value)} className="bg-slate-50">
+                <option value="match">{t('matchAppLanguage')}</option>
+                <option value="en">{t('english')}</option>
+                <option value="es">{t('spanish')}</option>
+              </SelectField>
+            </div>
+          </InfoCard>
           <InfoCard title={t('scopeOfWork')}>
             {isEditing ? (
               <textarea value={scope} onChange={(event) => setScope(event.target.value)} rows={8} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
             ) : (
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
             )}
           </InfoCard>
 
@@ -211,14 +286,15 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
         </section>
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={t} />
+          <EstimatePreviewCard company={companySettings?.company} lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={estimateT} />
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
           {isEditing && (
             <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
           )}
-          <button onClick={() => setShowPreviewModal(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('previewPdf')}</button>
+          <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
+          <button onClick={handleDownloadPdf} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('downloadPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
           <button onClick={() => onConvert?.(getEstimatePayload())} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
           {isArchived ? (
@@ -232,20 +308,31 @@ export function EstimateBuilderPage({ lead, t, companySettings, isArchived = fal
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-3xl">
         <div className="rounded-3xl bg-white text-slate-950">
-          <div className="mb-5 flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-            <DocumentCompanyHeader company={companySettings?.company} t={t} />
-            <div className="text-right">
-              <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('estimate')}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{savedEstimate.number || getEstimatePayload().number}</p>
+          {isMobilePreview ? (
+            <div className="p-6 sm:p-8">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{estimateT('previewPdf')}</p>
+                <p className="mt-3 text-sm leading-6 text-slate-700">{estimateT('estimatePreviewDesktopOnly')}</p>
+              </div>
             </div>
-          </div>
-          <EstimatePreviewBody lead={lead} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={t} />
+          ) : (
+            <EstimatePdfTemplate {...estimatePreviewProps} />
+          )}
           <button onClick={() => setShowPreviewModal(false)} className="mt-6 w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('close')}</button>
         </div>
       </ModalShell>
+      <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>
+        <div
+          ref={pdfTemplateRef}
+          data-estimate-pdf-root="true"
+          style={{ width: '816px', backgroundColor: '#ffffff', color: '#0f172a', padding: '24px', boxSizing: 'border-box' }}
+        >
+          <EstimatePdfTemplate {...estimatePreviewProps} />
+        </div>
+      </div>
     </div>
   )
 }
@@ -260,7 +347,7 @@ function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentT
       {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
       <p className="text-sm font-bold text-slate-900">{lead.client}</p>
       <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
-      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{scope}</div>
+      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
       {lineItems.length > 0 && (
         <div className="mb-4 rounded-2xl border border-slate-200">
           {lineItems.map((item, index) => (
@@ -298,7 +385,7 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
-export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
+export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -339,7 +426,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         return
       }
 
-      const cachedEstimate = readEstimateDraft(projectId) || readEstimateDraft(lead.id)
+      const cachedEstimate = readLinkedEstimateDraft(lead || projectId, [projectId, lead.id])
       const relatedProjectId = lead.projectId || lead.project_id || projectId || null
 
       try {
@@ -363,7 +450,15 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
           return
         }
 
-        setLoadedEstimate(response?.data?.[0] || cachedEstimate)
+        const persistedEstimate = response?.data?.[0] || null
+        const nextEstimate = persistedEstimate
+          ? { ...(cachedEstimate || {}), ...persistedEstimate }
+          : cachedEstimate
+
+        setLoadedEstimate(nextEstimate)
+        if (nextEstimate) {
+          writeLinkedEstimateDrafts([projectId, lead.id, nextEstimate.id], nextEstimate)
+        }
       } catch (error) {
         if (!isCancelled) {
           setLoadedEstimate(cachedEstimate)
@@ -406,6 +501,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     <EstimateBuilderPage
       lead={mergedLead}
       t={t}
+      appLanguage={appLanguage}
       companySettings={companySettings}
       onBack={handleBack}
       backLabel={backLabel}

@@ -5,7 +5,17 @@ import { SelectField } from '../ui/SelectField'
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
 
-function buildPaymentState(remainingBalance) {
+function buildPaymentState(remainingBalance, initialPayment = null) {
+  if (initialPayment) {
+    return {
+      amount: initialPayment.amount ?? 0,
+      date: initialPayment.paymentDate || initialPayment.date || new Date().toISOString().slice(0, 10),
+      method: initialPayment.paymentMethod || initialPayment.method || 'Cash',
+      type: initialPayment.paymentType || initialPayment.type || 'Progress Payment',
+      notes: initialPayment.notes || '',
+    }
+  }
+
   return {
     amount: remainingBalance || 0,
     date: new Date().toISOString().slice(0, 10),
@@ -15,18 +25,19 @@ function buildPaymentState(remainingBalance) {
   }
 }
 
-export function RecordPaymentModal({ isOpen, remainingBalance = 0, onClose, onSave, t }) {
-  const [payment, setPayment] = useState(() => buildPaymentState(remainingBalance))
+export function RecordPaymentModal({ isOpen, remainingBalance = 0, initialPayment = null, onClose, onSave, t }) {
+  const [payment, setPayment] = useState(() => buildPaymentState(remainingBalance, initialPayment))
+  const isEditing = Boolean(initialPayment?.id)
 
   useEffect(() => {
-    if (isOpen) setPayment(buildPaymentState(remainingBalance))
-  }, [isOpen, remainingBalance])
+    if (isOpen) setPayment(buildPaymentState(remainingBalance, initialPayment))
+  }, [initialPayment, isOpen, remainingBalance])
 
   if (!isOpen) return null
 
   return (
     <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-lg">
-      <h2 className="text-xl font-bold text-slate-950">{t('recordPayment')}</h2>
+      <h2 className="text-xl font-bold text-slate-950">{t(isEditing ? 'editPayment' : 'recordPayment')}</h2>
       <p className="mt-1 text-sm text-slate-500">{t('recordPaymentHelp')}</p>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2">

@@ -1,7 +1,6 @@
 import { backendConfig, isSupabaseAuthEnabled, isSupabaseDataEnabled } from '../config/backendConfig'
+import { SUPABASE_AUTH_OPTIONS } from '../services/authSessionStorage'
 import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from '../services/system/environmentService'
-
-const AUTH_STORAGE_KEY = 'contractorflow.auth.session'
 
 // Lightweight Supabase REST client for ContractorFlow CRM.
 //
@@ -65,18 +64,30 @@ function createSupabaseHttpError(data, fallbackMessage, status) {
   return error
 }
 
-function getStoredAccessToken() {
-  if (typeof window === 'undefined') return ''
+function isSessionRecoveryStatus(status) {
+  return status === 401 || status === 403
+}
 
-  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY)
-  if (!rawValue) return ''
+export function isSupabaseSessionError(error) {
+  if (!error) return false
 
-  try {
-    const parsed = JSON.parse(rawValue)
-    return parsed?.access_token || ''
-  } catch {
-    return ''
-  }
+  const message = [
+    error.message,
+    error.details,
+    error.code,
+    error?.raw?.message,
+    error?.raw?.error_description,
+    error?.raw?.error,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  return isSessionRecoveryStatus(error.status)
+    || message.includes('jwt expired')
+    || message.includes('invalid jwt')
+    || message.includes('auth session missing')
+    || message.includes('unauthorized')
 }
 
 function warnDisabledRequest() {
@@ -92,8 +103,42 @@ function warnDisabledRequest() {
   console.warn('[dev] Supabase request called while Supabase data flags are disabled; skipping network call.')
 }
 
+const defaultSessionHandlers = {
+  getAccessToken: () => '',
+  refreshSession: async () => ({ data: null, error: null, skipped: true }),
+  onSessionExpired: async () => {},
+}
+
+let sessionHandlers = defaultSessionHandlers
+
+export function configureSupabaseSessionHandlers(handlers = {}) {
+  sessionHandlers = {
+    ...defaultSessionHandlers,
+    ...handlers,
+  }
+}
+
 function createSupabaseRestClient() {
-  async function requestAuth(path, { method = 'GET', body, headers = {} } = {}) {
+  async function executeSupabaseRequest(fn, { retryOnSessionError = true } = {}) {
+    try {
+      return await fn()
+    } catch (error) {
+      if (!retryOnSessionError || !isSupabaseSessionError(error)) {
+        throw error
+      }
+
+      const refreshResult = await sessionHandlers.refreshSession?.({ error })
+
+      if (!refreshResult?.error && refreshResult?.data?.access_token) {
+        return fn()
+      }
+
+      await sessionHandlers.onSessionExpired?.(refreshResult?.error || error)
+      throw refreshResult?.error || error
+    }
+  }
+
+  async function requestAuth(path, { method = 'GET', body, headers = {}, skipSessionRecovery = false } = {}) {
     if (!isSupabaseAuthEnabled()) {
       warnDisabledRequest()
       return null
@@ -107,24 +152,32 @@ function createSupabaseRestClient() {
 
     const url = `${supabaseUrl.replace(/\/$/, '')}/auth/v1${path}`
 
-    const response = await fetch(url, {
-      method,
-      headers: {
+    return executeSupabaseRequest(async () => {
+      const nextHeaders = {
         apikey: supabaseAnonKey,
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...headers,
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
+      }
 
-    const text = await response.text()
-    const data = parseJsonSafely(text)
+      if (nextHeaders.Authorization?.includes('__SESSION_ACCESS_TOKEN__')) {
+        nextHeaders.Authorization = `Bearer ${sessionHandlers.getAccessToken?.() || ''}`
+      }
 
-    if (!response.ok) {
-      throw createSupabaseHttpError(data, `Supabase auth request failed with status ${response.status}`, response.status)
-    }
+      const response = await fetch(url, {
+        method,
+        headers: nextHeaders,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
 
-    return data
+      const text = await response.text()
+      const data = parseJsonSafely(text)
+
+      if (!response.ok) {
+        throw createSupabaseHttpError(data, `Supabase auth request failed with status ${response.status}`, response.status)
+      }
+
+      return data
+    }, { retryOnSessionError: !skipSessionRecovery && Boolean(headers.Authorization) })
   }
 
   return {
@@ -135,7 +188,6 @@ function createSupabaseRestClient() {
       }
 
       const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
-      const accessToken = getStoredAccessToken()
 
       if (!supabaseUrl || !supabaseAnonKey) {
         throw getSupabaseConfigError()
@@ -143,25 +195,28 @@ function createSupabaseRestClient() {
 
       const url = `${supabaseUrl.replace(/\/$/, '')}/rest/v1/${tableName}${buildQueryString(query)}`
 
-      const response = await fetch(url, {
-        method,
-        headers: {
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${accessToken || supabaseAnonKey}`,
-          'Content-Type': 'application/json',
-          Prefer: prefer,
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
+      return executeSupabaseRequest(async () => {
+        const accessToken = sessionHandlers.getAccessToken?.()
+        const response = await fetch(url, {
+          method,
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${accessToken || supabaseAnonKey}`,
+            'Content-Type': 'application/json',
+            Prefer: prefer,
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        })
+
+        const text = await response.text()
+        const data = parseJsonSafely(text)
+
+        if (!response.ok) {
+          throw createSupabaseHttpError(data, `Supabase request failed with status ${response.status}`, response.status)
+        }
+
+        return data
       })
-
-      const text = await response.text()
-      const data = parseJsonSafely(text)
-
-      if (!response.ok) {
-        throw createSupabaseHttpError(data, `Supabase request failed with status ${response.status}`, response.status)
-      }
-
-      return data
     },
     requestAuth,
   }
@@ -178,6 +233,7 @@ export function getSupabaseConfigStatus() {
     urlPresent: environmentStatus.hasSupabaseUrl,
     anonKeyPresent: environmentStatus.hasAnonKey,
     betaPlan: backendConfig.betaPlan,
+    authOptions: SUPABASE_AUTH_OPTIONS,
   }
 }
 

@@ -1,38 +1,67 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import dataProvider from '../services/dataProvider'
 import { ModalShell } from '../components/common/ModalShell'
+import { useToast } from '../components/common/ToastProvider'
+import { useAuth } from '../contexts/AuthContext'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+
+function buildContractEditorState({ lead, portal, savedContract, estimate, t }) {
+  return {
+    scope: savedContract.scope || estimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`,
+    paymentTerms: savedContract.paymentTerms || t('contractTermsText'),
+    materials: savedContract.materials || t('materialsText'),
+    timeline: savedContract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`,
+    changeOrders: savedContract.changeOrders || t('changeOrdersText'),
+    clientResponsibilities: savedContract.clientResponsibilities || t('clientResponsibilitiesText'),
+    warrantyDisclaimer: savedContract.warrantyDisclaimer || t('warrantyDisclaimerText'),
+  }
+}
 
 export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned }) {
+  const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getProjectsContractorId({ contractor, company, session })
   const portal = getPortalData(lead)
   const savedContract = lead.portal?.contract || portal.contract || {}
   const estimate = lead.portal?.estimate || portal.estimate || {}
+  const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t })
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [scope, setScope] = useState(savedContract.scope || estimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`)
-  const [paymentTerms, setPaymentTerms] = useState(savedContract.paymentTerms || t('contractTermsText'))
-  const [materials, setMaterials] = useState(savedContract.materials || t('materialsText'))
-  const [timeline, setTimeline] = useState(savedContract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`)
-  const [changeOrders, setChangeOrders] = useState(savedContract.changeOrders || t('changeOrdersText'))
-  const [clientResponsibilities, setClientResponsibilities] = useState(savedContract.clientResponsibilities || t('clientResponsibilitiesText'))
-  const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(savedContract.warrantyDisclaimer || t('warrantyDisclaimerText'))
+  const [scope, setScope] = useState(editorState.scope)
+  const [paymentTerms, setPaymentTerms] = useState(editorState.paymentTerms)
+  const [materials, setMaterials] = useState(editorState.materials)
+  const [timeline, setTimeline] = useState(editorState.timeline)
+  const [changeOrders, setChangeOrders] = useState(editorState.changeOrders)
+  const [clientResponsibilities, setClientResponsibilities] = useState(editorState.clientResponsibilities)
+  const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(editorState.warrantyDisclaimer)
   const contractTotal = Number(lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
 
+  function resetEditorState() {
+    const nextState = buildContractEditorState({
+      lead,
+      portal: getPortalData(lead),
+      savedContract: lead.portal?.contract || {},
+      estimate: lead.portal?.estimate || {},
+      t,
+    })
+
+    setScope(nextState.scope)
+    setPaymentTerms(nextState.paymentTerms)
+    setMaterials(nextState.materials)
+    setTimeline(nextState.timeline)
+    setChangeOrders(nextState.changeOrders)
+    setClientResponsibilities(nextState.clientResponsibilities)
+    setWarrantyDisclaimer(nextState.warrantyDisclaimer)
+  }
+
   useEffect(() => {
-    const contract = lead.portal?.contract || {}
-    const latestEstimate = lead.portal?.estimate || {}
-    setScope(contract.scope || latestEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`)
-    setPaymentTerms(contract.paymentTerms || t('contractTermsText'))
-    setMaterials(contract.materials || t('materialsText'))
-    setTimeline(contract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`)
-    setChangeOrders(contract.changeOrders || t('changeOrdersText'))
-    setClientResponsibilities(contract.clientResponsibilities || t('clientResponsibilitiesText'))
-    setWarrantyDisclaimer(contract.warrantyDisclaimer || t('warrantyDisclaimerText'))
+    resetEditorState()
   }, [lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate, t])
 
   function getContractPayload(extra = {}) {
@@ -55,41 +84,69 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
 
   async function saveContract() {
     const payload = getContractPayload()
+
     try {
-      // If contract already exists in portal, attempt update; otherwise create.
       const existing = savedContract || {}
-      if (existing && existing.id) {
-        await dataProvider.contracts.update(existing.id, payload)
-      } else {
-        await dataProvider.contracts.create({ ...payload, projectId: lead.id })
+
+      const response = existing && existing.id
+        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
+        : await dataProvider.contracts.create({ ...payload, projectId: lead.id }, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractSaveFailed'), 'error')
+        return
       }
+
+      onSaveContract?.({
+        ...payload,
+        ...(response?.data || {}),
+      })
+      setIsEditing(false)
     } catch (err) {
       console.warn('Contract save via dataProvider failed', err)
+      showToast(err?.message || t('contractSaveFailed'), 'error')
     }
-    onSaveContract?.(payload)
-    setIsEditing(false)
   }
 
   async function markSigned() {
     const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
     const payload = getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today })
+
     try {
       const existing = savedContract || {}
-      if (existing && existing.id) {
-        await dataProvider.contracts.update(existing.id, payload)
-      } else {
-        await dataProvider.contracts.create({ ...payload, projectId: lead.id })
+
+      const response = existing && existing.id
+        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
+        : await dataProvider.contracts.create({ ...payload, projectId: lead.id }, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractSignFailed'), 'error')
+        return
       }
+
+      onMarkSigned?.({
+        ...payload,
+        ...(response?.data || {}),
+      })
+      setIsEditing(false)
     } catch (err) {
       console.warn('Mark signed via dataProvider failed', err)
+      showToast(err?.message || t('contractSignFailed'), 'error')
     }
-    onMarkSigned?.(payload)
+
+    if (isEditing) {
+      resetEditorState()
+    }
+  }
+
+  function cancelEditing() {
+    resetEditorState()
     setIsEditing(false)
   }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('estimateBuilder')}</button>
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('backToProjectWorkspace')}</button>
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('contractPreview')}</p>
         <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
@@ -99,11 +156,21 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         <DocumentCompanyHeader company={companySettings?.company} t={t} />
         <div className="my-6 border-t border-slate-200" />
         <div className="mb-6 grid gap-3 sm:grid-cols-5">
-          <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
-          <button onClick={() => setIsEditing((current) => !current)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{isEditing ? t('doneEditing') : t('editContract')}</button>
+          {isEditing ? (
+            <>
+              <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
+              <button onClick={cancelEditing} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('cancelEditing')}</button>
+            </>
+          ) : (
+            <button onClick={() => setIsEditing(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
+          )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
-          <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
-          <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
+          {!isEditing ? (
+            <>
+              <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
+              <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
+            </>
+          ) : null}
         </div>
         <ContractDocument
           isEditing={isEditing}
@@ -211,8 +278,9 @@ function ContractSection({ title, value, onChange, isEditing }) {
 
 export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, t }) {
   const { id, leadId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
-  const projectId = id || leadId
+  const projectId = location.state?.projectId || id || leadId
   const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
 
   if (!lead) {
@@ -232,7 +300,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
       lead={lead}
       t={t}
       companySettings={companySettings}
-      onBack={() => navigate(`/projects/${projectId}/estimate`)}
+      onBack={() => navigate(`/projects/${projectId}`)}
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
       onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
     />

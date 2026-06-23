@@ -10,12 +10,13 @@ import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { USE_SUPABASE_LEADS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
-import { readEstimateDraft } from '../services/local/estimateDraftStorage'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
+import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal } from '../utils/estimateLinks'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { getLeadNextStepKey, getLeadPipelineStage, getLeadPrimaryAction, leadPipelineStages } from '../utils/leadPipeline'
+import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
 function logLeadDetailDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -25,11 +26,6 @@ function logLeadDetailDevError(message, error, meta) {
     error,
     ...meta,
   })
-}
-
-function toSafeNumber(value) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
 }
 
 function hasSavedEstimate(estimate) {
@@ -46,7 +42,10 @@ function createSafeLead(lead, fallbackId = '') {
 
   const clientName = lead.client || lead.clientName || lead.customerName || lead.name || ''
   const projectType = lead.projectType || lead.projectTitle || lead.title || ''
-  const estimateDrivenValue = lead.portal?.estimate?.total ?? lead.value ?? lead.estimatedValue
+  const linkedEstimate = hasEstimateData(lead?.portal?.estimate)
+    ? lead.portal.estimate
+    : readLinkedEstimateDraft(lead, fallbackId)
+  const estimateDrivenValue = resolveEstimateTotal(lead, linkedEstimate)
 
   return {
     ...lead,
@@ -61,8 +60,8 @@ function createSafeLead(lead, fallbackId = '') {
     title: lead.title || projectType,
     projectTitle: lead.projectTitle || lead.title || projectType,
     projectType,
-    value: toSafeNumber(estimateDrivenValue),
-    estimatedValue: toSafeNumber(estimateDrivenValue),
+    value: estimateDrivenValue,
+    estimatedValue: estimateDrivenValue,
     source: lead.source || '',
     priority: lead.priority || 'Medium',
     notes: lead.notes || '',
@@ -115,7 +114,7 @@ export function LeadDetailPage({
   const [hasLoaded, setHasLoaded] = useState(!USE_SUPABASE_LEADS)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
-  const [estimateRecord, setEstimateRecord] = useState(() => readEstimateDraft(leadId || lead?.id || ''))
+  const [estimateRecord, setEstimateRecord] = useState(() => readLinkedEstimateDraft(lead || leadId, leadId || lead?.id || ''))
   const mergedLead = useMemo(() => {
     const baseLead = USE_SUPABASE_LEADS ? record : (record || lead)
 
@@ -126,12 +125,12 @@ export function LeadDetailPage({
       ...(baseLead.portal?.estimate || {}),
       ...estimateRecord,
     }
-    const estimateValue = toSafeNumber(nextEstimate.total ?? nextEstimate.totalAmount)
+    const estimateValue = resolveEstimateTotal(baseLead, nextEstimate)
 
     return {
       ...baseLead,
-      value: estimateValue || toSafeNumber(baseLead.value ?? baseLead.estimatedValue),
-      estimatedValue: estimateValue || toSafeNumber(baseLead.estimatedValue ?? baseLead.value),
+      value: estimateValue,
+      estimatedValue: estimateValue,
       portal: {
         ...(baseLead.portal || {}),
         estimate: nextEstimate,
@@ -150,6 +149,11 @@ export function LeadDetailPage({
   const primaryAction = getLeadPrimaryAction(currentStage)
   const nextStepDisplay = t(getLeadNextStepKey(currentStage))
   const estimatedValueDisplay = leadHasEstimate ? currency.format(currentLead?.value || 0) : t('notEstimated')
+  const recordDetailsTitle = t(getRecordDetailsTitleKey({
+    ...currentLead,
+    isArchived,
+    archivedAt: isArchived ? currentLead?.archivedAt || true : currentLead?.archivedAt,
+  }))
 
   useEffect(() => {
     if (!USE_SUPABASE_LEADS) {
@@ -206,9 +210,9 @@ export function LeadDetailPage({
     let isCancelled = false
 
     async function loadEstimate() {
-      const draftEstimate = readEstimateDraft(leadId)
       const activeLead = USE_SUPABASE_LEADS ? record : lead
       const relatedProjectId = activeLead?.projectId || activeLead?.project_id || null
+      const draftEstimate = readLinkedEstimateDraft(activeLead || leadId, [leadId, relatedProjectId || ''])
 
       if (!relatedProjectId) {
         if (!isCancelled) {
@@ -577,13 +581,13 @@ export function LeadDetailPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <InfoCard title={t('customerInformation')}>
+        <InfoCard title={t('clientInformation')}>
           <DetailRow label={t('name')} value={currentLead.client} />
           <DetailRow label={t('phone')} value={currentLead.phone || t('notAdded')} />
           <DetailRow label={t('email')} value={currentLead.email || t('notAdded')} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location || t('unknownAddress')} />
         </InfoCard>
-        <InfoCard title={t('leadInformation')}>
+        <InfoCard title={recordDetailsTitle}>
           <DetailRow label={t('status')} value={<StatusBadge status={isArchived ? 'Archived' : currentLead.status} t={t} />} />
           <DetailRow label={t('priority')} value={currentLead.priority} />
           <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />

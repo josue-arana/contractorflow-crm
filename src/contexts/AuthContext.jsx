@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { appRoutes } from '../config/appRoutes'
 import { BETA_CONTRACTOR_ID, USE_AUTH } from '../config/backendConfig'
 import { MOCK_CONTRACTOR } from '../constants/mockContractor'
+import { useToast } from '../components/common/ToastProvider'
+import { createTranslator } from '../translations'
 import { getAuthServiceStatus, getCurrentUser, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
 
 const AuthContext = createContext(null)
@@ -78,7 +82,17 @@ function buildCompanyState(nextUser, currentCompany = mockCompany) {
   }
 }
 
+function getAuthTranslator() {
+  if (typeof window === 'undefined') {
+    return createTranslator('en')
+  }
+
+  return createTranslator(window.localStorage.getItem('contractorflow.language') || 'en')
+}
+
 export function AuthProvider({ children }) {
+  const navigate = useNavigate()
+  const { showToast } = useToast()
   const [session, setSession] = useState(USE_AUTH ? null : mockSession)
   const [user, setUser] = useState(USE_AUTH ? null : mockSession.user)
   const [company, setCompany] = useState(USE_AUTH ? null : mockCompany)
@@ -130,8 +144,19 @@ export function AuthProvider({ children }) {
 
     loadAuthState()
 
-    const unsubscribe = subscribeToAuthChanges(({ session: nextSession, user: nextUser }) => {
+    const unsubscribe = subscribeToAuthChanges(({ event, session: nextSession, user: nextUser }) => {
       if (!isMounted) return
+
+      if (event === 'SESSION_EXPIRED') {
+        clearAuthenticatedState()
+
+        if (typeof window === 'undefined' || window.location.pathname !== appRoutes.login) {
+          navigate(appRoutes.login, { replace: true })
+        }
+
+        showToast(getAuthTranslator()('sessionExpiredLoginAgain'), 'error')
+        return
+      }
 
       const normalizedUser = normalizeAuthenticatedUser(nextUser)
       const normalizedSession = nextSession
@@ -156,7 +181,7 @@ export function AuthProvider({ children }) {
       isMounted = false
       unsubscribe()
     }
-  }, [])
+  }, [navigate, showToast])
 
   async function signIn(credentials) {
     const result = await signInWithEmail(credentials)

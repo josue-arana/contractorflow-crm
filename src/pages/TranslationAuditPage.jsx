@@ -174,6 +174,21 @@ export function TranslationAuditPage({ t }) {
                 {check.id === 'archiveSystem' && t('archiveSystemPassDetail')}
                 {check.id === 'scrollRestoration' && t('scrollRestorationPassDetail')}
               </p>
+              {check.id === 'services' && snapshot.serviceAudit?.missing?.length > 0 ? (
+                <div className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-rose-700">{t('missingMethodsLabel')}</p>
+                  <div className="mt-2 space-y-2">
+                    {snapshot.serviceAudit.missing.map((service) => (
+                      <div key={service.id} className="rounded-xl bg-white px-3 py-2 text-sm text-slate-700">
+                        <p className="font-bold text-slate-950">{service.id}: {service.missingMethods.join(', ')}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500">
+                          {t('expectedMethodsLabel')}: {service.expectedMethods.join(', ')}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
@@ -416,11 +431,13 @@ export function TranslationAuditPage({ t }) {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <SectionCard title={t('authReadiness')}>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <SummaryCard label={t('authMode')} value={authMode === 'mock' ? t('mockAuth') : t('supabaseAuth')} />
             <SummaryCard label={t('authServiceStatus')} value={authServiceStatus.configured || authMode === 'mock' ? 'PASS' : 'WARNING'} />
             <SummaryCard label={t('currentMockUser')} value={user?.email || t('notAvailable')} />
             <SummaryCard label={t('currentMockCompany')} value={company?.name || t('notAvailable')} />
+            <SummaryCard label={t('sessionExists')} value={t(authServiceStatus.hasSession ? 'yes' : 'no')} />
+            <SummaryCard label={t('autoRefreshEnabled')} value={t(authServiceStatus.autoRefreshEnabled ? 'yes' : 'no')} />
           </div>
           <div className="mt-4 space-y-2">
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
@@ -430,6 +447,22 @@ export function TranslationAuditPage({ t }) {
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
               <p className="font-bold text-slate-950">{t('authServiceStatus')}</p>
               <p className="text-sm font-semibold text-slate-600">{authServiceStatus.mode === 'mock' ? t('authMockServiceReady') : authServiceStatus.configured ? t('authSupabaseReady') : t('authSupabaseNotConfigured')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('tokenExpiryTime')}</p>
+              <p className="text-sm font-semibold text-slate-600">{authServiceStatus.sessionExpiresAtIso || t('notAvailable')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('persistSessionEnabled')}</p>
+              <p className="text-sm font-semibold text-slate-600">{t(authServiceStatus.persistSessionEnabled ? 'yes' : 'no')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('detectSessionInUrlEnabled')}</p>
+              <p className="text-sm font-semibold text-slate-600">{t(authServiceStatus.detectSessionInUrlEnabled ? 'yes' : 'no')}</p>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
+              <p className="font-bold text-slate-950">{t('lastAuthSessionError')}</p>
+              <p className="text-sm font-semibold text-slate-600">{authServiceStatus.lastSessionError?.message || authServiceStatus.lastAuthError?.message || t('notAvailable')}</p>
             </div>
           </div>
         </SectionCard>

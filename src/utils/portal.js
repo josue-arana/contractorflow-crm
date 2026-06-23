@@ -1,14 +1,60 @@
+import { generateEstimateNumber } from './estimateNumber'
+
+export function extractPortalRouteIdFromShareUrl(shareUrl = '') {
+  if (!shareUrl || typeof shareUrl !== 'string') return ''
+
+  const match = shareUrl.match(/\/portal\/([^/?#]+)/i)
+  return match?.[1] || ''
+}
+
+export function resolvePortalRouteId(lead = {}) {
+  return (
+    lead?.portalId
+    || lead?.clientPortalId
+    || lead?.portal?.portalId
+    || lead?.portal?.clientPortalId
+    || extractPortalRouteIdFromShareUrl(lead?.portal?.shareUrl || '')
+    || lead?.projectId
+    || lead?.project_id
+    || lead?.id
+    || ''
+  )
+}
+
+export function findPortalProject(records = [], portalId = '') {
+  if (!portalId) return null
+
+  return records.find((record) => (
+    record?.id === portalId
+    || record?.projectId === portalId
+    || record?.project_id === portalId
+    || record?.portalId === portalId
+    || record?.clientPortalId === portalId
+    || record?.portal?.portalId === portalId
+    || record?.portal?.clientPortalId === portalId
+    || extractPortalRouteIdFromShareUrl(record?.portal?.shareUrl || '') === portalId
+  )) || null
+}
+
 export function getPortalData(lead) {
+  const portalRouteId = resolvePortalRouteId(lead)
   const fallbackContract = lead.value || 0
   const fallbackPaid = Math.round(fallbackContract * 0.5)
+  const depositRequired = lead.portal?.depositRequired ?? Math.round(fallbackContract * 0.5)
+  const totalPaid = lead.portal?.totalPaid ?? lead.portal?.amountPaid ?? fallbackPaid
+  const depositPaid = lead.portal?.depositPaid ?? Math.min(totalPaid, depositRequired)
+  const otherPaymentsTotal = lead.portal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)
 
   return {
-    shareUrl: lead.portal?.shareUrl || `contractorflow.app/portal/${lead.id}`,
+    shareUrl: lead.portal?.shareUrl || `https://contractorflow.app/portal/${portalRouteId}`,
     percentComplete: lead.portal?.percentComplete ?? 42,
     contractAmount: lead.portal?.contractAmount ?? fallbackContract,
-    depositRequired: lead.portal?.depositRequired ?? Math.round(fallbackContract * 0.5),
-    amountPaid: lead.portal?.amountPaid ?? fallbackPaid,
-    outstandingBalance: lead.portal?.outstandingBalance ?? Math.max(fallbackContract - fallbackPaid, 0),
+    depositRequired,
+    depositPaid,
+    otherPaymentsTotal,
+    totalPaid,
+    amountPaid: lead.portal?.amountPaid ?? totalPaid,
+    outstandingBalance: lead.portal?.outstandingBalance ?? Math.max(fallbackContract - totalPaid, 0),
     paymentStatus: lead.portal?.paymentStatus || 'Deposit Paid',
     startDate: lead.portal?.startDate || 'June 18, 2026',
     estimatedCompletion: lead.portal?.estimatedCompletion || 'July 2, 2026',
@@ -29,8 +75,9 @@ export function getPortalData(lead) {
       { name: 'Contract', type: 'PDF', status: 'Pending' },
       { name: 'Invoice', type: 'Invoice', status: 'Pending' },
     ],
+    payments: lead.portal?.payments || lead.portal?.paymentHistory || [],
     estimate: lead.portal?.estimate || {
-      number: `EST-${lead.id.replace(/\D/g, '').padStart(4, '0')}`,
+      number: generateEstimateNumber(lead),
       total: fallbackContract,
       summary: lead.projectType || 'Project estimate',
     },

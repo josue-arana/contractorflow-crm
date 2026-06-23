@@ -109,6 +109,7 @@ export function buildServiceAudit() {
     const missingMethods = requiredServiceMethods.filter((method) => typeof service?.[method] !== 'function')
     return {
       id,
+      expectedMethods: requiredServiceMethods,
       missingMethods,
       healthy: missingMethods.length === 0,
     }
@@ -118,6 +119,7 @@ export function buildServiceAudit() {
   const missing = services.filter((service) => !service.healthy)
 
   return {
+    expectedMethods: requiredServiceMethods,
     services,
     factoryReady,
     missing,

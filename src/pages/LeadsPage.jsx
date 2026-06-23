@@ -64,6 +64,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
       }
 
       setIsCreateOpen(false)
+      onViewLead?.(savedLead.id)
     } catch (err) {
       showToast(err?.message || t('leadSaveFailed'), 'error')
     }
