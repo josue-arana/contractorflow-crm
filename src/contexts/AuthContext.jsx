@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { appRoutes } from '../config/appRoutes'
 import { BETA_CONTRACTOR_ID, USE_AUTH } from '../config/backendConfig'
@@ -6,6 +6,8 @@ import { MOCK_CONTRACTOR } from '../constants/mockContractor'
 import { useToast } from '../components/common/ToastProvider'
 import { createTranslator } from '../translations'
 import { getAuthServiceStatus, getCurrentUser, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
+import { resolveAuthenticatedContractorAccess } from '../services/supabase/contractorMembershipSupabaseService'
+import { completeBetaContractorOnboarding } from '../services/supabase/contractorOnboardingSupabaseService'
 
 const AuthContext = createContext(null)
 
@@ -43,42 +45,119 @@ const mockSession = {
   },
 }
 
-function getResolvedContractorId() {
-  return BETA_CONTRACTOR_ID
+const mockContractorAccess = {
+  contractorId: BETA_CONTRACTOR_ID,
+  membershipStatus: 'mock',
+  membership: {
+    id: 'mock-membership-001',
+    contractor_id: BETA_CONTRACTOR_ID,
+    role: 'owner',
+    status: 'active',
+    name: mockContractor.fullName,
+    email: mockContractor.email,
+  },
+  contractorRecord: {
+    id: BETA_CONTRACTOR_ID,
+    company_name: mockCompany.name,
+    owner_name: mockContractor.fullName,
+    email: mockContractor.email,
+  },
+  requiresSetup: false,
+  fallbackActive: true,
+  error: null,
+  isLoading: false,
 }
 
-function normalizeAuthenticatedUser(user) {
+function createEmptyContractorAccessState(overrides = {}) {
+  return {
+    contractorId: '',
+    membershipStatus: USE_AUTH ? 'idle' : 'mock',
+    membership: null,
+    contractorRecord: null,
+    requiresSetup: false,
+    fallbackActive: false,
+    error: null,
+    isLoading: USE_AUTH,
+    ...overrides,
+  }
+}
+
+function buildMissingMembershipError() {
+  return {
+    message: 'Your account is not connected to a contractor profile yet.',
+    code: 'CONTRACTOR_MEMBERSHIP_MISSING',
+    details: null,
+    status: null,
+  }
+}
+
+function normalizeAuthenticatedUser(user, contractorId = '') {
   if (!user) return null
+
+  const nextMetadata = {
+    ...(user.user_metadata || {}),
+  }
+
+  if (contractorId) {
+    nextMetadata.contractor_id = contractorId
+  } else {
+    delete nextMetadata.contractor_id
+  }
 
   return {
     ...user,
-    user_metadata: {
-      ...(user.user_metadata || {}),
-      contractor_id: getResolvedContractorId(),
-    },
+    user_metadata: nextMetadata,
   }
 }
 
-function buildContractorState(nextUser, currentContractor = mockContractor) {
+function buildResolvedContractorAccess(result) {
+  if (!USE_AUTH) {
+    return mockContractorAccess
+  }
+
+  const contractorId = result?.data?.contractorId || ''
+  const membershipStatus = result?.data?.membershipStatus || (result?.error ? 'error' : 'missing')
+  const requiresSetup = result?.data?.requiresSetup ?? membershipStatus !== 'active'
+  const fallbackError = requiresSetup && !result?.error ? buildMissingMembershipError() : null
+
+  return createEmptyContractorAccessState({
+    contractorId,
+    membershipStatus,
+    membership: result?.data?.membership || null,
+    contractorRecord: result?.data?.contractor || null,
+    requiresSetup,
+    fallbackActive: false,
+    error: result?.error || fallbackError,
+    isLoading: false,
+  })
+}
+
+function buildContractorState(nextUser, contractorAccess, currentContractor = mockContractor) {
+  if (!nextUser) return null
+
   const baseContractor = currentContractor || mockContractor
+  const membership = contractorAccess?.membership || {}
 
   return {
     ...baseContractor,
-    id: nextUser?.id || baseContractor.id,
-    contractorId: getResolvedContractorId(),
-    fullName: nextUser?.user_metadata?.full_name || baseContractor.fullName,
-    email: nextUser?.email || baseContractor.email,
-    role: nextUser?.user_metadata?.role || baseContractor.role,
+    id: membership.id || nextUser.id || baseContractor.id,
+    contractorId: contractorAccess?.contractorId || '',
+    fullName: membership.name || nextUser?.user_metadata?.full_name || baseContractor.fullName,
+    email: membership.email || nextUser?.email || baseContractor.email,
+    role: membership.role || nextUser?.user_metadata?.role || baseContractor.role,
   }
 }
 
-function buildCompanyState(nextUser, currentCompany = mockCompany) {
+function buildCompanyState(nextUser, contractorAccess, currentCompany = mockCompany) {
+  if (!nextUser) return null
+
   const baseCompany = currentCompany || mockCompany
+  const contractorRecord = contractorAccess?.contractorRecord || {}
 
   return {
     ...baseCompany,
-    contractorId: getResolvedContractorId(),
-    name: nextUser?.user_metadata?.company_name || baseCompany.name,
+    contractorId: contractorAccess?.contractorId || '',
+    name: contractorRecord.company_name || nextUser?.user_metadata?.company_name || baseCompany.name,
   }
 }
 
@@ -93,10 +172,12 @@ function getAuthTranslator() {
 export function AuthProvider({ children }) {
   const navigate = useNavigate()
   const { showToast } = useToast()
+  const resolutionIdRef = useRef(0)
   const [session, setSession] = useState(USE_AUTH ? null : mockSession)
   const [user, setUser] = useState(USE_AUTH ? null : mockSession.user)
   const [company, setCompany] = useState(USE_AUTH ? null : mockCompany)
   const [contractor, setContractor] = useState(USE_AUTH ? null : mockContractor)
+  const [contractorAccess, setContractorAccess] = useState(USE_AUTH ? createEmptyContractorAccessState({ membershipStatus: 'loading' }) : mockContractorAccess)
   const [isLoading, setIsLoading] = useState(USE_AUTH)
 
   function clearAuthenticatedState() {
@@ -104,6 +185,50 @@ export function AuthProvider({ children }) {
     setUser(null)
     setCompany(null)
     setContractor(null)
+    setContractorAccess(createEmptyContractorAccessState({ membershipStatus: 'idle', isLoading: false }))
+  }
+
+  async function applyAuthenticatedSession(nextSession, { isMountedRef } = {}) {
+    const nextUser = nextSession?.user
+
+    if (!nextUser) {
+      clearAuthenticatedState()
+      setIsLoading(false)
+      return
+    }
+
+    const resolutionId = ++resolutionIdRef.current
+    setIsLoading(true)
+    setContractorAccess((current) => createEmptyContractorAccessState({
+      ...current,
+      membershipStatus: 'loading',
+      isLoading: true,
+      error: null,
+    }))
+
+    const accessResult = await resolveAuthenticatedContractorAccess(nextUser.id)
+
+    if (isMountedRef && !isMountedRef.current) return
+    if (resolutionId !== resolutionIdRef.current) return
+
+    const resolvedAccess = buildResolvedContractorAccess(accessResult)
+    const normalizedUser = normalizeAuthenticatedUser(nextUser, resolvedAccess.contractorId)
+    const normalizedSession = {
+      ...nextSession,
+      user: normalizedUser,
+    }
+
+    setSession(normalizedSession)
+    setUser(normalizedUser)
+    setContractorAccess(resolvedAccess)
+    setContractor((current) => buildContractorState(normalizedUser, resolvedAccess, current))
+    setCompany((current) => buildCompanyState(normalizedUser, resolvedAccess, current))
+    setIsLoading(false)
+    return {
+      session: normalizedSession,
+      contractorAccess: resolvedAccess,
+      user: normalizedUser,
+    }
   }
 
   useEffect(() => {
@@ -112,40 +237,32 @@ export function AuthProvider({ children }) {
       setUser(mockSession.user)
       setCompany(mockCompany)
       setContractor(mockContractor)
+      setContractorAccess(mockContractorAccess)
       setIsLoading(false)
       return undefined
     }
 
-    let isMounted = true
+    const isMountedRef = { current: true }
 
     async function loadAuthState() {
       setIsLoading(true)
       const result = await getCurrentUser()
 
-      if (!isMounted) return
+      if (!isMountedRef.current) return
 
       if (result.session?.user) {
-        const nextUser = normalizeAuthenticatedUser(result.session.user)
-        const nextSession = {
-          ...result.session,
-          user: nextUser,
-        }
-
-        setSession(nextSession)
-        setUser(nextUser)
-        setContractor((current) => buildContractorState(nextUser, current))
-        setCompany((current) => buildCompanyState(nextUser, current))
-      } else {
-        clearAuthenticatedState()
+        await applyAuthenticatedSession(result.session, { isMountedRef })
+        return
       }
 
+      clearAuthenticatedState()
       setIsLoading(false)
     }
 
     loadAuthState()
 
     const unsubscribe = subscribeToAuthChanges(({ event, session: nextSession, user: nextUser }) => {
-      if (!isMounted) return
+      if (!isMountedRef.current) return
 
       if (event === 'SESSION_EXPIRED') {
         clearAuthenticatedState()
@@ -158,27 +275,19 @@ export function AuthProvider({ children }) {
         return
       }
 
-      const normalizedUser = normalizeAuthenticatedUser(nextUser)
-      const normalizedSession = nextSession
-        ? {
-            ...nextSession,
-            user: normalizedUser,
-          }
-        : null
-
-      if (!normalizedUser) {
+      if (!nextUser || !nextSession) {
         clearAuthenticatedState()
         return
       }
 
-      setSession(normalizedSession)
-      setUser(normalizedUser)
-      setContractor((current) => buildContractorState(normalizedUser, current))
-      setCompany((current) => buildCompanyState(normalizedUser, current))
+      applyAuthenticatedSession({
+        ...nextSession,
+        user: nextUser,
+      }, { isMountedRef })
     })
 
     return () => {
-      isMounted = false
+      isMountedRef.current = false
       unsubscribe()
     }
   }, [navigate, showToast])
@@ -189,6 +298,9 @@ export function AuthProvider({ children }) {
     if (!USE_AUTH) {
       setSession(mockSession)
       setUser(mockSession.user)
+      setCompany(mockCompany)
+      setContractor(mockContractor)
+      setContractorAccess(mockContractorAccess)
     }
 
     return result
@@ -223,6 +335,7 @@ export function AuthProvider({ children }) {
       }))
       setCompany((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, name: payload.companyName || current.name }))
       setContractor((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, fullName: payload.fullName || current.fullName, email: payload.email }))
+      setContractorAccess(mockContractorAccess)
     }
 
     return result
@@ -238,6 +351,7 @@ export function AuthProvider({ children }) {
       setUser(mockSession.user)
       setCompany(mockCompany)
       setContractor(mockContractor)
+      setContractorAccess(mockContractorAccess)
     }
 
     return result
@@ -245,6 +359,77 @@ export function AuthProvider({ children }) {
 
   async function resetPassword(email) {
     return authResetPassword(email)
+  }
+
+  async function refreshContractorAccess() {
+    if (!USE_AUTH) {
+      return {
+        data: {
+          contractorAccess: mockContractorAccess,
+        },
+        error: null,
+        skipped: true,
+      }
+    }
+
+    const currentSession = session
+      ? {
+          ...session,
+          user: user || session.user,
+        }
+      : null
+
+    if (!currentSession?.user) {
+      return {
+        data: null,
+        error: {
+          message: 'No authenticated session is available.',
+          code: 'AUTH_SESSION_MISSING',
+          details: null,
+          status: 401,
+        },
+        skipped: false,
+      }
+    }
+
+    const refreshed = await applyAuthenticatedSession(currentSession)
+
+    return {
+      data: refreshed || null,
+      error: null,
+      skipped: false,
+    }
+  }
+
+  async function completeContractorOnboarding(profile) {
+    if (!USE_AUTH) {
+      return createMockOnboardingResult(profile)
+    }
+
+    const onboardingResult = await completeBetaContractorOnboarding(profile)
+
+    if (onboardingResult.error || onboardingResult.skipped) {
+      return onboardingResult
+    }
+
+    const refreshResult = await refreshContractorAccess()
+
+    if (refreshResult.error) {
+      return {
+        data: onboardingResult.data,
+        error: refreshResult.error,
+        skipped: false,
+      }
+    }
+
+    return {
+      data: {
+        ...(onboardingResult.data || {}),
+        contractorAccess: refreshResult.data?.contractorAccess || null,
+      },
+      error: null,
+      skipped: false,
+    }
   }
 
   async function updateProfile(updates) {
@@ -268,30 +453,60 @@ export function AuthProvider({ children }) {
         fullName: updates?.fullName || current.fullName,
         email: updates?.email || current.email,
       }))
+      setContractorAccess(mockContractorAccess)
     }
 
     return result
   }
 
   const authMode = USE_AUTH ? 'supabase' : 'mock'
+  const isAuthenticated = Boolean(user)
+  const hasContractorAccess = contractorAccess.membershipStatus === 'active' || contractorAccess.membershipStatus === 'mock'
+  const onboardingRequired = Boolean(USE_AUTH && contractorAccess.membershipStatus === 'missing')
+  const onboardingCompleted = Boolean(contractorAccess.membershipStatus === 'active' || contractorAccess.membershipStatus === 'mock')
 
   const value = useMemo(() => ({
     user,
     session,
     company,
     contractor,
-    isAuthenticated: Boolean(user),
+    contractorAccess,
+    isAuthenticated,
+    hasContractorAccess,
+    onboardingRequired,
+    onboardingCompleted,
+    authSetupError: contractorAccess.requiresSetup ? contractorAccess.error : null,
     isLoading,
     authMode,
     authServiceStatus: getAuthServiceStatus(),
     signIn,
     signUp,
+    completeContractorOnboarding,
+    refreshContractorAccess,
     logout,
     resetPassword,
     updateProfile,
-  }), [user, session, company, contractor, isLoading, authMode])
+  }), [user, session, company, contractor, contractorAccess, isAuthenticated, hasContractorAccess, onboardingRequired, onboardingCompleted, isLoading, authMode])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function createMockOnboardingResult(profile = {}) {
+  return {
+    data: {
+      contractorId: BETA_CONTRACTOR_ID,
+      companyName: profile.companyName || mockCompany.name,
+      ownerName: profile.ownerName || mockContractor.fullName,
+      phone: profile.phone || '',
+      businessEmail: profile.businessEmail || mockContractor.email,
+      businessAddress: profile.businessAddress || '',
+      onboardingCompleted: true,
+      existingMembership: true,
+      contractorAccess: mockContractorAccess,
+    },
+    error: null,
+    skipped: true,
+  }
 }
 
 export function useAuth() {

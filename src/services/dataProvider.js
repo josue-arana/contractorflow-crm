@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -87,7 +87,7 @@ function resolveSettingsContractorId(value) {
     return contractorId
   }
 
-  if (USE_SUPABASE_SETTINGS && BETA_CONTRACTOR_ID) {
+  if (!USE_AUTH && USE_SUPABASE_SETTINGS && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.settings did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
@@ -104,7 +104,7 @@ function resolveClientsContractorId(primaryValue, fallbackValue) {
     return contractorId
   }
 
-  if ((USE_SUPABASE || USE_SUPABASE_CLIENTS) && BETA_CONTRACTOR_ID) {
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_CLIENTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.clients did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
@@ -121,7 +121,7 @@ function resolveLeadsContractorId(primaryValue, fallbackValue) {
     return contractorId
   }
 
-  if ((USE_SUPABASE || USE_SUPABASE_LEADS) && BETA_CONTRACTOR_ID) {
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_LEADS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.leads did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
@@ -138,7 +138,7 @@ function resolveProjectsContractorId(primaryValue, fallbackValue) {
     return contractorId
   }
 
-  if ((USE_SUPABASE || USE_SUPABASE_PROJECTS) && BETA_CONTRACTOR_ID) {
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_PROJECTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.projects did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })

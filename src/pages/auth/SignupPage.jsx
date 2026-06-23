@@ -29,8 +29,14 @@ export function SignupPage({ t }) {
       return
     }
 
-    showToast(authMode === 'mock' ? t('authMockSignUpSuccess') : t('authSignUpSuccess'))
-    navigate(appRoutes.dashboard)
+    if (authMode === 'mock') {
+      showToast(t('authMockSignUpSuccess'))
+      navigate(appRoutes.dashboard)
+      return
+    }
+
+    showToast(t('authSignUpCheckEmail'))
+    navigate(appRoutes.login)
   }
 
   return (

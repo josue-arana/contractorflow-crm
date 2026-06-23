@@ -204,17 +204,21 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             )}
           </InfoCard>
 
-          <InfoCard title={t('pricing')}>
+          <InfoCard
+            title={t('pricing')}
+            headerAction={isEditing ? (
+              <button
+                onClick={isDetailedPricing ? useSimplePricing : useDetailedPricing}
+                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white sm:w-auto"
+              >
+                {isDetailedPricing ? t('useSimpleTotalInstead') : t('addDetailedLineItems')}
+              </button>
+            ) : null}
+            bodyClassName="space-y-4"
+          >
             <div className="space-y-4">
               {isDetailedPricing ? (
                 <>
-                  {isEditing && (
-                    <div className="flex justify-end">
-                      <button onClick={useSimplePricing} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white">
-                        {t('useSimpleTotalInstead')}
-                      </button>
-                    </div>
-                  )}
                   <div className="space-y-3">
                     {lineItems.map((item, index) => (
                       <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_140px_auto]">
@@ -244,13 +248,6 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                 </>
               ) : (
                 <>
-                  {isEditing && (
-                    <div className="flex justify-end">
-                      <button onClick={useDetailedPricing} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white">
-                        {t('addDetailedLineItems')}
-                      </button>
-                    </div>
-                  )}
                   {isEditing ? (
                     <div>
                       <label className="mb-2 block text-sm font-bold text-slate-700">{t('totalPrice')}</label>
@@ -280,7 +277,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             {isEditing ? (
               <textarea value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
             ) : (
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700">{paymentTerms}</div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{paymentTerms}</div>
             )}
           </InfoCard>
         </section>
@@ -347,7 +344,7 @@ function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentT
       {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
       <p className="text-sm font-bold text-slate-900">{lead.client}</p>
       <p className="mt-1 text-sm text-slate-500">{lead.address || lead.location}</p>
-      <div className="my-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
+      <EstimatePreviewSection title={t('scopeOfWork')} content={scope} className="my-4" />
       {lineItems.length > 0 && (
         <div className="mb-4 rounded-2xl border border-slate-200">
           {lineItems.map((item, index) => (
@@ -359,12 +356,21 @@ function EstimatePreviewBody({ company, lead, scope, materialsIncluded, paymentT
         </div>
       )}
       <DetailRow label={t('materialsIncluded')} value={materialsIncluded ? t('yes') : t('no')} />
-      <DetailRow label={t('paymentTerms')} value={paymentTerms} />
+      <EstimatePreviewSection title={t('paymentTerms')} content={paymentTerms} className="mt-4" />
       <div className="mt-4 rounded-2xl bg-blue-50 p-4 text-center text-blue-700">
         <p className="text-xs font-bold uppercase tracking-wide">{t('totalAmount')}</p>
         <p className="text-3xl font-bold">{currency.format(total)}</p>
       </div>
     </>
+  )
+}
+
+function EstimatePreviewSection({ title, content, className = '' }) {
+  return (
+    <div className={`rounded-2xl bg-slate-50 p-4 ${className}`.trim()}>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{title}</p>
+      <div className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{content}</div>
+    </div>
   )
 }
 

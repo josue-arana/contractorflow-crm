@@ -47,6 +47,15 @@ function TemplateRow({ label, value, preserveLineBreaks = false }) {
   )
 }
 
+function TemplateSection({ title, content, marginTop = '20px' }) {
+  return (
+    <div style={{ marginTop, borderRadius: '24px', backgroundColor: colors.slate50, padding: '20px' }}>
+      <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.slate400 }}>{title}</p>
+      <div style={{ marginTop: '12px', whiteSpace: 'pre-line', fontSize: '14px', lineHeight: 1.75, color: colors.slate700 }}>{content}</div>
+    </div>
+  )
+}
+
 export function EstimatePdfTemplate({ company, lead, estimateNumber, scope, materialsIncluded, paymentTerms, total, lineItems = [], t }) {
   return (
     <article style={{ overflow: 'hidden', borderRadius: '28px', border: `1px solid ${colors.slate200}`, backgroundColor: colors.white, padding: '32px', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)', fontFamily: 'ui-sans-serif, system-ui, sans-serif' }}>
@@ -63,10 +72,7 @@ export function EstimatePdfTemplate({ company, lead, estimateNumber, scope, mate
         <p style={{ margin: '4px 0 0', fontSize: '14px', color: colors.slate500 }}>{lead?.address || lead?.location}</p>
       </div>
 
-      <div style={{ marginTop: '20px', borderRadius: '24px', backgroundColor: colors.slate50, padding: '20px' }}>
-        <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', color: colors.slate400 }}>{t('scopeOfWork')}</p>
-        <div style={{ marginTop: '12px', whiteSpace: 'pre-line', fontSize: '14px', lineHeight: 1.75, color: colors.slate700 }}>{scope}</div>
-      </div>
+      <TemplateSection title={t('scopeOfWork')} content={scope} />
 
       {lineItems.length > 0 ? (
         <div style={{ marginTop: '20px', overflow: 'hidden', borderRadius: '24px', border: `1px solid ${colors.slate200}` }}>
@@ -85,8 +91,9 @@ export function EstimatePdfTemplate({ company, lead, estimateNumber, scope, mate
 
       <div style={{ marginTop: '20px', borderRadius: '24px', border: `1px solid ${colors.slate200}`, padding: '20px' }}>
         <TemplateRow label={t('materialsIncluded')} value={materialsIncluded ? t('yes') : t('no')} />
-        <TemplateRow label={t('paymentTerms')} value={paymentTerms} preserveLineBreaks />
       </div>
+
+      <TemplateSection title={t('paymentTerms')} content={paymentTerms} />
 
       <div style={{ marginTop: '20px', borderRadius: '24px', backgroundColor: colors.blue50, padding: '20px 24px', textAlign: 'center', color: colors.blue700 }}>
         <p style={{ margin: 0, fontSize: '12px', fontWeight: 700, letterSpacing: '0.22em', textTransform: 'uppercase' }}>{t('totalAmount')}</p>

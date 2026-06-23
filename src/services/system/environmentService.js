@@ -11,6 +11,20 @@ export function getSupabaseEnvironmentConfig() {
   }
 }
 
+export function getAuthRedirectUrl() {
+  const explicitRedirectUrl = readEnvValue(import.meta.env.VITE_AUTH_REDIRECT_URL)
+
+  if (explicitRedirectUrl) {
+    return explicitRedirectUrl.replace(/\/$/, '')
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, '')
+  }
+
+  return 'http://localhost:5174'
+}
+
 export function getEnvironmentStatus() {
   const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
   const hasSupabaseUrl = Boolean(supabaseUrl)

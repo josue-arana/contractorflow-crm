@@ -189,6 +189,31 @@ function buildFallbackPdf({
     })
   }
 
+  function drawSectionBlock(title, content, options = {}) {
+    const maxCharsPerLine = options.maxCharsPerLine || 74
+    const lines = wrapMultilineText(content, maxCharsPerLine)
+    const lineHeight = options.lineHeight || 16
+    const topOffset = options.topOffset || 38
+    const bottomPadding = options.bottomPadding || 12
+    const minHeight = options.minHeight || 90
+    const blockHeight = Math.max(minHeight, topOffset + (lines.length * lineHeight) + bottomPadding)
+
+    ensureSpace(blockHeight + 12)
+    pdf.setFillColor(safeColors.slate50)
+    pdf.roundedRect(innerX, cursorY, cardWidth - 48, blockHeight, 18, 18, 'F')
+    drawText(title.toUpperCase(), innerX + 18, cursorY + 18, { bold: true, size: 10, color: safeColors.slate400 })
+
+    const contentStartY = cursorY + topOffset
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(11)
+    pdf.setTextColor(safeColors.slate700)
+    lines.forEach((line, index) => {
+      pdf.text(line || ' ', innerX + 18, contentStartY + (index * lineHeight), { maxWidth: cardWidth - 84 })
+    })
+
+    cursorY += blockHeight
+  }
+
   pdf.setFillColor(safeColors.white)
   pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 20, 20, 'F')
   pdf.setDrawColor(safeColors.slate200)
@@ -220,20 +245,7 @@ function buildFallbackPdf({
   drawText(lead?.address || lead?.location || '', innerX, cursorY, { size: 11, color: safeColors.slate500 })
 
   cursorY += 22
-  ensureSpace(110)
-  pdf.setFillColor(safeColors.slate50)
-  pdf.roundedRect(innerX, cursorY, cardWidth - 48, 90, 18, 18, 'F')
-  drawText(t('scopeOfWork').toUpperCase(), innerX + 18, cursorY + 18, { bold: true, size: 10, color: safeColors.slate400 })
-  cursorY += 38
-  const scopeLines = wrapMultilineText(scope, 74)
-  const scopeStartY = cursorY
-  pdf.setFont('helvetica', 'normal')
-  pdf.setFontSize(11)
-  pdf.setTextColor(safeColors.slate700)
-  scopeLines.forEach((line, index) => {
-    pdf.text(line || ' ', innerX + 18, scopeStartY + (index * 16), { maxWidth: cardWidth - 84 })
-  })
-  cursorY = scopeStartY + (scopeLines.length * 16) + 12
+  drawSectionBlock(t('scopeOfWork'), scope)
 
   if (lineItems.length > 0) {
     ensureSpace((lineItems.length * 24) + 50)
@@ -258,22 +270,14 @@ function buildFallbackPdf({
   }
 
   cursorY += 10
-  ensureSpace(110)
+  ensureSpace(56)
   pdf.setDrawColor(safeColors.slate200)
-  pdf.roundedRect(innerX, cursorY, cardWidth - 48, 90, 18, 18, 'S')
+  pdf.roundedRect(innerX, cursorY, cardWidth - 48, 42, 18, 18, 'S')
   drawText(t('materialsIncluded'), innerX + 16, cursorY + 22, { size: 11, color: safeColors.slate500 })
   drawText(materialsIncluded ? t('yes') : t('no'), cardX + cardWidth - 40, cursorY + 22, { bold: true, size: 11, align: 'right' })
-  pdf.setDrawColor(safeColors.slate100)
-  pdf.line(innerX + 16, cursorY + 38, cardX + cardWidth - 40, cursorY + 38)
-  drawText(t('paymentTerms'), innerX + 16, cursorY + 58, { size: 11, color: safeColors.slate500 })
-  const paymentLines = wrapMultilineText(paymentTerms, 58)
-  pdf.setFont('helvetica', 'bold')
-  pdf.setFontSize(11)
-  pdf.setTextColor(safeColors.slate900)
-  paymentLines.forEach((line, index) => {
-    pdf.text(line || ' ', cardX + cardWidth - 40, cursorY + 58 + (index * 16), { align: 'right', maxWidth: 270 })
-  })
-  cursorY += Math.max(90, 58 + (paymentLines.length * 16))
+  cursorY += 54
+
+  drawSectionBlock(t('paymentTerms'), paymentTerms)
 
   cursorY += 12
   ensureSpace(72)

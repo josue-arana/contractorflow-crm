@@ -1,7 +1,7 @@
 import { isSupabaseAuthConfigured, USE_AUTH, USE_SUPABASE } from '../config/backendConfig'
 import { configureSupabaseSessionHandlers, isSupabaseSessionError, supabaseClient } from '../lib/supabaseClient'
 import { clearStoredSession, readStoredSession, SUPABASE_AUTH_OPTIONS, writeStoredSession } from './authSessionStorage'
-import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from './system/environmentService'
+import { getAuthRedirectUrl, getEnvironmentStatus, getSupabaseEnvironmentConfig } from './system/environmentService'
 
 const authListeners = new Set()
 const SESSION_ACCESS_TOKEN_PLACEHOLDER = '__SESSION_ACCESS_TOKEN__'
@@ -199,7 +199,7 @@ function persistSession(session, event = 'SIGNED_IN', meta = {}) {
   return session
 }
 
-async function authRequest(path, { method = 'GET', body, accessToken, skipSessionRecovery = false } = {}) {
+async function authRequest(path, { method = 'GET', body, accessToken, skipSessionRecovery = false, headers = {} } = {}) {
   if (!USE_AUTH) {
     throw createAuthDisabledError()
   }
@@ -214,6 +214,7 @@ async function authRequest(path, { method = 'GET', body, accessToken, skipSessio
       body,
       headers: {
         ...buildAuthHeaders(body !== undefined),
+        ...headers,
         ...(accessToken ? { Authorization: skipSessionRecovery ? `Bearer ${accessToken}` : `Bearer ${SESSION_ACCESS_TOKEN_PLACEHOLDER}` } : {}),
       },
       skipSessionRecovery,
@@ -310,6 +311,7 @@ export function getAuthServiceStatus() {
   const environmentStatus = getEnvironmentStatus()
   const storedSession = readStoredSession()
   const expiresAt = toSafeNumber(storedSession?.expires_at)
+  const redirectUrl = getAuthRedirectUrl()
 
   return {
     authEnabled: USE_AUTH,
@@ -324,6 +326,7 @@ export function getAuthServiceStatus() {
     persistSessionEnabled: SUPABASE_AUTH_OPTIONS.persistSession,
     autoRefreshEnabled: SUPABASE_AUTH_OPTIONS.autoRefreshToken,
     detectSessionInUrlEnabled: SUPABASE_AUTH_OPTIONS.detectSessionInUrl,
+    redirectUrl,
     sessionExpiresAt: expiresAt || null,
     sessionExpiresAtIso: expiresAt ? new Date(expiresAt * 1000).toISOString() : '',
     lastAuthError: authRuntimeState.lastAuthError,
@@ -394,6 +397,7 @@ export async function signUpWithEmail({ email, password, fullName, companyName }
   }
 
   try {
+    const redirectTo = getAuthRedirectUrl()
     const data = await authRequest('/signup', {
       method: 'POST',
       body: {
@@ -403,6 +407,10 @@ export async function signUpWithEmail({ email, password, fullName, companyName }
           full_name: fullName || '',
           company_name: companyName || '',
         },
+      },
+      headers: {
+        redirect_to: redirectTo,
+        'x-redirect-to': redirectTo,
       },
       skipSessionRecovery: true,
     })
@@ -488,9 +496,14 @@ export async function resetPassword(email) {
   }
 
   try {
+    const redirectTo = getAuthRedirectUrl()
     const data = await authRequest('/recover', {
       method: 'POST',
       body: { email },
+      headers: {
+        redirect_to: redirectTo,
+        'x-redirect-to': redirectTo,
+      },
       skipSessionRecovery: true,
     })
 

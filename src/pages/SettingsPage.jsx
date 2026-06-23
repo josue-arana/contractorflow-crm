@@ -8,10 +8,11 @@ import dataProvider from '../services/dataProvider'
 import { getSettingsContractorId } from '../services/system/settingsRuntimeService'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
-  const { contractor, company: authCompany, session } = useAuth()
+  const { contractor, company: authCompany, contractorAccess, session } = useAuth()
   const { showToast } = useToast()
   const [draft, setDraft] = useState(settings)
   const [successMessage, setSuccessMessage] = useState('')
+  const [settingsLoadError, setSettingsLoadError] = useState('')
 
   const contractorId = useMemo(() => (
     getSettingsContractorId({
@@ -32,10 +33,22 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     let mounted = true
     async function loadSettings() {
       if (!dataProvider?.settings?.getSettings) return
+      if (USE_SUPABASE_SETTINGS && contractorAccess?.membershipStatus !== 'active') {
+        setSettingsLoadError(t('authContractorSetupRequiredMessage'))
+        return
+      }
+
       try {
         const res = await dataProvider.settings.getSettings({ contractorId })
         if (!mounted) return
+
+        if (res?.error) {
+          setSettingsLoadError(res.error.message || t('settingsLoadFailed'))
+          return
+        }
+
         if (res && res.data) {
+          setSettingsLoadError('')
           setDraft(res.data)
           if (res.data.appLanguage) {
             setLanguage(res.data.appLanguage)
@@ -44,15 +57,16 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
             setPortalLanguage(res.data.portal.defaultLanguage)
           }
         }
-      } catch (err) {
-        // Swallow errors for now; local mode should remain unaffected.
+      } catch {
+        if (!mounted) return
+        setSettingsLoadError(t('settingsLoadFailed'))
       }
     }
     loadSettings()
     return () => {
       mounted = false
     }
-  }, [contractorId, setLanguage, setPortalLanguage])
+  }, [contractorAccess?.membershipStatus, contractorId, setLanguage, setPortalLanguage, t])
 
   function updateSection(section, field, value) {
     setDraft((current) => ({
@@ -112,6 +126,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         }
 
         setSuccessMessage('')
+        setSettingsLoadError(res.error.message || t('settingsSaveFailed'))
         showToast(res.error.message || t('settingsSaveFailed'), 'error')
         return
       }
@@ -119,6 +134,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
       const persistedSettings = res?.data || nextSettings
 
       setDraft(persistedSettings)
+      setSettingsLoadError('')
       if (persistedSettings.appLanguage) {
         setLanguage(persistedSettings.appLanguage)
       }
@@ -138,6 +154,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         }
 
         setSuccessMessage('')
+        setSettingsLoadError(err?.message || t('settingsSaveFailed'))
         showToast(err?.message || t('settingsSaveFailed'), 'error')
         return
       }
@@ -166,6 +183,12 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
       {successMessage && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
           {successMessage}
+        </div>
+      )}
+
+      {settingsLoadError && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          {settingsLoadError}
         </div>
       )}
 

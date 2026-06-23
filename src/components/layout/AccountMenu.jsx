@@ -27,8 +27,8 @@ export function AccountMenu({ isOpen, onClose, userProfile, onOpenScreen, onOpen
       <aside className="absolute right-3 top-20 w-[calc(100vw-1.5rem)] max-w-[26rem] rounded-3xl border border-slate-200 bg-white p-3 shadow-2xl sm:right-6 sm:top-24 sm:w-[24rem]" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between border-b border-slate-100 p-3">
           <div>
-            <p className="text-sm font-bold text-slate-950">{userProfile.name}</p>
-            <p className="mt-1 text-xs text-slate-500">{userProfile.email}</p>
+            <p className="text-sm font-bold text-slate-950">{userProfile?.name || t('userName')}</p>
+            <p className="mt-1 text-xs text-slate-500">{userProfile?.email || t('notAvailable')}</p>
           </div>
           <button onClick={onClose} className="rounded-2xl border border-slate-200 p-2 hover:bg-slate-50" aria-label={t('close')}>
             <X className="h-4 w-4" />

@@ -3,6 +3,11 @@ import { createDefaultCompanySettings } from '../../data/defaultCompanySettings'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'company_settings'
+const settingsRuntimeState = {
+  loadStatus: 'idle',
+  saveStatus: 'idle',
+  lastError: null,
+}
 
 function isDev() {
   return Boolean(import.meta.env.DEV)
@@ -37,16 +42,27 @@ function createErrorResult(message, details = null, code = null) {
       message,
       code,
       details,
+      status: null,
     },
     skipped: false,
   }
 }
 
 function normalizeError(error, fallbackMessage) {
+  if (error?.status === 403) {
+    return {
+      message: 'Company settings access is blocked for this contractor profile. Check contractor membership and Supabase RLS policies.',
+      details: error?.details || null,
+      code: error?.code || 'SETTINGS_PERMISSION_DENIED',
+      status: error?.status || null,
+    }
+  }
+
   return {
     message: error?.message || fallbackMessage,
     details: error?.details || null,
     code: error?.code || null,
+    status: error?.status || null,
   }
 }
 
@@ -56,6 +72,18 @@ function readSingleRow(data) {
 
 function normalizeSettings(settings = {}) {
   return createDefaultCompanySettings(settings)
+}
+
+function setSettingsRuntimeStatus(operation, status, error = null) {
+  if (operation === 'load') {
+    settingsRuntimeState.loadStatus = status
+  }
+
+  if (operation === 'save') {
+    settingsRuntimeState.saveStatus = status
+  }
+
+  settingsRuntimeState.lastError = error
 }
 
 function toAppSettings(row) {
@@ -142,7 +170,7 @@ function handleMissingContractorId(methodName) {
   warnDev(`[dev] settingsSupabaseService.${methodName} called without contractorId`)
 
   return createErrorResult(
-    'contractorId is required for company settings operations.',
+    'Your account is not connected to a contractor profile yet.',
     {
       methodName,
       reason: 'No contractorId was provided to the Settings Supabase service.',
@@ -157,10 +185,17 @@ export async function getSettings(contractorId) {
   }
 
   if (!contractorId) {
+    setSettingsRuntimeStatus('load', 'error', {
+      message: 'Your account is not connected to a contractor profile yet.',
+      code: 'MISSING_CONTRACTOR_ID',
+      details: null,
+      status: null,
+    })
     return handleMissingContractorId('getSettings')
   }
 
   try {
+    setSettingsRuntimeStatus('load', 'loading')
     let row = await findSettingsRow(contractorId)
 
     if (!row) {
@@ -168,15 +203,18 @@ export async function getSettings(contractorId) {
       row = await createDefaultSettingsRecord(contractorId)
     }
 
+    setSettingsRuntimeStatus('load', 'success', null)
     return {
       data: toAppSettings(row),
       error: null,
       skipped: false,
     }
   } catch (error) {
+    const normalizedError = normalizeError(error, 'Unable to load company settings from Supabase.')
+    setSettingsRuntimeStatus('load', 'error', normalizedError)
     return {
       data: null,
-      error: normalizeError(error, 'Unable to load company settings from Supabase.'),
+      error: normalizedError,
       skipped: false,
     }
   }
@@ -188,16 +226,24 @@ export async function updateSettings(contractorId, settings) {
   }
 
   if (!contractorId) {
+    setSettingsRuntimeStatus('save', 'error', {
+      message: 'Your account is not connected to a contractor profile yet.',
+      code: 'MISSING_CONTRACTOR_ID',
+      details: null,
+      status: null,
+    })
     return handleMissingContractorId('updateSettings')
   }
 
   try {
+    setSettingsRuntimeStatus('save', 'saving')
     const existingRow = await findSettingsRow(contractorId)
 
     if (!existingRow) {
       warnDev('[dev] company_settings record missing during update; creating a default settings record first.', { contractorId })
       const createdRow = await createDefaultSettingsRecord(contractorId, settings)
 
+      setSettingsRuntimeStatus('save', 'success', null)
       return {
         data: toAppSettings(createdRow),
         error: null,
@@ -213,21 +259,31 @@ export async function updateSettings(contractorId, settings) {
       body: toSupabasePayload(contractorId, settings),
     })
 
+    setSettingsRuntimeStatus('save', 'success', null)
     return {
       data: toAppSettings(readSingleRow(data) || existingRow),
       error: null,
       skipped: false,
     }
   } catch (error) {
+    const normalizedError = normalizeError(error, 'Unable to update company settings in Supabase.')
+    setSettingsRuntimeStatus('save', 'error', normalizedError)
     return {
       data: null,
-      error: normalizeError(error, 'Unable to update company settings in Supabase.'),
+      error: normalizedError,
       skipped: false,
     }
+  }
+}
+
+export function getSettingsRuntimeStatus() {
+  return {
+    ...settingsRuntimeState,
   }
 }
 
 export default {
   getSettings,
   updateSettings,
+  getSettingsRuntimeStatus,
 }
