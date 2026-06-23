@@ -5,7 +5,7 @@ import { BETA_CONTRACTOR_ID, USE_AUTH } from '../config/backendConfig'
 import { MOCK_CONTRACTOR } from '../constants/mockContractor'
 import { useToast } from '../components/common/ToastProvider'
 import { createTranslator } from '../translations'
-import { getAuthServiceStatus, getCurrentUser, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
+import { getAuthServiceStatus, getCurrentUser, resendSignUpVerificationEmail as authResendSignUpVerificationEmail, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updateProfile as authUpdateProfile } from '../services/authService'
 import { resolveAuthenticatedContractorAccess } from '../services/supabase/contractorMembershipSupabaseService'
 import { completeBetaContractorOnboarding } from '../services/supabase/contractorOnboardingSupabaseService'
 
@@ -341,6 +341,10 @@ export function AuthProvider({ children }) {
     return result
   }
 
+  async function resendSignUpVerificationEmail(email) {
+    return authResendSignUpVerificationEmail(email)
+  }
+
   async function logout() {
     const result = await signOut()
 
@@ -481,6 +485,7 @@ export function AuthProvider({ children }) {
     authServiceStatus: getAuthServiceStatus(),
     signIn,
     signUp,
+    resendSignUpVerificationEmail,
     completeContractorOnboarding,
     refreshContractorAccess,
     logout,

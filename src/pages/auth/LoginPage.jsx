@@ -5,7 +5,7 @@ import { appRoutes } from '../../config/appRoutes'
 import { useAuth } from '../../contexts/AuthContext'
 import { useToast } from '../../components/common/ToastProvider'
 
-export function LoginPage({ t }) {
+export function LoginPage({ t, language, setLanguage }) {
   const navigate = useNavigate()
   const { signIn, authMode } = useAuth()
   const { showToast } = useToast()
@@ -37,6 +37,8 @@ export function LoginPage({ t }) {
       alternatePath={appRoutes.signup}
       alternateActionLabel={t('createAccount')}
       t={t}
+      language={language}
+      setLanguage={setLanguage}
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
