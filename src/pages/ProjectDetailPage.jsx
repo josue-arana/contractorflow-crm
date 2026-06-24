@@ -14,7 +14,7 @@ import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
-import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
@@ -644,7 +644,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.payments.list({
           contractorId,
           includeArchived: true,
-          ...(clientId ? { clientId } : { projectId }),
+          ...(projectId ? { projectId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -654,10 +654,16 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           return
         }
 
-        setPaymentRecords(dedupePayments([
-          ...(Array.isArray(response?.data) ? response.data : []),
-          ...fallbackPayments,
-        ]))
+        const persistedPayments = Array.isArray(response?.data) ? response.data : []
+
+        setPaymentRecords(
+          USE_SUPABASE_PAYMENTS
+            ? dedupePayments(persistedPayments)
+            : dedupePayments([
+                ...persistedPayments,
+                ...fallbackPayments,
+              ])
+        )
       } catch (error) {
         if (!isCancelled) {
           setPaymentRecords(fallbackPayments)
@@ -840,6 +846,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         id: editingPayment?.id || `payment-${Date.now()}`,
         clientId: currentLead.clientId || currentLead.client_id || null,
         projectId: currentLead.id,
+        contractId: resolvedContract?.id || currentLead.contractId || currentLead.contract_id || null,
+        estimateId: resolvedEstimate?.id || currentLead.estimateId || currentLead.estimate_id || null,
         invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
         leadId: linkedLeadId || currentLead.leadId || currentLead.id,
       }, {

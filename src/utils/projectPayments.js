@@ -85,6 +85,8 @@ export function normalizePaymentRecord(payment = {}, fallbackValues = {}) {
     contractorId: readField(payment, ['contractorId', 'contractor_id']) ?? fallbackValues.contractorId ?? fallbackValues.contractor_id ?? undefined,
     clientId: readField(payment, ['clientId', 'client_id']) ?? fallbackValues.clientId ?? fallbackValues.client_id ?? null,
     projectId: readField(payment, ['projectId', 'project_id']) ?? fallbackValues.projectId ?? fallbackValues.project_id ?? null,
+    contractId: readField(payment, ['contractId', 'contract_id']) ?? fallbackValues.contractId ?? fallbackValues.contract_id ?? null,
+    estimateId: readField(payment, ['estimateId', 'estimate_id']) ?? fallbackValues.estimateId ?? fallbackValues.estimate_id ?? null,
     invoiceId: readField(payment, ['invoiceId', 'invoice_id']) ?? fallbackValues.invoiceId ?? fallbackValues.invoice_id ?? null,
     leadId: readField(payment, ['leadId', 'lead_id']) ?? fallbackValues.leadId ?? fallbackValues.lead_id ?? null,
     amount,

@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_PAYMENTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'payments'
@@ -80,12 +80,6 @@ function readField(source = {}, keys = []) {
   return undefined
 }
 
-function assignIfDefined(target, key, value) {
-  if (value !== undefined) {
-    target[key] = value
-  }
-}
-
 function toNumber(value, fallback = 0) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : fallback
@@ -103,9 +97,8 @@ function mapStatusToUi(status) {
 
 function parseDateToIso(value) {
   if (!value) return null
-  if (typeof value !== 'string') return null
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return value
   }
 
@@ -132,32 +125,7 @@ function formatDisplayDate(value) {
   })
 }
 
-function serializeNotes(payment = {}) {
-  const notesText = readField(payment, ['notes'])
-  const paymentType = readField(payment, ['type', 'paymentType', 'payment_type'])
-  const leadId = readField(payment, ['leadId', 'lead_id'])
-  const displayPaymentDate = readField(payment, ['date', 'displayPaymentDate', 'display_payment_date'])
-
-  const hasStructuredFields = [
-    paymentType,
-    leadId,
-    displayPaymentDate,
-  ].some((value) => value !== undefined)
-
-  if (!hasStructuredFields) {
-    return notesText === undefined ? undefined : notesText || null
-  }
-
-  return JSON.stringify({
-    version: 1,
-    notes: notesText || '',
-    paymentType: paymentType || '',
-    leadId: leadId || null,
-    displayPaymentDate: displayPaymentDate || '',
-  })
-}
-
-function parseNotes(notes) {
+function parseLegacyNotes(notes) {
   const fallback = {
     notesText: notes || '',
     paymentType: '',
@@ -185,26 +153,39 @@ function parseNotes(notes) {
   }
 }
 
+function sortPayments(payments = []) {
+  return [...payments].sort((left, right) => {
+    const leftTimestamp = new Date(left.paymentDate || left.createdAt || 0).getTime()
+    const rightTimestamp = new Date(right.paymentDate || right.createdAt || 0).getTime()
+    return rightTimestamp - leftTimestamp
+  })
+}
+
 function toAppPayment(row) {
-  const parsedNotes = parseNotes(row?.notes)
+  const parsedNotes = parseLegacyNotes(row?.notes)
+  const paymentDate = row?.payment_date || null
+  const paymentMethod = row?.payment_method || row?.method || ''
+  const paymentType = row?.payment_type || parsedNotes.paymentType || ''
 
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
-    clientId: row?.client_id || null,
     projectId: row?.project_id || null,
+    clientId: row?.client_id || null,
+    contractId: row?.contract_id || null,
+    estimateId: row?.estimate_id || null,
+    leadId: row?.lead_id || parsedNotes.leadId || null,
     invoiceId: row?.invoice_id || null,
-    leadId: parsedNotes.leadId || null,
     amount: toNumber(row?.amount),
-    paymentDate: row?.payment_date || null,
-    date: parsedNotes.displayPaymentDate || (row?.payment_date ? formatDisplayDate(row.payment_date) : ''),
-    method: row?.method || '',
-    paymentMethod: row?.method || '',
-    type: parsedNotes.paymentType || '',
-    paymentType: parsedNotes.paymentType || '',
-    status: mapStatusToUi(row?.status),
-    referenceNumber: row?.reference_number || '',
+    paymentType,
+    paymentMethod,
+    paymentDate,
     notes: parsedNotes.notesText,
+    status: mapStatusToUi(row?.status),
+    type: paymentType,
+    method: paymentMethod,
+    date: parsedNotes.displayPaymentDate || (paymentDate ? formatDisplayDate(paymentDate) : ''),
+    referenceNumber: row?.reference_number || '',
     archivedAt: row?.archived_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
@@ -215,21 +196,34 @@ function toSupabasePayload(contractorId, payment = {}, { isCreate = false } = {}
   const payload = {}
   const amountInput = readField(payment, ['amount'])
   const paymentDateInput = readField(payment, ['paymentDate', 'payment_date', 'date'])
-  const methodInput = readField(payment, ['method', 'paymentMethod', 'payment_method'])
+  const paymentTypeInput = readField(payment, ['type', 'paymentType', 'payment_type'])
+  const paymentMethodInput = readField(payment, ['method', 'paymentMethod', 'payment_method'])
   const statusInput = readField(payment, ['status'])
+  const notesInput = readField(payment, ['notes'])
   const referenceInput = readField(payment, ['referenceNumber', 'reference_number'])
-  const notesInput = serializeNotes(payment)
 
   if (contractorId) {
     payload.contractor_id = contractorId
+  }
+
+  if (isCreate || readField(payment, ['projectId', 'project_id']) !== undefined) {
+    payload.project_id = readField(payment, ['projectId', 'project_id']) || null
   }
 
   if (isCreate || readField(payment, ['clientId', 'client_id']) !== undefined) {
     payload.client_id = readField(payment, ['clientId', 'client_id']) || null
   }
 
-  if (isCreate || readField(payment, ['projectId', 'project_id']) !== undefined) {
-    payload.project_id = readField(payment, ['projectId', 'project_id']) || null
+  if (isCreate || readField(payment, ['contractId', 'contract_id']) !== undefined) {
+    payload.contract_id = readField(payment, ['contractId', 'contract_id']) || null
+  }
+
+  if (isCreate || readField(payment, ['estimateId', 'estimate_id']) !== undefined) {
+    payload.estimate_id = readField(payment, ['estimateId', 'estimate_id']) || null
+  }
+
+  if (isCreate || readField(payment, ['leadId', 'lead_id']) !== undefined) {
+    payload.lead_id = readField(payment, ['leadId', 'lead_id']) || null
   }
 
   if (isCreate || readField(payment, ['invoiceId', 'invoice_id']) !== undefined) {
@@ -246,8 +240,13 @@ function toSupabasePayload(contractorId, payment = {}, { isCreate = false } = {}
     payload.payment_date = parseDateToIso(paymentDateInput)
   }
 
-  if (isCreate || methodInput !== undefined) {
-    payload.method = methodInput || null
+  if (isCreate || paymentTypeInput !== undefined) {
+    payload.payment_type = paymentTypeInput || null
+  }
+
+  if (isCreate || paymentMethodInput !== undefined) {
+    payload.payment_method = paymentMethodInput || null
+    payload.method = paymentMethodInput || null
   }
 
   if (statusInput !== undefined) {
@@ -261,7 +260,7 @@ function toSupabasePayload(contractorId, payment = {}, { isCreate = false } = {}
   }
 
   if (notesInput !== undefined) {
-    payload.notes = notesInput
+    payload.notes = notesInput || null
   } else if (isCreate) {
     payload.notes = null
   }
@@ -282,9 +281,9 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for payment operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, clientId, projectId, invoiceId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', [])
+export async function list({ contractorId, includeArchived = false, status, clientId, projectId, contractId, estimateId, invoiceId, leadId } = {}) {
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', [])
   }
 
   if (!contractorId) {
@@ -294,7 +293,7 @@ export async function list({ contractorId, includeArchived = false, status, clie
   try {
     const query = buildContractorQuery(contractorId, {
       select: '*',
-      order: 'payment_date.desc',
+      order: 'payment_date.desc,created_at.desc',
     })
 
     if (!includeArchived) {
@@ -313,8 +312,20 @@ export async function list({ contractorId, includeArchived = false, status, clie
       query.project_id = `eq.${projectId}`
     }
 
+    if (contractId) {
+      query.contract_id = `eq.${contractId}`
+    }
+
+    if (estimateId) {
+      query.estimate_id = `eq.${estimateId}`
+    }
+
     if (invoiceId) {
       query.invoice_id = `eq.${invoiceId}`
+    }
+
+    if (leadId) {
+      query.lead_id = `eq.${leadId}`
     }
 
     const data = await supabaseClient.request(TABLE_NAME, {
@@ -323,7 +334,7 @@ export async function list({ contractorId, includeArchived = false, status, clie
     })
 
     return {
-      data: Array.isArray(data) ? data.map(toAppPayment) : [],
+      data: sortPayments(Array.isArray(data) ? data.map(toAppPayment) : []),
       error: null,
       skipped: false,
     }
@@ -337,8 +348,8 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false')
   }
 
   if (!contractorId) {
@@ -372,8 +383,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(paymentData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', paymentData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', paymentData ?? null)
   }
 
   if (!contractorId) {
@@ -401,8 +412,8 @@ export async function create(paymentData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -440,8 +451,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -476,8 +487,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -512,8 +523,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
+    return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

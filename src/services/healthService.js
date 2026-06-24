@@ -1,4 +1,4 @@
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { getEnvironmentStatus } from './system/environmentService'
 
 function getRowStatus(isReady) {
@@ -25,6 +25,8 @@ export function getBackendEnvironmentStatus() {
                   ? 'backendEnvironmentEstimatesSupabaseModeHelper'
                   : environmentStatus.dataMode === 'contracts-supabase'
                     ? 'backendEnvironmentContractsSupabaseModeHelper'
+                    : environmentStatus.dataMode === 'payments-supabase'
+                      ? 'backendEnvironmentPaymentsSupabaseModeHelper'
                     : 'backendEnvironmentLocalModeHelper'
 
   return {
@@ -214,11 +216,23 @@ export function getInvoicesBackendStatus() {
 }
 
 export function getPaymentsBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_PAYMENTS
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'paymentsBackendSupabaseDetail' : 'paymentsBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'paymentsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'paymentsBackendSupabaseAuthRequiredDetail'
+          : 'paymentsBackendSupabaseDetail'
+      : 'paymentsBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
@@ -233,7 +247,7 @@ export function getEventsBackendStatus() {
 
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
-  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS].filter(Boolean).length
+  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS, USE_SUPABASE_PAYMENTS].filter(Boolean).length
 
   if (!environmentStatus.supabaseConfigured) {
     return {
@@ -243,7 +257,7 @@ export function getSupabaseHealthStatus() {
     }
   }
 
-  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS && !USE_SUPABASE_ESTIMATES && !USE_SUPABASE_CONTRACTS) {
+  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS && !USE_SUPABASE_ESTIMATES && !USE_SUPABASE_CONTRACTS && !USE_SUPABASE_PAYMENTS) {
     return {
       status: 'disabled',
       label: 'Supabase disabled',
@@ -269,8 +283,10 @@ export function getSupabaseHealthStatus() {
                 ? 'Supabase configured for Projects beta'
                 : USE_SUPABASE_ESTIMATES && !USE_SUPABASE
                   ? 'Supabase configured for Estimates beta'
-                  : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
-                    ? 'Supabase configured for Contracts beta'
+                : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
+                  ? 'Supabase configured for Contracts beta'
+                  : USE_SUPABASE_PAYMENTS && !USE_SUPABASE
+                    ? 'Supabase configured for Payments beta'
                     : 'Supabase configured',
     details: USE_AUTH
       ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present.'
@@ -284,10 +300,12 @@ export function getSupabaseHealthStatus() {
             ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Leads is allowed to use Supabase.'
             : USE_SUPABASE_PROJECTS && !USE_SUPABASE
               ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Projects / Jobs is allowed to use Supabase.'
-              : USE_SUPABASE_ESTIMATES && !USE_SUPABASE
-                ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Estimates is allowed to use Supabase.'
-                : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
-                  ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Contracts is allowed to use Supabase.'
+            : USE_SUPABASE_ESTIMATES && !USE_SUPABASE
+              ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Estimates is allowed to use Supabase.'
+              : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
+                ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Contracts is allowed to use Supabase.'
+                : USE_SUPABASE_PAYMENTS && !USE_SUPABASE
+                  ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Payments is allowed to use Supabase.'
                   : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
   }
 }

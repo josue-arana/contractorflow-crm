@@ -41,18 +41,24 @@ function matchesFilter(payment, filters = {}) {
   if (!filters.includeArchived && payment.archivedAt) return false
   if (filters.clientId && payment.clientId !== filters.clientId) return false
   if (filters.projectId && payment.projectId !== filters.projectId) return false
+  if (filters.contractId && payment.contractId !== filters.contractId) return false
+  if (filters.estimateId && payment.estimateId !== filters.estimateId) return false
   if (filters.invoiceId && payment.invoiceId !== filters.invoiceId) return false
+  if (filters.leadId && payment.leadId !== filters.leadId) return false
   if (filters.status && payment.status !== filters.status) return false
   if (filters.contractorId && payment.contractorId && payment.contractorId !== filters.contractorId) return false
   return true
 }
 
-export async function list({ includeArchived = false, clientId, projectId, invoiceId, status, contractorId } = {}) {
+export async function list({ includeArchived = false, clientId, projectId, contractId, estimateId, invoiceId, leadId, status, contractorId } = {}) {
   const payments = sortPayments(readStoredPayments().filter((payment) => matchesFilter(payment, {
     includeArchived,
     clientId,
     projectId,
+    contractId,
+    estimateId,
     invoiceId,
+    leadId,
     status,
     contractorId,
   })))
