@@ -312,6 +312,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [editingPayment, setEditingPayment] = useState(null)
   const [paymentConfirmAction, setPaymentConfirmAction] = useState(null)
+  const [openPaymentMenuId, setOpenPaymentMenuId] = useState(null)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
@@ -862,8 +863,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       ]))
       if (editingPayment?.id) {
         onUpdatePayment?.(savedPayment)
+        showToast(t('paymentUpdated'), 'success')
       } else {
         onRecordPayment?.(savedPayment)
+        showToast(t('paymentRecorded'), 'success')
       }
       closePaymentModal()
     } catch (error) {
@@ -896,6 +899,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
       setPaymentRecords((current) => current.filter((payment) => payment.id !== paymentConfirmTarget.id))
       onDeletePayment?.(archivedPayment)
+      showToast(t('paymentDeleted'), 'success')
+      setOpenPaymentMenuId(null)
       setPaymentConfirmAction(null)
     } catch (error) {
       showToast(error?.message || t('paymentDeleteFailed'), 'error')
@@ -1079,7 +1084,41 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
                       {payment.paymentMethod && <span>{t('paymentMethod')}: {payment.paymentMethod}</span>}
                     </div>
                   </div>
-                  <p className="shrink-0 text-right text-base font-bold text-slate-950">{currency.format(Number(payment.amount || 0))}</p>
+                  <div className="relative flex shrink-0 items-start gap-2">
+                    <p className="text-right text-base font-bold text-slate-950">{currency.format(Number(payment.amount || 0))}</p>
+                    <button
+                      onClick={() => setOpenPaymentMenuId((current) => current === payment.id ? null : payment.id)}
+                      className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 hover:bg-slate-50"
+                      aria-label={t('paymentActions')}
+                    >
+                      <MoreVertical className="h-4 w-4" />
+                    </button>
+                    {openPaymentMenuId === payment.id && (
+                      <div className="absolute right-0 top-11 z-10 min-w-44 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                        <button
+                          onClick={() => {
+                            setEditingPayment(payment)
+                            setShowPaymentModal(true)
+                            setOpenPaymentMenuId(null)
+                          }}
+                          className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          <Edit3 className="mr-2 h-4 w-4" />
+                          {t('editPayment')}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPaymentConfirmAction({ payment })
+                            setOpenPaymentMenuId(null)
+                          }}
+                          className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          {t('deletePayment')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 {payment.notes && (
                   <p className="mt-2 text-sm text-slate-500">{t('paymentNotes')}: {payment.notes}</p>

@@ -780,7 +780,7 @@ export const es = {
   "editPayment": "Editar pago",
   "deletePayment": "Eliminar pago",
   "confirmDeletePayment": "¿Eliminar este pago?",
-  "deletePaymentHelp": "Este pago se quitará del balance y la línea de tiempo del proyecto.",
+  "deletePaymentHelp": "Esto actualizará el balance del proyecto.",
   "estimatePdfGenerated": "PDF del estimado descargado",
   "estimatePdfGenerateFailed": "No se pudo generar el PDF del estimado.",
   "recordPaymentHelp": "Guarda el monto, la fecha, el método y una nota para mantener el balance del proyecto correcto.",

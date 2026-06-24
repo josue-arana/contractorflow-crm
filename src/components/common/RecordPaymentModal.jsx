@@ -109,7 +109,7 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, initialPaymen
           onClick={() => onSave({ ...payment, amount: Number(payment.amount || 0) })}
           className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700"
         >
-          {t('savePayment')}
+          {t(isEditing ? 'saveChanges' : 'savePayment')}
         </button>
       </div>
     </ModalShell>
