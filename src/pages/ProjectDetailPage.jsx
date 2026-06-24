@@ -169,6 +169,31 @@ function normalizeProjectContract(contract) {
   }
 }
 
+function formatProjectDetailDate(value, fallback = '') {
+  if (!value) return fallback
+
+  const parsedDate = new Date(value)
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return fallback || String(value)
+  }
+
+  return parsedDate.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function getPaymentTypeLabelKey(payment = {}) {
+  const paymentTypeKey = payment?.paymentTypeKey || normalizePaymentRecord(payment).paymentTypeKey
+
+  if (paymentTypeKey === 'deposit') return 'deposit'
+  if (paymentTypeKey === 'progress') return 'progressPayment'
+  if (paymentTypeKey === 'final') return 'finalPayment'
+  return 'other'
+}
+
 function createSafeProject(project, fallbackId = '') {
   if (!project) return null
 
@@ -966,50 +991,117 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         </InfoCard>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-slate-950">{t('projectDocuments')}</h2>
-          <p className="text-sm text-slate-500">{t('documents')}</p>
-        </div>
-        <div className="space-y-3">
-          {resolvedEstimate ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{t('estimate')}</p>
-                <p className="mt-1 font-bold text-slate-950">{formatEstimateDisplayNumber(resolvedEstimate.number || resolvedEstimate.estimateNumber || '', currentLead)}</p>
-                <p className="mt-1 text-sm text-slate-600">{currency.format(Number(resolvedEstimate.total || 0))}</p>
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-slate-950">{t('projectDocuments')}</h2>
+            <p className="text-sm text-slate-500">{t('documents')}</p>
+          </div>
+          <div className="space-y-2.5">
+            {resolvedEstimate ? (
+              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">{t('estimate')}</p>
+                  <p className="mt-1 truncate font-bold text-slate-950">{formatEstimateDisplayNumber(resolvedEstimate.number || resolvedEstimate.estimateNumber || '', currentLead)}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                    <span>{currency.format(Number(resolvedEstimate.total || 0))}</span>
+                    <span>{resolvedEstimate.title || t('estimate')}</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 sm:justify-end">
+                  <StatusBadge status={resolvedEstimate.status || 'Draft'} t={t} />
+                  <button onClick={() => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } })} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                    {t('view')}
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-col items-start gap-3 sm:items-end">
-                <StatusBadge status={resolvedEstimate.status || 'Draft'} t={t} />
-                <button onClick={() => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
-                  {t('view')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noEstimates')}</div>
-          )}
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noEstimates')}</div>
+            )}
 
-          {resolvedContract ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{t('contract')}</p>
-                <p className="mt-1 font-bold text-slate-950">{formatContractDisplayNumber(resolvedContract.number || resolvedContract.contractNumber || '', currentLead)}</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {currency.format(Number(resolvedContract.total || 0))}
-                  {resolvedContract.signedDate ? ` · ${t('signedDate')}: ${resolvedContract.signedDate}` : ''}
-                </p>
+            {resolvedContract ? (
+              <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">{t('contract')}</p>
+                  <p className="mt-1 truncate font-bold text-slate-950">{formatContractDisplayNumber(resolvedContract.number || resolvedContract.contractNumber || '', currentLead)}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                    <span>{currency.format(Number(resolvedContract.total || 0))}</span>
+                    {(resolvedContract.signed || resolvedContract.signedDate) && (
+                      <span>
+                        {t('signed')}
+                        {resolvedContract.signedDate ? ` · ${formatProjectDetailDate(resolvedContract.signedDate, resolvedContract.signedDate)}` : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center justify-between gap-3 sm:justify-end">
+                  <StatusBadge status={resolvedContract.status || (resolvedContract.signed ? 'Signed' : 'Draft')} t={t} />
+                  <button onClick={() => onOpenContract?.(currentLead.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                    {t('view')}
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-col items-start gap-3 sm:items-end">
-                <StatusBadge status={resolvedContract.status || 'Draft'} t={t} />
-                <button onClick={() => onOpenContract?.(currentLead.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
-                  {t('view')}
-                </button>
-              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noContracts')}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-slate-950">{t('paymentHistory')}</h2>
+            <p className="text-sm text-slate-500">{t('paymentsRecorded')}</p>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('projectValue')}</p>
+              <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.projectValue)}</p>
             </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noContracts')}</div>
-          )}
+            <div className="rounded-2xl bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('totalPaid')}</p>
+              <p className="mt-1 text-lg font-bold text-emerald-700">{currency.format(paymentSummary.totalPaid)}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('remainingBalance')}</p>
+              <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.outstandingBalance)}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2.5">
+            {paymentSummary.payments.length > 0 ? paymentSummary.payments.map((payment) => (
+              <article key={payment.id || `${payment.paymentDate || payment.createdAt}-${payment.amount}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-950">{t(getPaymentTypeLabelKey(payment))}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                      <span>{formatProjectDetailDate(payment.paymentDate, payment.date || '')}</span>
+                      {payment.paymentMethod && <span>{t('paymentMethod')}: {payment.paymentMethod}</span>}
+                    </div>
+                  </div>
+                  <p className="shrink-0 text-right text-base font-bold text-slate-950">{currency.format(Number(payment.amount || 0))}</p>
+                </div>
+                {payment.notes && (
+                  <p className="mt-2 text-sm text-slate-500">{t('paymentNotes')}: {payment.notes}</p>
+                )}
+              </article>
+            )) : (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
+                <p className="text-sm text-slate-500">{t('noPaymentsRecordedYet')}</p>
+                {!projectIsArchived && (
+                  <button
+                    onClick={() => {
+                      setEditingPayment(null)
+                      setShowPaymentModal(true)
+                    }}
+                    className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+                  >
+                    <DollarSign className="h-4 w-4" /> {t('recordPayment')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
