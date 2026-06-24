@@ -352,7 +352,7 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for contract operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
+export async function list({ contractorId, includeArchived = false, status, clientId, projectId, estimateId } = {}) {
   if (!USE_SUPABASE) {
     return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', [])
   }
@@ -381,6 +381,10 @@ export async function list({ contractorId, includeArchived = false, status, clie
 
     if (projectId) {
       query.project_id = `eq.${projectId}`
+    }
+
+    if (estimateId) {
+      query.estimate_id = `eq.${estimateId}`
     }
 
     const data = await supabaseClient.request(TABLE_NAME, {

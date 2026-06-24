@@ -36,7 +36,7 @@ function formatEstimateDate(value) {
   return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const portal = getPortalData(lead)
@@ -102,6 +102,11 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const previewEstimateNumber = formatEstimateDisplayNumber(
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
     lead
+  )
+  const hasLinkedContract = Boolean(
+    lead?.portal?.contract?.id
+    || lead?.portal?.contract?.number
+    || lead?.portal?.contract?.contractNumber
   )
   const previewEstimateDate = useMemo(
     () => (
@@ -331,7 +336,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
           <button onClick={handleDownloadPdf} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('downloadPdf')}</button>
           <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-          <button onClick={() => onConvert?.(getEstimatePayload())} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{t('convertToContract')}</button>
+          <button onClick={() => (hasLinkedContract ? onOpenContract?.() : onConvert?.(getEstimatePayload()))} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
           {isArchived ? (
             <>
               <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
@@ -468,7 +473,7 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
-export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
+export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -596,14 +601,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         }
         return result
       }}
-      onConvert={async (estimate) => {
-        const result = await onSaveEstimate?.(lead.id, { ...estimate, status: 'Converted to Contract' })
-        if (!result) {
-          return
-        }
-        setLoadedEstimate(result)
-        navigate(`/projects/${lead.id}/contract`)
-      }}
+      onConvert={async (estimate) => onConvertEstimate?.(lead.id, estimate)}
+      onOpenContract={() => navigate(`/projects/${lead.projectId || lead.id}/contract`, { state: { source: 'project', projectId: lead.projectId || lead.id, leadId: lead.id } })}
       onArchiveEstimate={() => onArchiveEstimate?.(lead.id)}
       onRestoreEstimate={() => onRestoreEstimate?.(lead.id)}
       onDeleteEstimate={() => onDeleteEstimate?.(lead.id)}

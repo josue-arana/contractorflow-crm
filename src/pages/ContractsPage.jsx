@@ -11,6 +11,7 @@ import { ModalShell } from '../components/common/ModalShell'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { readLinkedContractDraft } from '../utils/contractLinks'
 import { downloadContractPdf } from '../utils/contractPdf'
 import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
 import { printDocumentElement } from '../utils/printDocument'
@@ -71,7 +72,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const portal = getPortalData(lead)
-  const savedContract = lead.portal?.contract || portal.contract || {}
+  const savedContract = lead.portal?.contract || readLinkedContractDraft(lead, [lead.id, lead.projectId, lead.estimateId]) || portal.contract || {}
   const estimate = lead.portal?.estimate || portal.estimate || {}
   const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t })
   const [showSendModal, setShowSendModal] = useState(false)
@@ -132,7 +133,15 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
 
   function getContractPayload(extra = {}) {
     return {
+      id: savedContract.id || undefined,
       number: savedContract.number || generateContractNumber(lead),
+      contractorId: savedContract.contractorId || contractorId || undefined,
+      leadId: savedContract.leadId || lead.id,
+      clientId: savedContract.clientId || lead.clientId || lead.client_id || null,
+      projectId: savedContract.projectId || lead.projectId || lead.project_id || lead.id,
+      estimateId: savedContract.estimateId || lead.estimateId || lead.portal?.estimate?.id || null,
+      projectTitle: savedContract.projectTitle || lead.projectTitle || lead.projectType || 'Contract',
+      title: savedContract.title || lead.projectTitle || lead.projectType || 'Contract',
       status: savedContract.status || 'Draft',
       signedDate: savedContract.signedDate || '',
       scope,
@@ -183,7 +192,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
 
       const response = existing && existing.id
         ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
-        : await dataProvider.contracts.create({ ...payload, projectId: lead.id }, { contractorId })
+        : await dataProvider.contracts.create(payload, { contractorId })
 
       if (response?.error) {
         showToast(response.error.message || t('contractSaveFailed'), 'error')
@@ -210,7 +219,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
 
       const response = existing && existing.id
         ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
-        : await dataProvider.contracts.create({ ...payload, projectId: lead.id }, { contractorId })
+        : await dataProvider.contracts.create(payload, { contractorId })
 
       if (response?.error) {
         showToast(response.error.message || t('contractSignFailed'), 'error')
@@ -418,7 +427,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
 }
 
 export function ContractsPage({ leads, onViewContract, t }) {
-  const contracts = leads.filter((lead) => lead.portal?.contract)
+  const contracts = leads.filter((lead) => lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber)
 
   return (
     <div className="space-y-6">

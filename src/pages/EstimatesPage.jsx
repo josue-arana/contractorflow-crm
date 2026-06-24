@@ -13,6 +13,8 @@ const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Reject
 
 function getEstimateStatus(lead) {
   if (lead.portal?.contract?.status === 'Signed') return 'Converted to Contract'
+  if (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) return 'Converted to Contract'
+  if (lead.portal?.estimate?.status === 'Converted to Contract') return 'Converted to Contract'
   if (lead.status === 'Estimate Sent') return 'Sent'
   if (lead.status === 'Won') return 'Approved'
   if (lead.status === 'Contacted') return 'Draft'
@@ -29,8 +31,9 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
     projectTitle: lead.projectTitle || lead.projectType,
     amount: lead.portal?.estimate?.total || lead.value,
     status: getEstimateStatus(lead),
-    dateCreated: lead.portal?.contract?.signedDate || 'June 2026',
-    nextAction: lead.status === 'Won' ? t('convertToContract') : t('sendToCustomer'),
+    dateCreated: lead.portal?.estimate?.dateCreated || lead.portal?.estimate?.createdAt || lead.portal?.contract?.signedDate || 'June 2026',
+    hasLinkedContract: Boolean(lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber),
+    nextAction: (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) ? t('viewEditContract') : t('convertToContract'),
   })), [leads, t])
 
   const activeEstimates = estimates.filter((estimate) => !archivedIds.includes(estimate.id))
@@ -94,7 +97,7 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
       <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-2' : 'justify-end'}`}>
         <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
         <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('convertToContract')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
         <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )

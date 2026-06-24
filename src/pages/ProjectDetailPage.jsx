@@ -1,10 +1,10 @@
 import { Component, useEffect, useMemo, useState } from 'react'
-import { Archive, ArrowLeft, CalendarDays, Camera, ClipboardList, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
+import { Archive, ArrowLeft, CalendarDays, Camera, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
-import { PortalSummary } from '../components/portal/PortalSummary'
+import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
@@ -19,7 +19,10 @@ import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
+import { readLinkedContractDraft } from '../utils/contractLinks'
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
+import { formatContractDisplayNumber } from '../utils/contractNumber'
+import { formatEstimateDisplayNumber } from '../utils/estimateNumber'
 import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments, mergeProjectTimeline, normalizePaymentRecord } from '../utils/projectPayments'
 import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
@@ -264,7 +267,7 @@ class ProjectDetailErrorBoundary extends Component {
   }
 }
 
-function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -276,6 +279,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [hasLoadedProject, setHasLoadedProject] = useState(!USE_SUPABASE_PROJECTS)
   const [projectLoadError, setProjectLoadError] = useState(null)
   const [estimateRecord, setEstimateRecord] = useState(() => readLinkedEstimateDraft(lead || projectId, projectId || lead?.id || ''))
+  const [contractRecord, setContractRecord] = useState(() => readLinkedContractDraft(lead || projectId, projectId || lead?.id || ''))
   const [paymentRecords, setPaymentRecords] = useState([])
   const [projectEventRecords, setProjectEventRecords] = useState([])
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -308,7 +312,12 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     || lead?.portal?.estimate
     || readLinkedEstimateDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id])
   ), [baseProject, estimateRecord, lead, projectId, relatedLeadId])
-  const resolvedContract = useMemo(() => normalizeProjectContract(baseProject?.portal?.contract), [baseProject])
+  const resolvedContract = useMemo(() => normalizeProjectContract(
+    contractRecord
+    || baseProject?.portal?.contract
+    || lead?.portal?.contract
+    || readLinkedContractDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id, resolvedEstimate?.id])
+  ), [baseProject, contractRecord, lead, projectId, relatedLeadId, resolvedEstimate?.id])
   const relatedInvoiceIds = useMemo(() => collectProjectInvoiceIds({
     ...(baseProject || {}),
     portal: {
@@ -530,6 +539,72 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   useEffect(() => {
     let isCancelled = false
 
+    async function loadContract() {
+      const draftContract = readLinkedContractDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id, resolvedEstimate?.id])
+      const knownContractId = baseProject?.contractId || baseProject?.contract_id || lead?.contractId || draftContract?.id || null
+
+      if (!projectId && !resolvedEstimate?.id) {
+        if (!isCancelled) {
+          setContractRecord(draftContract)
+        }
+        return
+      }
+
+      try {
+        let resolvedContractRecord = null
+
+        if (knownContractId) {
+          const contractByIdResponse = await dataProvider.contracts.getById?.(knownContractId, { contractorId })
+
+          if (contractByIdResponse?.data && !contractByIdResponse?.error) {
+            resolvedContractRecord = contractByIdResponse.data
+          }
+        }
+
+        if (!resolvedContractRecord && resolvedEstimate?.id) {
+          const response = await dataProvider.contracts.list({
+            contractorId,
+            estimateId: resolvedEstimate.id,
+            includeArchived: true,
+          })
+
+          if (!response?.error) {
+            resolvedContractRecord = response?.data?.[0] || null
+          }
+        }
+
+        if (!resolvedContractRecord && projectId) {
+          const response = await dataProvider.contracts.list({
+            contractorId,
+            projectId,
+            includeArchived: true,
+          })
+
+          if (!response?.error) {
+            resolvedContractRecord = response?.data?.[0] || null
+          }
+        }
+
+        if (!isCancelled) {
+          setContractRecord(resolvedContractRecord || draftContract || lead?.portal?.contract || null)
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setContractRecord(draftContract)
+        }
+      }
+    }
+
+    loadContract()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [baseProject, contractorId, lead, projectId, relatedLeadId, resolvedEstimate?.id])
+
+  useEffect(() => {
+    let isCancelled = false
+
     async function loadPayments() {
       const fallbackPayments = localPaymentRecords
       const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null
@@ -655,26 +730,35 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return <ProjectDetailFallbackState onBack={onBack} t={t} />
   }
 
-  const estimateAction = {
-    label: hasEstimate ? t('viewEditEstimate') : t('createEstimate'),
-    icon: ClipboardList,
-    action: () => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } }),
-    primary: !hasEstimate,
-  }
-  const contractAction = {
-    label: hasContract ? t('openContract') : t('convertToContract'),
-    icon: FileText,
-    action: () => navigate(`/projects/${currentLead.id}/contract`, { state: { source: 'project', projectId: currentLead.id } }),
-    primary: hasEstimate && !hasContract,
-  }
   const actionButtons = [
-    estimateAction,
-    contractAction,
-    { label: t('recordPayment'), icon: DollarSign, action: () => { setEditingPayment(null); setShowPaymentModal(true) } },
+    { label: t('recordPayment'), icon: DollarSign, action: () => { setEditingPayment(null); setShowPaymentModal(true) }, primary: true },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },
   ]
   const moreMenuItems = [
+    hasEstimate
+      ? {
+          id: 'view-estimate',
+          label: t('viewEstimate'),
+          icon: <FileText className="mr-2 h-4 w-4" />,
+          onClick: () => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } }),
+        }
+      : null,
+    hasContract
+      ? {
+          id: 'view-contract',
+          label: t('openContract'),
+          icon: <FileText className="mr-2 h-4 w-4" />,
+          onClick: () => onOpenContract?.(currentLead.id),
+        }
+      : hasEstimate
+        ? {
+            id: 'convert-contract',
+            label: t('convertToContract'),
+            icon: <FileText className="mr-2 h-4 w-4" />,
+            onClick: () => onConvertEstimate?.(currentLead.id),
+          }
+        : null,
     hasClientLink
       ? {
           id: 'view-client',
@@ -797,40 +881,6 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }
 
-  function renderPaymentTimelineActions(item) {
-    if (item?.sourceType !== 'payment' || !item?.paymentId) return null
-
-    const selectedTimelinePayment = paymentSummary.payments.find((payment) => payment.id === item.paymentId)
-
-    if (!selectedTimelinePayment) return null
-
-    return (
-      <ActionMenu
-        label={<MoreVertical className="h-4 w-4" />}
-        ariaLabel={t('paymentActions')}
-        showChevron={false}
-        buttonClassName="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
-        menuClassName="min-w-44"
-        items={[
-          {
-            id: `edit-payment-${selectedTimelinePayment.id}`,
-            label: t('editPayment'),
-            onClick: () => {
-              setEditingPayment(selectedTimelinePayment)
-              setShowPaymentModal(true)
-            },
-          },
-          {
-            id: `delete-payment-${selectedTimelinePayment.id}`,
-            label: t('deletePayment'),
-            onClick: () => setPaymentConfirmAction({ payment: selectedTimelinePayment }),
-            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
-          },
-        ]}
-      />
-    )
-  }
-
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
@@ -903,17 +953,64 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
         </InfoCard>
         <InfoCard title={t('customerPortal')}>
-          <p className="text-sm leading-6 text-slate-600">{t('homeownerPortalPreviewHelp')}</p>
+          <p className="text-sm leading-6 text-slate-600">{t('clientPortalCardHelp')}</p>
           <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">{portal.shareUrl}</div>
           <div className="mt-4 grid gap-3">
             <button onClick={onOpenPortal} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">
-              {t('openClientPortal')} <ExternalLink className="h-4 w-4" />
+              {t('openCustomerPortal')} <ExternalLink className="h-4 w-4" />
             </button>
             <button onClick={() => setShowPortalLinkModal(true)} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
               {t('sendLinkToClient')} <Share2 className="h-4 w-4" />
             </button>
           </div>
         </InfoCard>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-slate-950">{t('projectDocuments')}</h2>
+          <p className="text-sm text-slate-500">{t('documents')}</p>
+        </div>
+        <div className="space-y-3">
+          {resolvedEstimate ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{t('estimate')}</p>
+                <p className="mt-1 font-bold text-slate-950">{formatEstimateDisplayNumber(resolvedEstimate.number || resolvedEstimate.estimateNumber || '', currentLead)}</p>
+                <p className="mt-1 text-sm text-slate-600">{currency.format(Number(resolvedEstimate.total || 0))}</p>
+              </div>
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                <StatusBadge status={resolvedEstimate.status || 'Draft'} t={t} />
+                <button onClick={() => navigate(`/projects/${currentLead.id}/estimate`, { state: { source: 'project', projectId: currentLead.id } })} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                  {t('view')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noEstimates')}</div>
+          )}
+
+          {resolvedContract ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">{t('contract')}</p>
+                <p className="mt-1 font-bold text-slate-950">{formatContractDisplayNumber(resolvedContract.number || resolvedContract.contractNumber || '', currentLead)}</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {currency.format(Number(resolvedContract.total || 0))}
+                  {resolvedContract.signedDate ? ` · ${t('signedDate')}: ${resolvedContract.signedDate}` : ''}
+                </p>
+              </div>
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                <StatusBadge status={resolvedContract.status || 'Draft'} t={t} />
+                <button onClick={() => onOpenContract?.(currentLead.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                  {t('view')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">{t('noContracts')}</div>
+          )}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1008,22 +1105,6 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-950">{t('homeownerPortalPreview')}</h2>
-            <p className="text-sm text-slate-500">{t('homeownerPortalPreviewHelp')}</p>
-          </div>
-        </div>
-        <PortalSummary
-          lead={currentLead}
-          portal={portal}
-          t={t}
-          portalSettings={companySettings?.portal}
-          paymentLayout="projectWorkspace"
-          renderTimelineActions={renderPaymentTimelineActions}
-        />
-      </section>
       <LeadFormModal
         isOpen={isEditOpen}
         mode="edit"
