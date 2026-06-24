@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'estimates'
@@ -288,8 +288,8 @@ function handleMissingContractorId(methodName) {
 }
 
 export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', [])
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', [])
   }
 
   if (!contractorId) {
@@ -338,8 +338,8 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled')
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false')
   }
 
   if (!contractorId) {
@@ -373,8 +373,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(estimateData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', estimateData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', estimateData ?? null)
   }
 
   if (!contractorId) {
@@ -402,8 +402,8 @@ export async function create(estimateData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -441,8 +441,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -477,8 +477,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -513,8 +513,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE is disabled', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+    return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', { id, deleted: true })
   }
 
   if (!contractorId) {

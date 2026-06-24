@@ -18,7 +18,20 @@ const safeColors = {
 const pdfPage = {
   width: 612,
   height: 792,
-  margin: 28,
+  margin: 22,
+}
+
+function formatDisplayDate(value) {
+  if (!value) {
+    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  }
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 function toAsciiText(value) {
@@ -134,6 +147,7 @@ function sanitizeCloneTree(root, clonedDoc) {
 
 function buildFallbackPdf({
   estimateNumber = '',
+  estimateDate = '',
   clientName = '',
   companyName = '',
   company = {},
@@ -155,18 +169,18 @@ function buildFallbackPdf({
   const cardY = pdfPage.margin
   const cardWidth = pdfPage.width - (pdfPage.margin * 2)
   const cardHeight = pdfPage.height - (pdfPage.margin * 2)
-  const innerX = cardX + 24
-  let cursorY = cardY + 30
+  const innerX = cardX + 20
+  let cursorY = cardY + 24
 
   function ensureSpace(heightNeeded) {
-    if (cursorY + heightNeeded <= cardY + cardHeight - 24) return
+    if (cursorY + heightNeeded <= cardY + cardHeight - 20) return
 
     pdf.addPage()
     pdf.setFillColor(safeColors.white)
     pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 20, 20, 'F')
     pdf.setDrawColor(safeColors.slate200)
     pdf.roundedRect(cardX, cardY, cardWidth, cardHeight, 20, 20, 'S')
-    cursorY = cardY + 30
+    cursorY = cardY + 24
   }
 
   function drawText(text, x, y, options = {}) {
@@ -235,56 +249,67 @@ function buildFallbackPdf({
   drawText(t('estimate').toUpperCase(), cardX + cardWidth - 24, cursorY + 2, { bold: true, size: 11, color: safeColors.blue500, align: 'right' })
   drawText(estimateNumber, cardX + cardWidth - 24, cursorY + 22, { bold: true, size: 12, align: 'right' })
 
-  cursorY += 58
+  cursorY += 52
+  const infoRowHeight = 76
+  ensureSpace(infoRowHeight + 8)
   pdf.setDrawColor(safeColors.slate200)
-  pdf.line(innerX, cursorY, cardX + cardWidth - 24, cursorY)
+  pdf.roundedRect(innerX, cursorY, cardWidth - 40, infoRowHeight, 14, 14, 'S')
+  const columnWidth = (cardWidth - 40) / 3
+  pdf.line(innerX + columnWidth, cursorY, innerX + columnWidth, cursorY + infoRowHeight)
+  pdf.line(innerX + (columnWidth * 2), cursorY, innerX + (columnWidth * 2), cursorY + infoRowHeight)
+  drawText(t('client').toUpperCase(), innerX + 14, cursorY + 16, { bold: true, size: 9, color: safeColors.slate400 })
+  drawText(t('date').toUpperCase(), innerX + columnWidth + 14, cursorY + 16, { bold: true, size: 9, color: safeColors.slate400 })
+  drawText(t('materialsIncluded').toUpperCase(), innerX + (columnWidth * 2) + 14, cursorY + 16, { bold: true, size: 9, color: safeColors.slate400 })
+  drawText(lead?.client || clientName, innerX + 14, cursorY + 33, { bold: true, size: 10, color: safeColors.slate900 })
+  drawText(lead?.address || lead?.location || '', innerX + 14, cursorY + 47, { size: 9, color: safeColors.slate700 })
+  drawText(formatDisplayDate(estimateDate), innerX + columnWidth + 14, cursorY + 33, { size: 10, color: safeColors.slate700 })
+  pdf.setFillColor(materialsIncluded ? safeColors.blue50 : safeColors.slate100)
+  pdf.roundedRect(innerX + (columnWidth * 2) + 14, cursorY + 26, 50, 20, 10, 10, 'F')
+  drawText(materialsIncluded ? t('yes') : t('no'), innerX + (columnWidth * 2) + 39, cursorY + 39, { bold: true, size: 9, color: materialsIncluded ? safeColors.blue700 : safeColors.slate700, align: 'center' })
+  cursorY += infoRowHeight + 10
 
-  cursorY += 28
-  drawText(lead?.client || clientName, innerX, cursorY, { bold: true, size: 16 })
-  cursorY += 18
-  drawText(lead?.address || lead?.location || '', innerX, cursorY, { size: 11, color: safeColors.slate500 })
+  ensureSpace(64)
+  pdf.setDrawColor(safeColors.slate200)
+  pdf.roundedRect(innerX, cursorY, cardWidth - 40, 52, 14, 14, 'S')
+  pdf.setFillColor(safeColors.slate50)
+  pdf.rect(innerX, cursorY, cardWidth - 40, 26, 'F')
+  pdf.line(innerX + 314, cursorY, innerX + 314, cursorY + 26)
+  drawText(t('description').toUpperCase(), innerX + 14, cursorY + 17, { bold: true, size: 9, color: safeColors.slate400 })
+  drawText(`${t('estimate').toUpperCase()} ${t('totalAmount').toUpperCase()}`, innerX + (cardWidth - 54), cursorY + 17, { bold: true, size: 9, color: safeColors.blue700, align: 'right' })
+  drawText(lead?.projectTitle || lead?.projectType || t('projectTitle'), innerX + 14, cursorY + 40, { bold: true, size: 11 })
+  drawText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(total || 0)), innerX + (cardWidth - 54), cursorY + 40, { bold: true, size: 15, align: 'right' })
+  cursorY += 62
 
-  cursorY += 22
-  drawSectionBlock(t('scopeOfWork'), scope)
+  drawSectionBlock(t('scopeOfWork'), scope, {
+    lineHeight: 14,
+    topOffset: 30,
+    bottomPadding: 10,
+    minHeight: 72,
+  })
 
   if (lineItems.length > 0) {
     ensureSpace((lineItems.length * 24) + 50)
     pdf.setDrawColor(safeColors.slate200)
-    pdf.roundedRect(innerX, cursorY, cardWidth - 48, 30 + (lineItems.length * 24), 18, 18, 'S')
+    pdf.roundedRect(innerX, cursorY, cardWidth - 40, 30 + (lineItems.length * 24), 18, 18, 'S')
     pdf.setFillColor(safeColors.slate50)
-    pdf.roundedRect(innerX, cursorY, cardWidth - 48, 26, 18, 18, 'F')
+    pdf.roundedRect(innerX, cursorY, cardWidth - 40, 26, 18, 18, 'F')
     drawText(t('item').toUpperCase(), innerX + 16, cursorY + 17, { bold: true, size: 10, color: safeColors.slate500 })
-    drawText(t('amount').toUpperCase(), cardX + cardWidth - 40, cursorY + 17, { bold: true, size: 10, color: safeColors.slate500, align: 'right' })
+    drawText(t('amount').toUpperCase(), cardX + cardWidth - 36, cursorY + 17, { bold: true, size: 10, color: safeColors.slate500, align: 'right' })
     cursorY += 42
 
     lineItems.forEach((item, index) => {
       if (index > 0) {
         pdf.setDrawColor(safeColors.slate100)
-        pdf.line(innerX + 14, cursorY - 10, cardX + cardWidth - 38, cursorY - 10)
+        pdf.line(innerX + 14, cursorY - 10, cardX + cardWidth - 34, cursorY - 10)
       }
 
       drawText(item?.name || t('item'), innerX + 16, cursorY, { size: 11, color: safeColors.slate700 })
-      drawText(currency.format(Number(item?.amount || 0)), cardX + cardWidth - 40, cursorY, { bold: true, size: 11, align: 'right' })
+      drawText(currency.format(Number(item?.amount || 0)), cardX + cardWidth - 36, cursorY, { bold: true, size: 11, align: 'right' })
       cursorY += 24
     })
   }
 
-  cursorY += 10
-  ensureSpace(56)
-  pdf.setDrawColor(safeColors.slate200)
-  pdf.roundedRect(innerX, cursorY, cardWidth - 48, 42, 18, 18, 'S')
-  drawText(t('materialsIncluded'), innerX + 16, cursorY + 22, { size: 11, color: safeColors.slate500 })
-  drawText(materialsIncluded ? t('yes') : t('no'), cardX + cardWidth - 40, cursorY + 22, { bold: true, size: 11, align: 'right' })
-  cursorY += 54
-
   drawSectionBlock(t('paymentTerms'), paymentTerms)
-
-  cursorY += 12
-  ensureSpace(72)
-  pdf.setFillColor(safeColors.blue50)
-  pdf.roundedRect(innerX, cursorY, cardWidth - 48, 60, 18, 18, 'F')
-  drawText(t('totalAmount').toUpperCase(), cardX + (cardWidth / 2), cursorY + 20, { bold: true, size: 10, color: safeColors.blue700, align: 'center' })
-  drawText(currency.format(total), cardX + (cardWidth / 2), cursorY + 44, { bold: true, size: 22, color: safeColors.blue700, align: 'center' })
 
   const fileName = buildEstimatePdfFileName({
     estimateNumber,
@@ -309,6 +334,7 @@ export function buildEstimatePdfFileName({ estimateNumber = '', clientName = '',
 export async function downloadEstimatePdf({
   element,
   estimateNumber = '',
+  estimateDate = '',
   clientName = '',
   companyName = '',
   company = {},
@@ -387,6 +413,7 @@ export async function downloadEstimatePdf({
   } catch (error) {
     return buildFallbackPdf({
       estimateNumber,
+      estimateDate,
       clientName,
       companyName,
       company,

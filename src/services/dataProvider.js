@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -140,6 +140,40 @@ function resolveProjectsContractorId(primaryValue, fallbackValue) {
 
   if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_PROJECTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.projects did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveEstimatesContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_ESTIMATES) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.estimates did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveContractsContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_CONTRACTS) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.contracts did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
     return BETA_CONTRACTOR_ID
@@ -467,53 +501,175 @@ const projectsDataProvider = {
 
 const estimatesDataProvider = {
   list: async (options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.list(options)
     }
 
-    return estimatesSupabaseService.list(options)
+    const contractorId = resolveEstimatesContractorId(options)
+
+    return estimatesSupabaseService.list({
+      ...options,
+      contractorId,
+    })
   },
   getById: async (id, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.getById(id, options)
     }
 
-    return estimatesSupabaseService.getById(id, options)
+    const contractorId = resolveEstimatesContractorId(options)
+
+    return estimatesSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
   },
   create: async (estimateData, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.create(estimateData, options)
     }
 
-    return estimatesSupabaseService.create(estimateData, options)
+    const contractorId = resolveEstimatesContractorId(options, estimateData)
+
+    return estimatesSupabaseService.create(estimateData, {
+      ...options,
+      contractorId,
+    })
   },
   update: async (id, updates, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.update(id, updates, options)
     }
 
-    return estimatesSupabaseService.update(id, updates, options)
+    const contractorId = resolveEstimatesContractorId(options, updates)
+
+    return estimatesSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
   },
   archive: async (id, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.archive(id, options)
     }
 
-    return estimatesSupabaseService.archive(id, options)
+    const contractorId = resolveEstimatesContractorId(options)
+
+    return estimatesSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
   },
   restore: async (id, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.restore(id, options)
     }
 
-    return estimatesSupabaseService.restore(id, options)
+    const contractorId = resolveEstimatesContractorId(options)
+
+    return estimatesSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
   },
   deletePermanently: async (id, options = {}) => {
-    if (!USE_SUPABASE) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
       return estimatesLocalService.deletePermanently(id, options)
     }
 
-    return estimatesSupabaseService.deletePermanently(id, options)
+    const contractorId = resolveEstimatesContractorId(options)
+
+    return estimatesSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
+  },
+}
+
+const contractsDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.list(options)
+    }
+
+    const contractorId = resolveContractsContractorId(options)
+
+    return contractsSupabaseService.list({
+      ...options,
+      contractorId,
+    })
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.getById(id, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options)
+
+    return contractsSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  create: async (contractData, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.create(contractData, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options, contractData)
+
+    return contractsSupabaseService.create(contractData, {
+      ...options,
+      contractorId,
+    })
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.update(id, updates, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options, updates)
+
+    return contractsSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.archive(id, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options)
+
+    return contractsSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.restore(id, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options)
+
+    return contractsSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+      return contractsLocalService.deletePermanently(id, options)
+    }
+
+    const contractorId = resolveContractsContractorId(options)
+
+    return contractsSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
   },
 }
 
@@ -525,6 +681,7 @@ export const dataProvider = {
   leads: leadsDataProvider,
   projects: projectsDataProvider,
   estimates: estimatesDataProvider,
+  contracts: contractsDataProvider,
   settings: settingsDataProvider,
 }
 

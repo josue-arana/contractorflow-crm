@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_CONTRACTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'contracts'
@@ -352,9 +352,9 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for contract operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', [])
+export async function list({ contractorId, includeArchived = false, status, clientId, projectId, estimateId } = {}) {
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', [])
   }
 
   if (!contractorId) {
@@ -383,6 +383,10 @@ export async function list({ contractorId, includeArchived = false, status, clie
       query.project_id = `eq.${projectId}`
     }
 
+    if (estimateId) {
+      query.estimate_id = `eq.${estimateId}`
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'GET',
       query,
@@ -403,8 +407,8 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false')
   }
 
   if (!contractorId) {
@@ -438,8 +442,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(contractData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', contractData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', contractData ?? null)
   }
 
   if (!contractorId) {
@@ -467,8 +471,8 @@ export async function create(contractData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -506,8 +510,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -542,8 +546,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -578,8 +582,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) {
+    return createSkippedResponse('Supabase contracts service skipped because USE_SUPABASE=false and USE_SUPABASE_CONTRACTS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

@@ -1,5 +1,5 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
-import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
@@ -239,6 +239,30 @@ export function TranslationAuditPage({ t }) {
       value: projectsContractorId || t('notAvailable'),
     },
   ]
+  const estimatesBackendRows = [
+    {
+      id: 'useSupabaseEstimates',
+      label: t('backendEnvironmentUseSupabaseEstimates'),
+      value: t(USE_SUPABASE_ESTIMATES ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'estimatesContractorId',
+      label: t('estimatesCurrentContractorId'),
+      value: projectsContractorId || t('notAvailable'),
+    },
+  ]
+  const contractsBackendRows = [
+    {
+      id: 'useSupabaseContracts',
+      label: t('backendEnvironmentUseSupabaseContracts'),
+      value: t(USE_SUPABASE_CONTRACTS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'contractsContractorId',
+      label: t('contractsCurrentContractorId'),
+      value: projectsContractorId || t('notAvailable'),
+    },
+  ]
 
   return (
     <div className="space-y-6">
@@ -419,6 +443,14 @@ export function TranslationAuditPage({ t }) {
           </div>
           <StatusBadge status={snapshot.estimatesBackend.status} />
         </div>
+        <div className="mt-4 space-y-3">
+          {estimatesBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
+        </div>
       </SectionCard>
 
       <SectionCard title={t('contractsBackend')}>
@@ -428,6 +460,14 @@ export function TranslationAuditPage({ t }) {
             <p className="mt-1 text-sm text-slate-600">{t(snapshot.contractsBackend.detailKey)}</p>
           </div>
           <StatusBadge status={snapshot.contractsBackend.status} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {contractsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

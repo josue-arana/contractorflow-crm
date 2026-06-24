@@ -13,6 +13,7 @@ import { JobFormModal } from './components/jobs/JobFormModal'
 import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
 import { readLeadPipelineStage, writeLeadPipelineStage } from './services/local/leadPipelineStorage'
+import { clearEstimateDraft } from './services/local/estimateDraftStorage'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
@@ -44,14 +45,16 @@ import { useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
 import { getSettingsContractorId } from './services/system/settingsRuntimeService'
 import { buildDisplayedUserProfile } from './services/system/userProfileRuntimeService'
-import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
+import { hasContractData, readLinkedContractDraft, writeLinkedContractDrafts } from './utils/contractLinks'
+import { buildEstimateLookupIds, hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
+import { generateContractNumber } from './utils/contractNumber'
 import { generateEstimateNumber } from './utils/estimateNumber'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
@@ -164,9 +167,61 @@ function buildProjectFromLead(lead, projectId = '', linkedEstimate = null) {
     portal: {
       ...(lead?.portal || {}),
       estimate: sourceEstimate || {},
-      contract: lead?.portal?.contract || {},
+      contract: hasContractData(lead?.portal?.contract)
+        ? lead.portal.contract
+        : readLinkedContractDraft(lead) || {},
       contractAmount: estimatedValue,
       outstandingBalance: estimatedValue,
+    },
+  }
+}
+
+function getLinkedContract(lead) {
+  if (hasContractData(lead?.portal?.contract)) {
+    return lead.portal.contract
+  }
+
+  return readLinkedContractDraft(lead)
+}
+
+function attachContractToLeadState(lead = {}, contract = null) {
+  const linkedContract = hasContractData(contract) ? contract : getLinkedContract(lead)
+
+  if (!hasContractData(linkedContract)) {
+    return lead
+  }
+
+  const linkedEstimate = hasEstimateData(lead?.portal?.estimate)
+    ? lead.portal.estimate
+    : readLinkedEstimateDraft(lead)
+  const contractAmount = resolveEstimateTotal({
+    ...lead,
+    portal: {
+      ...(lead?.portal || {}),
+      contractAmount: linkedContract?.total ?? linkedContract?.totalAmount ?? linkedContract?.contractAmount,
+    },
+  }, linkedEstimate, toSafeNumber(linkedContract?.total ?? linkedContract?.totalAmount ?? linkedContract?.contractAmount ?? lead?.value))
+
+  return {
+    ...lead,
+    estimateId: lead?.estimateId || linkedContract?.estimateId || linkedEstimate?.id || null,
+    value: contractAmount,
+    estimatedValue: resolveEstimateTotal({ estimatedValue: lead?.estimatedValue }, linkedEstimate, contractAmount),
+    portal: {
+      ...(lead?.portal || {}),
+      estimate: linkedEstimate
+        ? {
+            ...linkedEstimate,
+            status: linkedEstimate?.status === 'Converted to Contract' ? linkedEstimate.status : 'Converted to Contract',
+          }
+        : lead?.portal?.estimate,
+      contract: {
+        ...(lead?.portal?.contract || {}),
+        ...linkedContract,
+        total: Number(linkedContract?.total ?? linkedContract?.totalAmount ?? linkedContract?.contractAmount ?? contractAmount),
+      },
+      contractAmount,
+      outstandingBalance: Math.max(contractAmount - Number(lead?.portal?.amountPaid || 0), 0),
     },
   }
 }
@@ -194,14 +249,15 @@ function hydrateLeadEstimateData(lead) {
   const linkedEstimate = hasEstimateData(lead?.portal?.estimate)
     ? lead.portal.estimate
     : readLinkedEstimateDraft(lead)
+  const linkedContract = getLinkedContract(lead)
 
   if (!hasEstimateData(linkedEstimate)) {
-    return withLeadPipelineStage(lead)
+    return withLeadPipelineStage(attachContractToLeadState(lead, linkedContract))
   }
 
   const estimateTotal = resolveEstimateTotal(lead, linkedEstimate)
 
-  return withLeadPipelineStage({
+  return withLeadPipelineStage(attachContractToLeadState({
     ...lead,
     estimateId: lead.estimateId || linkedEstimate.id || null,
     value: estimateTotal,
@@ -213,7 +269,63 @@ function hydrateLeadEstimateData(lead) {
         ...linkedEstimate,
       },
     },
-  })
+  }, linkedContract))
+}
+
+function matchesLinkedEstimate(lead, estimate) {
+  if (!lead || !estimate) return false
+
+  return (
+    (estimate.leadId && estimate.leadId === lead.id)
+    || (estimate.projectId && (estimate.projectId === lead.id || estimate.projectId === lead.projectId || estimate.projectId === lead.project_id))
+    || (estimate.clientId && (estimate.clientId === lead.clientId || estimate.clientId === lead.client_id))
+    || (estimate.id && estimate.id === lead.estimateId)
+  )
+}
+
+function matchesLinkedContract(lead, contract, estimate = null) {
+  if (!lead || !contract) return false
+
+  return (
+    (contract.leadId && contract.leadId === lead.id)
+    || (contract.projectId && (contract.projectId === lead.id || contract.projectId === lead.projectId || contract.projectId === lead.project_id))
+    || (estimate?.id && contract.estimateId && contract.estimateId === estimate.id)
+    || (contract.estimateId && contract.estimateId === lead.estimateId)
+    || (contract.clientId && (contract.clientId === lead.clientId || contract.clientId === lead.client_id))
+  )
+}
+
+function mergePersistedDocumentsIntoLead(lead, persistedEstimates = [], persistedContracts = []) {
+  if (!lead) return lead
+
+  const persistedEstimate = persistedEstimates.find((estimate) => matchesLinkedEstimate(lead, estimate))
+  const linkedEstimate = hasEstimateData(persistedEstimate)
+    ? persistedEstimate
+    : hasEstimateData(lead?.portal?.estimate)
+      ? lead.portal.estimate
+      : readLinkedEstimateDraft(lead)
+  const persistedContract = persistedContracts.find((contract) => matchesLinkedContract(lead, contract, linkedEstimate))
+  const linkedContract = hasContractData(persistedContract)
+    ? persistedContract
+    : hasContractData(lead?.portal?.contract)
+      ? lead.portal.contract
+      : readLinkedContractDraft(lead)
+
+  if (!hasEstimateData(linkedEstimate) && !hasContractData(linkedContract)) {
+    return withLeadPipelineStage(lead)
+  }
+
+  const nextLead = {
+    ...lead,
+    estimateId: lead.estimateId || linkedEstimate?.id || null,
+    portal: {
+      ...(lead.portal || {}),
+      ...(hasEstimateData(linkedEstimate) ? { estimate: linkedEstimate } : {}),
+      ...(hasContractData(linkedContract) ? { contract: linkedContract } : {}),
+    },
+  }
+
+  return hydrateLeadEstimateData(nextLead)
 }
 
 const defaultUserProfile = {
@@ -296,6 +408,8 @@ function ContractorFlowApp() {
       defaultLanguage: portalLanguage,
     },
   }))
+  const [persistedEstimates, setPersistedEstimates] = useState([])
+  const [persistedContracts, setPersistedContracts] = useState([])
   const [notifications, setNotifications] = useState(initialNotifications)
   const [userProfilesByUserId, setUserProfilesByUserId] = useState({
     'mock-user': defaultUserProfile,
@@ -329,6 +443,69 @@ function ContractorFlowApp() {
   )
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
   const isDeveloperRoute = [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
+
+  function upsertPersistedEstimateRecord(estimateRecord) {
+    if (!hasEstimateData(estimateRecord)) return
+
+    writeLinkedEstimateDrafts([
+      estimateRecord?.leadId,
+      estimateRecord?.projectId,
+      estimateRecord?.clientId,
+      estimateRecord?.id,
+    ], estimateRecord)
+
+    setPersistedEstimates((current) => {
+      const nextId = estimateRecord.id || estimateRecord.number || `estimate-${Date.now()}`
+      const existing = current.find((item) => item.id === nextId || (item.projectId && item.projectId === estimateRecord.projectId) || (item.leadId && item.leadId === estimateRecord.leadId))
+
+      if (existing) {
+        return current.map((item) => (
+          item.id === existing.id
+            ? { ...item, ...estimateRecord, id: estimateRecord.id || item.id }
+            : item
+        ))
+      }
+
+      return [{ ...estimateRecord, id: estimateRecord.id || nextId }, ...current]
+    })
+  }
+
+  function removePersistedEstimateRecord(estimateId) {
+    if (!estimateId) return
+    setPersistedEstimates((current) => current.filter((estimate) => estimate.id !== estimateId))
+  }
+
+  function upsertPersistedContractRecord(contractRecord) {
+    if (!hasContractData(contractRecord)) return
+
+    writeLinkedContractDrafts([
+      contractRecord?.leadId,
+      contractRecord?.projectId,
+      contractRecord?.estimateId,
+      contractRecord?.clientId,
+      contractRecord?.id,
+    ], contractRecord)
+
+    setPersistedContracts((current) => {
+      const nextId = contractRecord.id || contractRecord.number || `contract-${Date.now()}`
+      const existing = current.find((item) => item.id === nextId || (item.estimateId && item.estimateId === contractRecord.estimateId) || (item.projectId && item.projectId === contractRecord.projectId))
+
+      if (existing) {
+        return current.map((item) => (
+          item.id === existing.id
+            ? { ...item, ...contractRecord, id: contractRecord.id || item.id }
+            : item
+        ))
+      }
+
+      return [{ ...contractRecord, id: contractRecord.id || nextId }, ...current]
+    })
+  }
+
+  function removePersistedContractRecord(contractId) {
+    if (!contractId) return
+    setPersistedContracts((current) => current.filter((contract) => contract.id !== contractId))
+  }
 
   useClientsBootstrap(setCustomClients)
   useLeadsBootstrap(setLeads)
@@ -400,7 +577,84 @@ function ContractorFlowApp() {
     }
   }, [contractorAccess?.membershipStatus, settingsContractorId])
 
-  const visibleLeads = useMemo(() => leads.filter((lead) => !archives.deletedLeadIds.includes(lead.id)).map(hydrateLeadEstimateData), [leads, archives.deletedLeadIds])
+  useEffect(() => {
+    let isCancelled = false
+
+    if ((!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) || !projectsContractorId) {
+      setPersistedEstimates([])
+      return undefined
+    }
+
+    async function loadPersistedEstimates() {
+      const response = await dataProvider.estimates.list({
+        contractorId: projectsContractorId,
+        includeArchived: true,
+      })
+
+      if (isCancelled || response?.error || !Array.isArray(response?.data)) {
+        return
+      }
+
+      response.data.forEach((estimate) => {
+        writeLinkedEstimateDrafts([
+          estimate?.leadId,
+          estimate?.projectId,
+          estimate?.clientId,
+          estimate?.id,
+        ], estimate)
+      })
+
+      setPersistedEstimates(response.data)
+    }
+
+    loadPersistedEstimates()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [projectsContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    if ((!USE_SUPABASE && !USE_SUPABASE_CONTRACTS) || !projectsContractorId) {
+      setPersistedContracts([])
+      return undefined
+    }
+
+    async function loadPersistedContracts() {
+      const response = await dataProvider.contracts.list({
+        contractorId: projectsContractorId,
+        includeArchived: true,
+      })
+
+      if (isCancelled || response?.error || !Array.isArray(response?.data)) {
+        return
+      }
+
+      response.data.forEach((contract) => {
+        writeLinkedContractDrafts([
+          contract?.leadId,
+          contract?.estimateId,
+          contract?.projectId,
+          contract?.clientId,
+          contract?.id,
+        ], contract)
+      })
+
+      setPersistedContracts(response.data)
+    }
+
+    loadPersistedContracts()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [projectsContractorId])
+
+  const visibleLeads = useMemo(() => leads
+    .filter((lead) => !archives.deletedLeadIds.includes(lead.id))
+    .map((lead) => mergePersistedDocumentsIntoLead(lead, persistedEstimates, persistedContracts)), [archives.deletedLeadIds, leads, persistedContracts, persistedEstimates])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id)), [scheduleEvents, archives.deletedScheduleEventIds])
@@ -1112,6 +1366,35 @@ function ContractorFlowApp() {
     }
 
     writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
+    const nextEstimateStatus = targetStage === leadPipelineStages.ESTIMATE_SENT || targetStage === leadPipelineStages.FOLLOW_UP
+      ? 'Sent'
+      : targetStage === leadPipelineStages.ESTIMATE_APPROVED
+        ? 'Approved'
+        : null
+    const linkedEstimate = persistedEstimates.find((item) => matchesLinkedEstimate(sourceLead, item))
+      || (hasEstimateData(sourceLead?.portal?.estimate) ? sourceLead.portal.estimate : readLinkedEstimateDraft(sourceLead || leadId, leadId))
+
+    if (nextEstimateStatus && linkedEstimate?.id) {
+      try {
+        const estimateResponse = await dataProvider.estimates.update(linkedEstimate.id, {
+          ...linkedEstimate,
+          status: nextEstimateStatus,
+        }, {
+          contractorId: projectsContractorId,
+        })
+
+        if (!estimateResponse?.error && estimateResponse?.data) {
+          upsertPersistedEstimateRecord(estimateResponse.data)
+        }
+      } catch (error) {
+        logEstimateDevError('[dev] Failed to sync estimate status during lead stage transition.', error, {
+          leadId,
+          targetStage,
+          estimateId: linkedEstimate.id,
+        })
+      }
+    }
+
     const persistedLead = withLeadPipelineStage({
       ...sourceLead,
       ...(responseData || {}),
@@ -1290,9 +1573,12 @@ function ContractorFlowApp() {
   async function saveEstimate(leadId, estimate) {
     const sourceLead = leads.find((item) => item.id === leadId)
     const portal = sourceLead?.portal || {}
-    const existingEstimate = hasEstimateData(portal.estimate)
-      ? portal.estimate
-      : readLinkedEstimateDraft(sourceLead || leadId, leadId) || {}
+    const persistedEstimateMatch = persistedEstimates.find((item) => matchesLinkedEstimate(sourceLead || { id: leadId }, item))
+    const existingEstimate = hasEstimateData(persistedEstimateMatch)
+      ? persistedEstimateMatch
+      : hasEstimateData(portal.estimate)
+        ? portal.estimate
+        : readLinkedEstimateDraft(sourceLead || leadId, leadId) || {}
     const estimateNumber = existingEstimate.number || generateEstimateNumber(sourceLead || { id: leadId })
     const lineItems = Array.isArray(estimate?.lineItems) ? estimate.lineItems : []
     const relatedProjectId = estimate?.projectId || existingEstimate.projectId || sourceLead?.projectId || null
@@ -1354,11 +1640,18 @@ function ContractorFlowApp() {
         pricingMode: nextEstimateDraft.pricingMode,
       }
       const estimateTotal = resolveEstimateTotal(sourceLead, persistedEstimate)
-      const nextPipelineStage = [leadPipelineStages.ESTIMATE_SENT, leadPipelineStages.FOLLOW_UP, leadPipelineStages.ESTIMATE_APPROVED, leadPipelineStages.READY_FOR_JOB, leadPipelineStages.CONVERTED_TO_JOB].includes(getLeadPipelineStage(sourceLead))
-        ? getLeadPipelineStage(sourceLead)
-        : leadPipelineStages.ESTIMATE_CREATED
+      const nextPipelineStage = persistedEstimate.status === 'Sent'
+        ? leadPipelineStages.ESTIMATE_SENT
+        : persistedEstimate.status === 'Approved'
+          ? leadPipelineStages.ESTIMATE_APPROVED
+          : persistedEstimate.status === 'Converted to Contract'
+            ? leadPipelineStages.ESTIMATE_APPROVED
+            : [leadPipelineStages.ESTIMATE_SENT, leadPipelineStages.FOLLOW_UP, leadPipelineStages.ESTIMATE_APPROVED, leadPipelineStages.READY_FOR_JOB, leadPipelineStages.CONVERTED_TO_JOB].includes(getLeadPipelineStage(sourceLead))
+              ? getLeadPipelineStage(sourceLead)
+              : leadPipelineStages.ESTIMATE_CREATED
 
       writeLinkedEstimateDrafts([leadId, relatedProjectId, persistedEstimate.id], persistedEstimate)
+      upsertPersistedEstimateRecord(persistedEstimate)
       writeLeadPipelineStage(leadId, nextPipelineStage)
 
       try {
@@ -1406,17 +1699,13 @@ function ContractorFlowApp() {
         const currentPortal = lead.portal || {}
         const contractAmount = resolveEstimateTotal(lead, persistedEstimate)
         const amountPaid = toSafeNumber(currentPortal.amountPaid)
-        const nextContract = persistedEstimate.status === 'Converted to Contract'
+        const nextContract = hasContractData(currentPortal.contract)
           ? {
               ...(currentPortal.contract || {}),
-              number: currentPortal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
-              status: currentPortal.contract?.status || 'Draft',
               total: contractAmount,
-              scope: currentPortal.contract?.scope || persistedEstimate.summary,
-              paymentTerms: currentPortal.contract?.paymentTerms || persistedEstimate.paymentTerms || companySettings.defaults.paymentTerms,
               updatedAt: new Date().toISOString(),
             }
-          : currentPortal.contract
+          : null
 
         return {
           ...lead,
@@ -1424,7 +1713,13 @@ function ContractorFlowApp() {
           estimatedValue: contractAmount,
           estimateId: persistedEstimate.id || lead.estimateId || null,
           leadPipelineStage: nextPipelineStage,
-          status: nextPipelineStage === leadPipelineStages.ESTIMATE_CREATED ? 'Contacted' : lead.status,
+          status: nextPipelineStage === leadPipelineStages.ESTIMATE_CREATED
+            ? 'Contacted'
+            : nextPipelineStage === leadPipelineStages.ESTIMATE_SENT
+              ? 'Estimate Sent'
+              : nextPipelineStage === leadPipelineStages.ESTIMATE_APPROVED || nextPipelineStage === leadPipelineStages.READY_FOR_JOB || nextPipelineStage === leadPipelineStages.CONVERTED_TO_JOB
+                ? 'Won'
+                : lead.status,
           portal: {
             ...currentPortal,
             estimate: persistedEstimate,
@@ -1448,10 +1743,388 @@ function ContractorFlowApp() {
     }
   }
 
+  async function archiveEstimateRecord(leadId, estimateRecord = null) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+      archiveLeadRecord(leadId)
+      return null
+    }
+
+    const sourceLead = visibleLeads.find((lead) => lead.id === leadId || lead.projectId === leadId || lead.project_id === leadId)
+    const linkedEstimate = hasEstimateData(estimateRecord)
+      ? estimateRecord
+      : persistedEstimates.find((item) => matchesLinkedEstimate(sourceLead || { id: leadId }, item))
+        || sourceLead?.portal?.estimate
+        || readLinkedEstimateDraft(sourceLead || leadId, leadId)
+
+    if (!linkedEstimate?.id) {
+      return null
+    }
+
+    const response = await dataProvider.estimates.archive(linkedEstimate.id, { contractorId: projectsContractorId })
+
+    if (response?.error) {
+      showToast(response.error.message || t('archiveFailed'), 'error')
+      return null
+    }
+
+    const archivedEstimate = {
+      ...linkedEstimate,
+      ...(response?.data || {}),
+      archivedAt: response?.data?.archivedAt || new Date().toISOString(),
+    }
+
+    upsertPersistedEstimateRecord(archivedEstimate)
+    setLeads((current) => current.map((lead) => (
+      matchesLinkedEstimate(lead, archivedEstimate)
+        ? {
+            ...lead,
+            portal: {
+              ...(lead.portal || {}),
+              estimate: archivedEstimate,
+            },
+          }
+        : lead
+    )))
+    showToast(t('itemArchived'))
+    return archivedEstimate
+  }
+
+  async function restoreEstimateRecord(leadId, estimateRecord = null) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+      restoreLeadRecord(leadId)
+      return null
+    }
+
+    const sourceLead = visibleLeads.find((lead) => lead.id === leadId || lead.projectId === leadId || lead.project_id === leadId)
+    const linkedEstimate = hasEstimateData(estimateRecord)
+      ? estimateRecord
+      : persistedEstimates.find((item) => matchesLinkedEstimate(sourceLead || { id: leadId }, item))
+        || sourceLead?.portal?.estimate
+        || readLinkedEstimateDraft(sourceLead || leadId, leadId)
+
+    if (!linkedEstimate?.id) {
+      return null
+    }
+
+    const response = await dataProvider.estimates.restore(linkedEstimate.id, { contractorId: projectsContractorId })
+
+    if (response?.error) {
+      showToast(response.error.message || t('restoreFailed'), 'error')
+      return null
+    }
+
+    const restoredEstimate = {
+      ...linkedEstimate,
+      ...(response?.data || {}),
+      archivedAt: null,
+      archived_at: null,
+    }
+
+    upsertPersistedEstimateRecord(restoredEstimate)
+    setLeads((current) => current.map((lead) => (
+      matchesLinkedEstimate(lead, restoredEstimate)
+        ? {
+            ...lead,
+            portal: {
+              ...(lead.portal || {}),
+              estimate: restoredEstimate,
+            },
+          }
+        : lead
+    )))
+    showToast(t('itemRestored'))
+    return restoredEstimate
+  }
+
+  async function deleteEstimateRecord(leadId, estimateRecord = null) {
+    if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+      deleteLeadRecord(leadId)
+      return null
+    }
+
+    const sourceLead = visibleLeads.find((lead) => lead.id === leadId || lead.projectId === leadId || lead.project_id === leadId)
+    const linkedEstimate = hasEstimateData(estimateRecord)
+      ? estimateRecord
+      : persistedEstimates.find((item) => matchesLinkedEstimate(sourceLead || { id: leadId }, item))
+        || sourceLead?.portal?.estimate
+        || readLinkedEstimateDraft(sourceLead || leadId, leadId)
+
+    if (!linkedEstimate?.id) {
+      return null
+    }
+
+    const response = await dataProvider.estimates.deletePermanently(linkedEstimate.id, { contractorId: projectsContractorId })
+
+    if (response?.error) {
+      showToast(response.error.message || t('deleteFailed'), 'error')
+      return null
+    }
+
+    buildEstimateLookupIds(linkedEstimate, [leadId]).forEach((lookupId) => {
+      clearEstimateDraft(lookupId)
+    })
+    removePersistedEstimateRecord(linkedEstimate.id)
+    setLeads((current) => current.map((lead) => (
+      matchesLinkedEstimate(lead, linkedEstimate)
+        ? {
+            ...lead,
+            estimateId: null,
+            portal: {
+              ...(lead.portal || {}),
+              estimate: {},
+            },
+          }
+        : lead
+    )))
+    showToast(t('itemDeletedPermanently'))
+    return response?.data || { id: linkedEstimate.id, deleted: true }
+  }
+
+  async function findExistingLinkedContract({ sourceLead, estimateRecord = null, projectId = '', leadId = '' } = {}) {
+    const persistedContract = persistedContracts.find((contract) => matchesLinkedContract(sourceLead || { id: leadId }, contract, estimateRecord))
+    const existingContract = hasContractData(persistedContract) ? persistedContract : getLinkedContract(sourceLead)
+
+    if (hasContractData(existingContract)) {
+      return existingContract
+    }
+
+    const estimateId = estimateRecord?.id || sourceLead?.estimateId || sourceLead?.portal?.estimate?.id || null
+    const resolvedProjectId = projectId || sourceLead?.projectId || sourceLead?.project_id || null
+    const leadMatches = leads.find((lead) => {
+      const contract = getLinkedContract(lead)
+      if (!hasContractData(contract)) return false
+
+      if (estimateId && (contract.estimateId === estimateId || lead.estimateId === estimateId)) {
+        return true
+      }
+
+      if (resolvedProjectId && (
+        contract.projectId === resolvedProjectId
+        || lead.id === resolvedProjectId
+        || lead.projectId === resolvedProjectId
+        || lead.project_id === resolvedProjectId
+      )) {
+        return true
+      }
+
+      return Boolean(leadId && lead.id === leadId && hasContractData(contract))
+    })
+
+    if (leadMatches) {
+      return getLinkedContract(leadMatches)
+    }
+
+    if (!projectsContractorId) {
+      return null
+    }
+
+    const lookupResponses = []
+
+    if (estimateId) {
+      lookupResponses.push(await dataProvider.contracts.list({
+        contractorId: projectsContractorId,
+        estimateId,
+        includeArchived: true,
+      }))
+    }
+
+    if (resolvedProjectId) {
+      lookupResponses.push(await dataProvider.contracts.list({
+        contractorId: projectsContractorId,
+        projectId: resolvedProjectId,
+        includeArchived: true,
+      }))
+    }
+
+    for (const response of lookupResponses) {
+      if (response?.error) {
+        continue
+      }
+
+      const nextContract = Array.isArray(response?.data)
+        ? response.data.find((contract) => hasContractData(contract))
+        : null
+
+      if (hasContractData(nextContract)) {
+        writeLinkedContractDrafts([
+          leadId,
+          resolvedProjectId,
+          estimateId,
+          nextContract.id,
+        ], nextContract)
+        return nextContract
+      }
+    }
+
+    return null
+  }
+
+  function syncLeadContractState(leadId, contract, estimateRecord = null) {
+    if (!hasContractData(contract)) return
+
+    upsertPersistedContractRecord(contract)
+
+    writeLinkedContractDrafts([
+      leadId,
+      contract.projectId,
+      contract.estimateId,
+      contract.clientId,
+      contract.id,
+    ], contract)
+
+    if (hasEstimateData(estimateRecord)) {
+      upsertPersistedEstimateRecord(estimateRecord)
+      writeLinkedEstimateDrafts([
+        leadId,
+        contract.projectId,
+        contract.estimateId,
+      ], estimateRecord)
+    }
+
+    setLeads((current) => current.map((lead) => {
+      const leadMatches = lead.id === leadId
+        || (contract.projectId && (lead.id === contract.projectId || lead.projectId === contract.projectId || lead.project_id === contract.projectId))
+        || (contract.estimateId && lead.estimateId === contract.estimateId)
+
+      if (!leadMatches) {
+        return lead
+      }
+
+      const linkedEstimate = hasEstimateData(estimateRecord)
+        ? estimateRecord
+        : hasEstimateData(lead?.portal?.estimate)
+          ? lead.portal.estimate
+          : readLinkedEstimateDraft(lead, [leadId, contract.projectId, contract.estimateId])
+      const nextLead = attachContractToLeadState({
+        ...lead,
+        estimateId: lead.estimateId || contract.estimateId || linkedEstimate?.id || null,
+        portal: {
+          ...(lead.portal || {}),
+          estimate: linkedEstimate
+            ? {
+                ...linkedEstimate,
+                status: 'Converted to Contract',
+              }
+            : lead.portal?.estimate,
+          contract: {
+            ...(lead.portal?.contract || {}),
+            ...contract,
+          },
+        },
+      }, contract)
+
+      return nextLead
+    }))
+  }
+
+  async function ensureContractForLead(leadId, estimateInput = null) {
+    const sourceLead = leads.find((item) => item.id === leadId)
+
+    if (!sourceLead) {
+      return null
+    }
+
+    const baseEstimate = hasEstimateData(estimateInput)
+      ? estimateInput
+      : hasEstimateData(sourceLead?.portal?.estimate)
+        ? sourceLead.portal.estimate
+        : readLinkedEstimateDraft(sourceLead, leadId)
+
+    const persistedEstimate = hasEstimateData(baseEstimate)
+      ? await saveEstimate(leadId, {
+          ...baseEstimate,
+          status: 'Converted to Contract',
+          projectId: baseEstimate?.projectId || sourceLead?.projectId || sourceLead?.project_id || null,
+          clientId: baseEstimate?.clientId || sourceLead?.clientId || sourceLead?.client_id || null,
+        })
+      : null
+
+    const estimateRecord = persistedEstimate || baseEstimate || null
+    const relatedProjectId = estimateRecord?.projectId || sourceLead?.projectId || sourceLead?.project_id || null
+    const existingContract = await findExistingLinkedContract({
+      sourceLead,
+      estimateRecord,
+      projectId: relatedProjectId,
+      leadId,
+    })
+
+    if (hasContractData(existingContract)) {
+      const updatedExistingContract = {
+        ...existingContract,
+        estimateId: existingContract.estimateId || estimateRecord?.id || null,
+        projectId: existingContract.projectId || relatedProjectId || null,
+        clientId: existingContract.clientId || sourceLead?.clientId || sourceLead?.client_id || estimateRecord?.clientId || null,
+      }
+
+      if (existingContract.id && (
+        updatedExistingContract.estimateId !== existingContract.estimateId
+        || updatedExistingContract.projectId !== existingContract.projectId
+        || updatedExistingContract.clientId !== existingContract.clientId
+      )) {
+        try {
+          await dataProvider.contracts.update(existingContract.id, updatedExistingContract, {
+            contractorId: projectsContractorId,
+          })
+        } catch {
+          // Keep the local state updated even if the normalization patch fails.
+        }
+      }
+
+      syncLeadContractState(leadId, updatedExistingContract, estimateRecord)
+      return updatedExistingContract
+    }
+
+    const contractAmount = resolveEstimateTotal(sourceLead, estimateRecord, toSafeNumber(sourceLead?.value))
+    const contractPayload = {
+      leadId,
+      contractorId: projectsContractorId,
+      clientId: sourceLead?.clientId || sourceLead?.client_id || estimateRecord?.clientId || null,
+      projectId: relatedProjectId,
+      estimateId: estimateRecord?.id || sourceLead?.estimateId || null,
+      projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || estimateRecord?.projectTitle || 'Contract',
+      title: sourceLead?.projectTitle || sourceLead?.projectType || estimateRecord?.projectTitle || 'Contract',
+      number: generateContractNumber({
+        ...sourceLead,
+        projectId: relatedProjectId || sourceLead?.projectId || sourceLead?.project_id || leadId,
+      }),
+      scope: estimateRecord?.summary || sourceLead?.portal?.contract?.scope || `${t('scopeOfWork')} - ${sourceLead?.projectType || sourceLead?.projectTitle || t('projectScope')}.`,
+      paymentTerms: estimateRecord?.paymentTerms || companySettings?.defaults?.paymentTerms || '',
+      total: contractAmount,
+      status: 'Draft',
+      updatedAt: new Date().toISOString(),
+    }
+
+    try {
+      const response = await dataProvider.contracts.create(contractPayload, {
+        contractorId: projectsContractorId,
+      })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractSaveFailed'), 'error')
+        return null
+      }
+
+      const persistedContract = {
+        ...contractPayload,
+        ...(response?.data || {}),
+      }
+
+      syncLeadContractState(leadId, persistedContract, estimateRecord)
+      showToast(t('contractSaved'))
+      return persistedContract
+    } catch (error) {
+      showToast(error?.message || t('contractSaveFailed'), 'error')
+      return null
+    }
+  }
+
   function saveContract(leadId, contract) {
+    let persistedEstimate = null
+
     setLeads((current) => current.map((lead) => {
       if (lead.id !== leadId) return lead
       const portal = lead.portal || {}
+      persistedEstimate = hasEstimateData(portal.estimate) ? { ...portal.estimate, status: 'Converted to Contract' } : null
       const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
       const amountPaid = Number(portal.amountPaid || 0)
       writeLeadPipelineStage(lead.id, leadPipelineStages.ESTIMATE_APPROVED)
@@ -1472,13 +2145,17 @@ function ContractorFlowApp() {
         },
       }
     }))
+    syncLeadContractState(leadId, contract, persistedEstimate)
     showToast(t('contractSaved'))
   }
 
   function markContractSigned(leadId, contract) {
+    let persistedEstimate = null
+
     setLeads((current) => current.map((lead) => {
       if (lead.id !== leadId) return lead
       const portal = lead.portal || {}
+      persistedEstimate = hasEstimateData(portal.estimate) ? { ...portal.estimate, status: 'Converted to Contract' } : null
       const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
       const signedDate = contract?.signedDate || new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
       const timeline = (portal.timeline || []).map((item) => (
@@ -1514,6 +2191,10 @@ function ContractorFlowApp() {
         },
       }
     }))
+    syncLeadContractState(leadId, {
+      ...contract,
+      status: 'Signed',
+    }, persistedEstimate)
     showToast(t('contractSigned'))
     addNotification('notificationContractSignedTitle', 'notificationContractSignedMessage')
   }
@@ -1654,6 +2335,24 @@ function ContractorFlowApp() {
     setSidebarOpen(false)
   }
 
+  function openContractForLead(leadId) {
+    const matchingLead = visibleLeads.find((lead) => (
+      lead.id === leadId
+      || lead.projectId === leadId
+      || lead.project_id === leadId
+    ))
+    const routeId = matchingLead?.projectId || matchingLead?.project_id || matchingLead?.id || leadId
+
+    navigate(`/projects/${routeId}/contract`, {
+      state: {
+        source: 'project',
+        projectId: matchingLead?.projectId || matchingLead?.project_id || routeId,
+        leadId: matchingLead?.id || leadId,
+      },
+    })
+    setSidebarOpen(false)
+  }
+
   function openLead(leadId) {
     navigate(`/leads/${leadId}`)
     setSidebarOpen(false)
@@ -1698,8 +2397,8 @@ function ContractorFlowApp() {
       <Route path={appRoutes.dashboard} element={dashboardPage} />
       <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewLead={openLead} onCreateLead={saveLeadRecord} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
       <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
-      <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={(leadId) => navigate(`/projects/${leadId}/contract`)} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} />} />
-      <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} onViewContract={(leadId) => navigate(`/projects/${leadId}/contract`)} t={t} />} />
+      <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} estimates={persistedEstimates} contracts={persistedContracts} archivedIds={archives.leadIds} onOpenEstimate={(leadId) => navigate(`/projects/${leadId}/estimate`)} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId) }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} />} />
+      <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} contracts={persistedContracts} onViewContract={openContractForLead} t={t} />} />
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
@@ -1707,8 +2406,8 @@ function ContractorFlowApp() {
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
-      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
-      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onArchiveEstimate={archiveRecord.estimate} onRestoreEstimate={restoreRecord.estimate} onDeleteEstimate={deleteRecord.estimate} t={t} appLanguage={language} />} />
+      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
+      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
@@ -1876,7 +2575,7 @@ function ContractorFlowApp() {
   )
 }
 
-function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
@@ -1889,6 +2588,8 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       isArchived={archivedIds.includes(projectId)}
       onBack={onBack}
       onOpenPortal={() => onOpenPortal(projectId)}
+      onOpenContract={onOpenContract}
+      onConvertEstimate={onConvertEstimate}
       onUpdateLead={onUpdateLead}
       onRecordPayment={(payment) => onRecordPayment?.(projectId, payment)}
       onUpdatePayment={(payment) => onUpdatePayment?.(projectId, payment)}
