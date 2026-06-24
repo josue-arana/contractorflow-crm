@@ -7,7 +7,7 @@ import { currency } from '../utils/formatters'
 import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
-import dataProvider from '../services/dataProvider'
+import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
 
 const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
 
@@ -21,12 +21,14 @@ function getEstimateStatus(lead) {
   return 'Draft'
 }
 
-export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
+export function EstimatesPage({ leads, estimates = [], contracts = [], archivedIds = [], onOpenEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
 
-  const estimates = useMemo(() => leads.map((lead) => ({
+  const leadBackedEstimates = useMemo(() => leads.map((lead) => ({
     id: lead.id,
+    sourceLeadId: lead.id,
+    routeId: lead.projectId || lead.project_id || lead.id,
     client: lead.client,
     projectTitle: lead.projectTitle || lead.projectType,
     amount: lead.portal?.estimate?.total || lead.value,
@@ -34,13 +36,46 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
     dateCreated: lead.portal?.estimate?.dateCreated || lead.portal?.estimate?.createdAt || lead.portal?.contract?.signedDate || 'June 2026',
     hasLinkedContract: Boolean(lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber),
     nextAction: (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) ? t('viewEditContract') : t('convertToContract'),
-  })), [leads, t])
+    isArchived: archivedIds.includes(lead.id),
+  })), [archivedIds, leads, t])
 
-  const activeEstimates = estimates.filter((estimate) => !archivedIds.includes(estimate.id))
+  const persistedEstimates = useMemo(() => estimates.map((estimate) => {
+    const linkedLead = leads.find((lead) => (
+      (estimate?.leadId && estimate.leadId === lead.id)
+      || (estimate?.projectId && (estimate.projectId === lead.id || estimate.projectId === lead.projectId || estimate.projectId === lead.project_id))
+      || (estimate?.clientId && (estimate.clientId === lead.clientId || estimate.clientId === lead.client_id))
+    )) || null
+    const linkedContract = contracts.find((contract) => (
+      (estimate?.id && contract?.estimateId === estimate.id)
+      || (estimate?.projectId && contract?.projectId === estimate.projectId)
+      || (estimate?.leadId && contract?.leadId === estimate.leadId)
+    )) || linkedLead?.portal?.contract || null
+    const isArchived = Boolean(estimate?.archivedAt || estimate?.archived_at)
+
+    return {
+      ...estimate,
+      id: estimate.id,
+      sourceLeadId: linkedLead?.id || estimate.leadId || estimate.projectId || estimate.id,
+      routeId: linkedLead?.projectId || linkedLead?.project_id || linkedLead?.id || estimate.projectId || estimate.leadId || estimate.id,
+      client: linkedLead?.client || estimate.client || t('customer'),
+      projectTitle: linkedLead?.projectTitle || linkedLead?.projectType || estimate.projectTitle || estimate.title || t('estimate'),
+      amount: Number(estimate.total || estimate.totalAmount || estimate.amount || 0),
+      status: estimate.status || 'Draft',
+      dateCreated: estimate.dateCreated || estimate.createdAt || estimate.created_at || 'June 2026',
+      hasLinkedContract: Boolean(linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber),
+      nextAction: (linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber) ? t('viewEditContract') : t('convertToContract'),
+      isArchived,
+    }
+  }), [contracts, estimates, leads, t])
+
+  const usesSupabaseEstimates = USE_SUPABASE || USE_SUPABASE_ESTIMATES
+  const estimateRows = usesSupabaseEstimates && persistedEstimates.length > 0 ? persistedEstimates : leadBackedEstimates
+
+  const activeEstimates = estimateRows.filter((estimate) => !estimate.isArchived)
   const filteredEstimates = selectedFilter === 'All'
     ? activeEstimates
     : selectedFilter === 'Archived'
-      ? estimates.filter((estimate) => archivedIds.includes(estimate.id))
+      ? estimateRows.filter((estimate) => estimate.isArchived)
       : activeEstimates.filter((estimate) => estimate.status === selectedFilter)
 
   const draftCount = activeEstimates.filter((estimate) => estimate.status === 'Draft').length
@@ -68,15 +103,12 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider.estimates.archive(confirmAction.estimate.id)
-        onArchiveEstimate(confirmAction.estimate.id)
+        await onArchiveEstimate?.(confirmAction.estimate.sourceLeadId, confirmAction.estimate)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider.estimates.deletePermanently(confirmAction.estimate.id)
-        onDeleteEstimate(confirmAction.estimate.id)
+        await onDeleteEstimate?.(confirmAction.estimate.sourceLeadId, confirmAction.estimate)
       }
     } catch (err) {
-      // Swallow errors in local mode; App callbacks will still update UI.
       console.warn('Estimate action failed', err)
     } finally {
       setConfirmAction(null)
@@ -84,20 +116,20 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
   }
 
   function renderEstimateActions(estimate, compact = false) {
-    const isArchived = archivedIds.includes(estimate.id)
+    const isArchived = estimate.isArchived
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreEstimate(estimate.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
+          <button onClick={(event) => { event.stopPropagation(); onRestoreEstimate(estimate.sourceLeadId, estimate) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
           <button onClick={(event) => { event.stopPropagation(); confirmDelete(estimate) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
         </div>
       )
     }
     return (
       <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.id) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
         <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
       </div>
     )
@@ -150,10 +182,10 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredEstimates.map((estimate) => (
-                <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.routeId)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{estimate.client}</p><p className="text-sm text-slate-500">{estimate.projectTitle}</p></td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(estimate.amount)}</td>
-                  <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(estimate.id) ? 'Archived' : estimate.status} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} /></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{estimate.dateCreated}</td>
                   <td className="px-4 py-4 text-slate-600">{estimate.nextAction}</td>
                   <td className="px-4 py-4 text-right">{renderEstimateActions(estimate)}</td>
@@ -168,7 +200,7 @@ export function EstimatesPage({ leads, archivedIds = [], onOpenEstimate, onConve
             <article key={estimate.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{estimate.client}</h3><p className="text-sm text-slate-500">{estimate.projectTitle}</p></div>
-                <StatusBadge status={archivedIds.includes(estimate.id) ? 'Archived' : estimate.status} t={t} />
+                <StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} />
               </div>
               <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('estimateAmount')}</p><p className="mt-1 text-xl font-bold text-slate-900">{currency.format(estimate.amount)}</p></div>
               <div className="mt-3">{renderEstimateActions(estimate, true)}</div>

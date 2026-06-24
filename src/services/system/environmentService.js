@@ -1,4 +1,4 @@
-import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 
 function readEnvValue(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -30,7 +30,7 @@ export function getEnvironmentStatus() {
   const hasSupabaseUrl = Boolean(supabaseUrl)
   const hasAnonKey = Boolean(supabaseAnonKey)
   const supabaseConfigured = hasSupabaseUrl && hasAnonKey
-  const enabledEntityFlags = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS].filter(Boolean).length
+  const enabledEntityFlags = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS].filter(Boolean).length
   const dataMode = USE_SUPABASE
     ? 'supabase'
     : enabledEntityFlags > 1
@@ -43,7 +43,11 @@ export function getEnvironmentStatus() {
             ? 'leads-supabase'
             : USE_SUPABASE_PROJECTS
               ? 'projects-supabase'
-              : 'local'
+              : USE_SUPABASE_ESTIMATES
+                ? 'estimates-supabase'
+                : USE_SUPABASE_CONTRACTS
+                  ? 'contracts-supabase'
+                  : 'local'
   const settingsDataMode = USE_SUPABASE_SETTINGS ? 'supabase' : 'local'
 
   return {
@@ -56,6 +60,8 @@ export function getEnvironmentStatus() {
     useSupabaseClients: USE_SUPABASE_CLIENTS,
     useSupabaseLeads: USE_SUPABASE_LEADS,
     useSupabaseProjects: USE_SUPABASE_PROJECTS,
+    useSupabaseEstimates: USE_SUPABASE_ESTIMATES,
+    useSupabaseContracts: USE_SUPABASE_CONTRACTS,
     useSupabaseSettings: USE_SUPABASE_SETTINGS,
   }
 }

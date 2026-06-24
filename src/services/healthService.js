@@ -1,4 +1,4 @@
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { getEnvironmentStatus } from './system/environmentService'
 
 function getRowStatus(isReady) {
@@ -21,7 +21,11 @@ export function getBackendEnvironmentStatus() {
               ? 'backendEnvironmentLeadsSupabaseModeHelper'
               : environmentStatus.dataMode === 'projects-supabase'
                 ? 'backendEnvironmentProjectsSupabaseModeHelper'
-              : 'backendEnvironmentLocalModeHelper'
+                : environmentStatus.dataMode === 'estimates-supabase'
+                  ? 'backendEnvironmentEstimatesSupabaseModeHelper'
+                  : environmentStatus.dataMode === 'contracts-supabase'
+                    ? 'backendEnvironmentContractsSupabaseModeHelper'
+                    : 'backendEnvironmentLocalModeHelper'
 
   return {
     ...environmentStatus,
@@ -159,20 +163,44 @@ export function getProjectsBackendStatus() {
 }
 
 export function getEstimatesBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_ESTIMATES
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'estimatesBackendSupabaseDetail' : 'estimatesBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'estimatesBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'estimatesBackendSupabaseAuthRequiredDetail'
+          : 'estimatesBackendSupabaseDetail'
+      : 'estimatesBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
 export function getContractsBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_CONTRACTS
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'contractsBackendSupabaseDetail' : 'contractsBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'contractsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'contractsBackendSupabaseAuthRequiredDetail'
+          : 'contractsBackendSupabaseDetail'
+      : 'contractsBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
@@ -205,7 +233,7 @@ export function getEventsBackendStatus() {
 
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
-  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS].filter(Boolean).length
+  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS].filter(Boolean).length
 
   if (!environmentStatus.supabaseConfigured) {
     return {
@@ -215,7 +243,7 @@ export function getSupabaseHealthStatus() {
     }
   }
 
-  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS) {
+  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS && !USE_SUPABASE_ESTIMATES && !USE_SUPABASE_CONTRACTS) {
     return {
       status: 'disabled',
       label: 'Supabase disabled',
@@ -239,7 +267,11 @@ export function getSupabaseHealthStatus() {
               ? 'Supabase configured for Leads beta'
               : USE_SUPABASE_PROJECTS && !USE_SUPABASE
                 ? 'Supabase configured for Projects beta'
-              : 'Supabase configured',
+                : USE_SUPABASE_ESTIMATES && !USE_SUPABASE
+                  ? 'Supabase configured for Estimates beta'
+                  : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
+                    ? 'Supabase configured for Contracts beta'
+                    : 'Supabase configured',
     details: USE_AUTH
       ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present.'
       : selectedEntityFlagCount > 1 && !USE_SUPABASE
@@ -252,6 +284,10 @@ export function getSupabaseHealthStatus() {
             ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Leads is allowed to use Supabase.'
             : USE_SUPABASE_PROJECTS && !USE_SUPABASE
               ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Projects / Jobs is allowed to use Supabase.'
-            : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
+              : USE_SUPABASE_ESTIMATES && !USE_SUPABASE
+                ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Estimates is allowed to use Supabase.'
+                : USE_SUPABASE_CONTRACTS && !USE_SUPABASE
+                  ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Contracts is allowed to use Supabase.'
+                  : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
   }
 }

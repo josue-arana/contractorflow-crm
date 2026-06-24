@@ -13,6 +13,7 @@ import { ModalShell } from '../components/common/ModalShell'
 import { useToast } from '../components/common/ToastProvider'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
+import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/estimateNumber'
@@ -36,7 +37,7 @@ function formatEstimateDate(value) {
   return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const portal = getPortalData(lead)
@@ -348,7 +349,13 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={estimateT} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
+        await onSendEstimate?.({
+          ...getEstimatePayload(),
+          status: 'Sent',
+        })
+        setShowSendModal(false)
+      }} t={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-3xl">
         <div className="rounded-3xl bg-white text-slate-950">
           {isMobilePreview ? (
@@ -516,8 +523,29 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
 
       const cachedEstimate = readLinkedEstimateDraft(lead || projectId, [projectId, lead.id])
       const relatedProjectId = lead.projectId || lead.project_id || projectId || null
+      const knownEstimateId = lead.estimateId || lead.portal?.estimate?.id || cachedEstimate?.id || null
 
       try {
+        if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
+          if (!isCancelled) {
+            setLoadedEstimate(cachedEstimate)
+          }
+          return
+        }
+
+        if (knownEstimateId) {
+          const response = await dataProvider.estimates.getById(knownEstimateId, {
+            contractorId,
+          })
+
+          if (!isCancelled && !response?.error && response?.data) {
+            const nextEstimate = { ...(cachedEstimate || {}), ...response.data }
+            setLoadedEstimate(nextEstimate)
+            writeLinkedEstimateDrafts([projectId, lead.id, nextEstimate.id], nextEstimate)
+            return
+          }
+        }
+
         if (!relatedProjectId) {
           if (!isCancelled) {
             setLoadedEstimate(cachedEstimate)
@@ -601,11 +629,18 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         }
         return result
       }}
+      onSendEstimate={async (estimate) => {
+        const result = await onSaveEstimate?.(lead.id, estimate)
+        if (result) {
+          setLoadedEstimate(result)
+        }
+        return result
+      }}
       onConvert={async (estimate) => onConvertEstimate?.(lead.id, estimate)}
       onOpenContract={() => navigate(`/projects/${lead.projectId || lead.id}/contract`, { state: { source: 'project', projectId: lead.projectId || lead.id, leadId: lead.id } })}
-      onArchiveEstimate={() => onArchiveEstimate?.(lead.id)}
-      onRestoreEstimate={() => onRestoreEstimate?.(lead.id)}
-      onDeleteEstimate={() => onDeleteEstimate?.(lead.id)}
+      onArchiveEstimate={() => onArchiveEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}
+      onRestoreEstimate={() => onRestoreEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}
+      onDeleteEstimate={() => onDeleteEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}
     />
   )
 }

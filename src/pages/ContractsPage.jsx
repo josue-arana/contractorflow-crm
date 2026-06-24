@@ -10,6 +10,7 @@ import dataProvider from '../services/dataProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
+import { USE_SUPABASE, USE_SUPABASE_CONTRACTS } from '../config/backendConfig'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { readLinkedContractDraft } from '../utils/contractLinks'
 import { downloadContractPdf } from '../utils/contractPdf'
@@ -210,6 +211,31 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     }
   }
 
+  async function markSent() {
+    const payload = getContractPayload({ status: 'Sent' })
+
+    try {
+      const existing = savedContract || {}
+
+      const response = existing && existing.id
+        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
+        : await dataProvider.contracts.create(payload, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractSaveFailed'), 'error')
+        return
+      }
+
+      onSaveContract?.({
+        ...payload,
+        ...(response?.data || {}),
+      })
+    } catch (err) {
+      console.warn('Contract send via dataProvider failed', err)
+      showToast(err?.message || t('contractSaveFailed'), 'error')
+    }
+  }
+
   async function markSigned() {
     const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
     const payload = getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today })
@@ -313,7 +339,10 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
           <button onClick={cancelEditing} className="mt-4 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('cancelEditing')}</button>
         ) : null}
       </section>
-      <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={() => setShowSendModal(false)} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
+        await markSent()
+        setShowSendModal(false)
+      }} t={t} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
         <div className="rounded-3xl bg-white text-slate-950">
           <ContractPdfTemplate {...contractPreviewProps} />
@@ -399,8 +428,63 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = location.state?.projectId || id || leadId
   const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
+  const [loadedContract, setLoadedContract] = useState(null)
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadContract() {
+      if (!lead?.id || (!USE_SUPABASE && !USE_SUPABASE_CONTRACTS)) {
+        setLoadedContract(null)
+        return
+      }
+
+      const cachedContract = readLinkedContractDraft(lead, [lead.id, lead.projectId, lead.estimateId])
+      const knownContractId = lead.contractId || lead.portal?.contract?.id || cachedContract?.id || null
+      const relatedProjectId = lead.projectId || lead.project_id || projectId || null
+
+      try {
+        if (knownContractId) {
+          const response = await dataProvider.contracts.getById(knownContractId, { contractorId })
+
+          if (!isCancelled && !response?.error && response?.data) {
+            setLoadedContract({ ...(cachedContract || {}), ...response.data })
+            return
+          }
+        }
+
+        const response = await dataProvider.contracts.list({
+          contractorId,
+          includeArchived: true,
+          ...(lead.estimateId ? { estimateId: lead.estimateId } : relatedProjectId ? { projectId: relatedProjectId } : {}),
+        })
+
+        if (isCancelled || response?.error) {
+          if (!isCancelled) {
+            setLoadedContract(cachedContract)
+          }
+          return
+        }
+
+        const persistedContract = response?.data?.[0] || null
+        setLoadedContract(persistedContract ? { ...(cachedContract || {}), ...persistedContract } : cachedContract)
+      } catch (error) {
+        if (!isCancelled) {
+          setLoadedContract(readLinkedContractDraft(lead, [lead.id, lead.projectId, lead.estimateId]))
+        }
+      }
+    }
+
+    loadContract()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, lead?.estimateId, lead?.id, lead?.projectId, lead?.project_id, projectId])
 
   if (!lead) {
     return (
@@ -414,9 +498,19 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
     )
   }
 
+  const mergedLead = loadedContract
+    ? {
+        ...lead,
+        portal: {
+          ...(lead.portal || {}),
+          contract: loadedContract,
+        },
+      }
+    : lead
+
   return (
     <ContractPreviewPage
-      lead={lead}
+      lead={mergedLead}
       t={t}
       companySettings={companySettings}
       onBack={() => navigate(`/projects/${projectId}`)}
@@ -426,8 +520,33 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   )
 }
 
-export function ContractsPage({ leads, onViewContract, t }) {
-  const contracts = leads.filter((lead) => lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber)
+export function ContractsPage({ leads, contracts = [], onViewContract, t }) {
+  const usesSupabaseContracts = USE_SUPABASE || USE_SUPABASE_CONTRACTS
+  const contractRows = usesSupabaseContracts && contracts.length > 0
+    ? contracts.map((contract) => {
+      const linkedLead = leads.find((lead) => (
+        (contract?.leadId && contract.leadId === lead.id)
+        || (contract?.projectId && (contract.projectId === lead.id || contract.projectId === lead.projectId || contract.projectId === lead.project_id))
+        || (contract?.estimateId && contract.estimateId === lead.estimateId)
+      )) || null
+
+      return {
+        id: contract.id,
+        routeId: linkedLead?.projectId || linkedLead?.project_id || linkedLead?.id || contract.projectId || contract.leadId || contract.id,
+        client: linkedLead?.client || contract.client || t('customer'),
+        projectTitle: linkedLead?.projectTitle || linkedLead?.projectType || contract.projectTitle || contract.title || t('contract'),
+        status: contract.status || t('draft'),
+      }
+    })
+    : leads
+        .filter((lead) => lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber)
+        .map((lead) => ({
+        id: lead.id,
+        routeId: lead.projectId || lead.project_id || lead.id,
+        client: lead.client,
+        projectTitle: lead.projectTitle || lead.projectType,
+        status: lead.portal?.contract?.status || t('draft'),
+      }))
 
   return (
     <div className="space-y-6">
@@ -437,15 +556,15 @@ export function ContractsPage({ leads, onViewContract, t }) {
         <p className="mt-2 text-sm text-slate-300">{t('contractsComingDescription')}</p>
       </section>
       <section className="grid gap-4">
-        {contracts.map((lead) => (
-          <article key={lead.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        {contractRows.map((contract) => (
+          <article key={contract.id} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
               <div>
-                <p className="font-bold text-slate-950">{lead.client}</p>
-                <p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p>
-                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">{lead.portal?.contract?.status || t('draft')}</p>
+                <p className="font-bold text-slate-950">{contract.client}</p>
+                <p className="text-sm text-slate-500">{contract.projectTitle}</p>
+                <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">{contract.status}</p>
               </div>
-              <button onClick={() => onViewContract(lead.id)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
+              <button onClick={() => onViewContract(contract.routeId)} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">
                 {t('openContract')}
               </button>
             </div>
