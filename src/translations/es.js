@@ -692,7 +692,7 @@ export const es = {
   "leadNextStepNoRemainingActions": "No quedan acciones pendientes para este cliente potencial.",
   "leadNextStepLost": "No hay un siguiente paso. Este cliente potencial se marcó como perdido.",
   "leadNextStepReview": "Revisa este cliente potencial y elige la siguiente acción.",
-  "leadPipelineStageNewLead": "Nuevo cliente potencial",
+  "leadPipelineStageNewLead": "Nuevo prospecto",
   "leadPipelineStageEstimateCreated": "Estimado creado",
   "leadPipelineStageEstimateSent": "Estimado enviado",
   "leadPipelineStageFollowUp": "Seguimiento",

@@ -65,29 +65,29 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {} })
   return (
     <>
       <div className={`fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-[2px] lg:hidden ${isOpen ? 'block' : 'hidden'}`} onClick={onClose} />
-      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[86vw] max-w-[430px] min-w-[320px] transform flex-col overflow-hidden border-r border-white/10 bg-slate-950 text-white shadow-2xl transition-transform duration-300 lg:w-72 lg:min-w-0 lg:translate-x-0 lg:border-r lg:border-slate-800 lg:bg-slate-950 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.2),_transparent_32%),radial-gradient(circle_at_80%_12%,_rgba(129,140,248,0.12),_transparent_22%),linear-gradient(180deg,_#071126_0%,_#040914_100%)] lg:hidden" />
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[78vw] max-w-[390px] min-w-[300px] transform flex-col overflow-hidden border-r border-white/10 bg-slate-950 text-white shadow-2xl transition-transform duration-300 lg:w-72 lg:min-w-0 lg:translate-x-0 lg:border-r lg:border-slate-800 lg:bg-slate-950 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.18),_transparent_30%),radial-gradient(circle_at_76%_14%,_rgba(99,102,241,0.1),_transparent_20%),linear-gradient(180deg,_#061024_0%,_#030814_100%)] lg:hidden" />
 
-        <div className="relative flex h-full flex-col overflow-y-auto px-5 pb-[max(env(safe-area-inset-bottom),1.25rem)] pt-[max(env(safe-area-inset-top),1.5rem)] lg:px-5 lg:py-6">
+        <div className="relative flex h-full flex-col overflow-y-auto px-5 pb-[max(env(safe-area-inset-bottom),1.2rem)] pt-[max(env(safe-area-inset-top),1.55rem)] lg:px-5 lg:py-6">
           <div className="mb-8 flex items-start justify-between lg:mb-8 lg:items-center">
-            <NavLink to={appRoutes.dashboard} onClick={onClose} className="flex min-w-0 flex-1 items-start gap-4 lg:gap-3">
+            <NavLink to={appRoutes.dashboard} onClick={onClose} className="flex min-w-0 flex-1 flex-col items-start lg:flex-row lg:items-center lg:gap-3">
               {companySettings?.company?.logo ? (
-                <img src={companySettings.company.logo} alt="" className="h-20 w-20 shrink-0 rounded-full object-cover shadow-[0_18px_45px_rgba(15,23,42,0.45)] ring-1 ring-white/12 lg:h-11 lg:w-11 lg:rounded-2xl lg:shadow-lg" />
+                <img src={companySettings.company.logo} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover shadow-[0_18px_40px_rgba(15,23,42,0.42)] ring-1 ring-white/12 lg:h-11 lg:w-11 lg:rounded-2xl lg:shadow-lg" />
               ) : (
-                <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-blue-500 font-bold text-2xl text-white shadow-[0_18px_40px_rgba(59,130,246,0.35)] lg:h-11 lg:w-11 lg:rounded-2xl lg:text-base lg:shadow-lg lg:shadow-blue-500/30">{t('brandInitials')}</div>
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-500 font-bold text-lg text-white shadow-[0_18px_36px_rgba(59,130,246,0.32)] lg:h-11 lg:w-11 lg:rounded-2xl lg:text-base lg:shadow-lg lg:shadow-blue-500/30">{t('brandInitials')}</div>
               )}
-              <div className="min-w-0 flex-1 pt-1">
-                <p className="text-[2rem] font-bold leading-[1.05] tracking-tight text-white lg:text-base">{companySettings?.company?.name || t('brandName')}</p>
-                <p className="mt-3 text-base leading-6 text-slate-300 lg:text-xs lg:text-slate-400">{t('smallContractorCrm')}</p>
+              <div className="min-w-0 pt-5 lg:flex-1 lg:pt-1">
+                <p className="max-w-[11ch] text-[1.45rem] font-bold leading-[1.1] tracking-tight text-white lg:max-w-none lg:text-base">{companySettings?.company?.name || t('brandName')}</p>
+                <p className="mt-3 text-[0.95rem] leading-6 text-slate-400 lg:text-xs lg:text-slate-400"></p>
               </div>
             </NavLink>
             <button
               type="button"
               aria-label={t('close')}
-              className="ml-4 inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/8 text-slate-200 shadow-[0_14px_30px_rgba(15,23,42,0.34)] backdrop-blur-sm transition hover:bg-white/12 hover:text-white lg:hidden"
+              className="ml-4 mt-2 inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/10 text-slate-200 shadow-[0_14px_28px_rgba(15,23,42,0.34)] backdrop-blur-sm transition hover:bg-white/12 hover:text-white lg:hidden"
               onClick={onClose}
             >
-              <X className="h-7 w-7" />
+              <X className="h-6 w-6" />
             </button>
           </div>
 
@@ -114,7 +114,7 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {} })
             })}
           </nav>
 
-          <nav className="grid grid-cols-2 gap-4 lg:hidden">
+          <nav className="grid grid-cols-2 gap-[15px] lg:hidden">
             {sidebarNavItems.map((item) => {
               const Icon = item.icon
               const badgeValue = navBadges?.[item.labelKey]
@@ -125,9 +125,9 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {} })
                   to={item.path}
                   onClick={onClose}
                   className={({ isActive }) =>
-                    `group relative flex min-h-[172px] flex-col rounded-[2rem] border px-5 py-5 text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
+                    `group relative flex min-h-[126px] flex-col rounded-[20px] border px-[15px] py-[15px] text-left transition duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
                       isActive
-                        ? 'border-blue-400/70 bg-white/[0.09] text-white shadow-[0_18px_40px_rgba(37,99,235,0.18)] ring-1 ring-blue-400/30'
+                        ? 'border-blue-500/90 bg-[linear-gradient(180deg,rgba(20,31,59,0.94),rgba(12,21,43,0.98))] text-white shadow-[0_0_0_1px_rgba(59,130,246,0.18),0_0_22px_rgba(37,99,235,0.22),inset_0_1px_0_rgba(148,197,255,0.18)]'
                         : 'border-white/10 bg-white/[0.045] text-slate-100 shadow-[0_14px_34px_rgba(2,6,23,0.24)] hover:border-white/20 hover:bg-white/[0.07] active:scale-[0.985]'
                     }`
                   }
@@ -140,10 +140,10 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {} })
                         </span>
                       ) : null}
                       <div className="flex flex-1 flex-col items-center justify-center text-center">
-                        <div className={`flex h-20 w-20 items-center justify-center rounded-full transition ${isActive ? item.mobileIconActiveClass : item.mobileIconClass}`}>
-                          <Icon className="h-9 w-9" />
+                        <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full transition ${isActive ? item.mobileIconActiveClass : item.mobileIconClass}`}>
+                          <Icon className="h-7 w-7" />
                         </div>
-                        <p className="mt-6 text-[1.05rem] font-semibold leading-tight">{t(item.labelKey)}</p>
+                        <p className="mt-5 text-[0.92rem] font-semibold leading-tight">{t(item.labelKey)}</p>
                       </div>
                     </>
                   )}
@@ -158,10 +158,10 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {} })
               <p className="mt-2 text-xs leading-5 text-slate-400">{t('pipelineHealthText')}</p>
             </div>
 
-            <div className="rounded-[1.9rem] border border-white/10 bg-white/[0.045] px-5 py-5 shadow-[0_14px_34px_rgba(2,6,23,0.24)] lg:hidden">
+            <div className="rounded-[22px] border border-white/10 bg-white/[0.045] px-5 py-4 shadow-[0_14px_34px_rgba(2,6,23,0.24)] lg:hidden">
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-[1.05rem] font-semibold text-white">{t('pipelineHealth')}</p>
+                  <p className="text-[1rem] font-semibold text-white">{t('pipelineHealth')}</p>
                   <p className="mt-2 text-sm leading-7 text-slate-300">{t('pipelineHealthText')}</p>
                 </div>
                 <ChevronRight className="h-6 w-6 shrink-0 text-slate-500" />

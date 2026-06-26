@@ -1,7 +1,6 @@
 import { SelectField } from '../ui/SelectField'
 import { currency } from '../../utils/formatters'
-import { tStatus } from '../../translations'
-import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageLabelKey } from '../../utils/leadPipeline'
+import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageLabelKey, getLeadStageLabel, getPriorityLabel } from '../../utils/leadPipeline'
 
 export function PipelineBoard({
   leads,
@@ -95,6 +94,7 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
             statuses={statuses}
             moveLead={moveLead}
             mobile
+            t={t}
             onClick={() => onLeadClick(lead.id)}
           />
         ))}
@@ -145,10 +145,13 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
 
 function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, onClick, t = (key) => key }) {
   const priorityClasses = {
-    High: 'bg-red-50 text-red-700 ring-red-100',
-    Medium: 'bg-amber-50 text-amber-700 ring-amber-100',
-    Low: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
+    high: 'bg-red-50 text-red-700 ring-red-100',
+    medium: 'bg-amber-50 text-amber-700 ring-amber-100',
+    low: 'bg-emerald-50 text-emerald-700 ring-emerald-100',
   }
+  const normalizedPriority = String(lead.priority || '').trim().toLowerCase()
+  const priorityClassName = priorityClasses[normalizedPriority] || 'bg-slate-100 text-slate-700 ring-slate-200'
+  const leadStage = getLeadPipelineStage(lead)
 
   return (
     <article
@@ -160,10 +163,10 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h4 className="font-bold text-slate-950">{lead.client}</h4>
-          <p className="text-sm text-slate-500">{t(lead.projectType)}</p>
+          <p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectType, t)}</p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${priorityClasses[lead.priority]}`}>
-          {tStatus(t, lead.priority) || lead.priority}
+        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${priorityClassName}`}>
+          {getPriorityLabel(lead.priority, t)}
         </span>
       </div>
 
@@ -174,17 +177,17 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-slate-500">{t('location')}</span>
-          <span className="font-medium text-slate-700">{lead.location}</span>
+          <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.location, t)}</span>
         </div>
         <div className="flex justify-between gap-4">
           <span className="text-slate-500">{t('source')}</span>
-          <span className="font-medium text-slate-700">{t(lead.source)}</span>
+          <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.source, t)}</span>
         </div>
       </div>
 
       <div className="mt-4 rounded-2xl bg-slate-50 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('nextStep')}</p>
-        <p className="mt-1 text-sm font-medium text-slate-700">{t(getLeadNextStepKey(getLeadPipelineStage(lead)))}</p>
+        <p className="mt-1 text-sm font-medium text-slate-700">{getLeadNextStepLabel(lead.nextStep, t, lead)}</p>
       </div>
 
       {mobile && (
@@ -194,13 +197,13 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
           </label>
           <SelectField
             id={`status-${lead.id}`}
-            value={getLeadPipelineStage(lead)}
+            value={leadStage}
             onChange={(event) => moveLead(lead.id, event.target.value)}
             className="bg-white"
           >
             {statuses.map((status) => (
               <option key={status} value={status}>
-                {t(getLeadPipelineStageLabelKey(status))}
+                {getLeadStageLabel(status, t)}
               </option>
             ))}
           </SelectField>

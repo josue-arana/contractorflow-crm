@@ -60,6 +60,30 @@ const primaryActionConfig = {
 
 const validStageSet = new Set(leadPipelineStageOrder)
 
+const priorityLabelKeys = {
+  high: 'priorityHigh',
+  medium: 'priorityMedium',
+  low: 'priorityLow',
+}
+
+function humanizeValue(value) {
+  if (!value) return ''
+
+  return String(value)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function resolveTranslatedValue(value, t) {
+  if (!value) return ''
+
+  const translated = t(value)
+  return translated && translated !== value ? translated : ''
+}
+
 function normalizeStatusValue(value) {
   if (!value) return ''
 
@@ -101,6 +125,49 @@ export function getLeadPipelineStageLabelKey(stage) {
 
 export function getLeadNextStepKey(stage) {
   return nextStepKeys[stage] || 'leadNextStepReview'
+}
+
+export function getPriorityLabel(priority, t = (key) => key) {
+  if (!priority) return ''
+
+  const normalizedPriority = String(priority).trim()
+  const lowerPriority = normalizedPriority.toLowerCase()
+  const lookupKey = priorityLabelKeys[lowerPriority]
+
+  if (lookupKey) {
+    return t(lookupKey)
+  }
+
+  return resolveTranslatedValue(normalizedPriority, t) || humanizeValue(normalizedPriority)
+}
+
+export function getLeadStageLabel(stage, t = (key) => key) {
+  if (!stage) return ''
+
+  const normalizedStage = normalizeLeadPipelineStage(stage)
+  if (normalizedStage) {
+    return t(getLeadPipelineStageLabelKey(normalizedStage))
+  }
+
+  return resolveTranslatedValue(stage, t) || humanizeValue(stage)
+}
+
+export function getLeadNextStepLabel(nextStep, t = (key) => key, lead = null) {
+  if (nextStep) {
+    return resolveTranslatedValue(nextStep, t) || humanizeValue(nextStep)
+  }
+
+  if (lead) {
+    return t(getLeadNextStepKey(getLeadPipelineStage(lead)))
+  }
+
+  return ''
+}
+
+export function getLeadDisplayValue(value, t = (key) => key) {
+  if (!value) return ''
+
+  return resolveTranslatedValue(value, t) || humanizeValue(value)
 }
 
 export function getLeadPrimaryAction(stage) {
