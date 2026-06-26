@@ -17,6 +17,8 @@ const dbToUiStatusMap = {
   refunded: 'Refunded',
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 function isDev() {
   return Boolean(import.meta.env.DEV)
 }
@@ -78,6 +80,17 @@ function readField(source = {}, keys = []) {
   }
 
   return undefined
+}
+
+function sanitizeUuid(value) {
+  if (typeof value !== 'string') return null
+
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) return null
+  if (!uuidPattern.test(trimmedValue)) return null
+
+  return trimmedValue
 }
 
 function toNumber(value, fallback = 0) {
@@ -207,27 +220,27 @@ function toSupabasePayload(contractorId, payment = {}, { isCreate = false } = {}
   }
 
   if (isCreate || readField(payment, ['projectId', 'project_id']) !== undefined) {
-    payload.project_id = readField(payment, ['projectId', 'project_id']) || null
+    payload.project_id = sanitizeUuid(readField(payment, ['projectId', 'project_id']))
   }
 
   if (isCreate || readField(payment, ['clientId', 'client_id']) !== undefined) {
-    payload.client_id = readField(payment, ['clientId', 'client_id']) || null
+    payload.client_id = sanitizeUuid(readField(payment, ['clientId', 'client_id']))
   }
 
   if (isCreate || readField(payment, ['contractId', 'contract_id']) !== undefined) {
-    payload.contract_id = readField(payment, ['contractId', 'contract_id']) || null
+    payload.contract_id = sanitizeUuid(readField(payment, ['contractId', 'contract_id']))
   }
 
   if (isCreate || readField(payment, ['estimateId', 'estimate_id']) !== undefined) {
-    payload.estimate_id = readField(payment, ['estimateId', 'estimate_id']) || null
+    payload.estimate_id = sanitizeUuid(readField(payment, ['estimateId', 'estimate_id']))
   }
 
   if (isCreate || readField(payment, ['leadId', 'lead_id']) !== undefined) {
-    payload.lead_id = readField(payment, ['leadId', 'lead_id']) || null
+    payload.lead_id = sanitizeUuid(readField(payment, ['leadId', 'lead_id']))
   }
 
   if (isCreate || readField(payment, ['invoiceId', 'invoice_id']) !== undefined) {
-    payload.invoice_id = readField(payment, ['invoiceId', 'invoice_id']) || null
+    payload.invoice_id = sanitizeUuid(readField(payment, ['invoiceId', 'invoice_id']))
   }
 
   if (amountInput !== undefined) {

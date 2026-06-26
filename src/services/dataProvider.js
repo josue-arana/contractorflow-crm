@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -191,6 +191,23 @@ function resolvePaymentsContractorId(primaryValue, fallbackValue) {
 
   if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_PAYMENTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.payments did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveEventsContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_EVENTS) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.events did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
     return BETA_CONTRACTOR_ID
@@ -777,6 +794,93 @@ const paymentsDataProvider = {
   },
 }
 
+const eventsDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.list(options)
+    }
+
+    const contractorId = resolveEventsContractorId(options)
+
+    return eventsSupabaseService.list({
+      ...options,
+      contractorId,
+    })
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.getById(id, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options)
+
+    return eventsSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  create: async (eventData, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.create(eventData, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options, eventData)
+
+    return eventsSupabaseService.create(eventData, {
+      ...options,
+      contractorId,
+    })
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.update(id, updates, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options, updates)
+
+    return eventsSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.archive(id, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options)
+
+    return eventsSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.restore(id, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options)
+
+    return eventsSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+      return eventsLocalService.deletePermanently(id, options)
+    }
+
+    const contractorId = resolveEventsContractorId(options)
+
+    return eventsSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
+  },
+}
+
 const entityProvider = USE_SUPABASE ? supabaseImpl : localImpl
 
 export const dataProvider = {
@@ -787,6 +891,7 @@ export const dataProvider = {
   estimates: estimatesDataProvider,
   contracts: contractsDataProvider,
   payments: paymentsDataProvider,
+  events: eventsDataProvider,
   settings: settingsDataProvider,
 }
 

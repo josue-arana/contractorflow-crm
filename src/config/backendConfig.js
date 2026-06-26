@@ -22,6 +22,8 @@
 //   against Supabase while every other entity remains in local mode.
 // - USE_SUPABASE_PAYMENTS can be enabled independently to test Payments
 //   against Supabase while every other entity remains in local mode.
+// - USE_SUPABASE_EVENTS can be enabled independently to test Project Schedule
+//   / Events against Supabase while every other entity remains in local mode.
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
@@ -34,6 +36,7 @@ export const USE_SUPABASE_PROJECTS = true
 export const USE_SUPABASE_ESTIMATES = true
 export const USE_SUPABASE_CONTRACTS = true
 export const USE_SUPABASE_PAYMENTS = true
+export const USE_SUPABASE_EVENTS = true
 export const USE_AUTH = true
 export const USE_STORAGE = false
 export const USE_REAL_EMAIL = false
@@ -50,6 +53,7 @@ export const backendConfig = {
   useSupabaseEstimates: USE_SUPABASE_ESTIMATES,
   useSupabaseContracts: USE_SUPABASE_CONTRACTS,
   useSupabasePayments: USE_SUPABASE_PAYMENTS,
+  useSupabaseEvents: USE_SUPABASE_EVENTS,
   useAuth: USE_AUTH,
   useStorage: USE_STORAGE,
   useRealEmail: USE_REAL_EMAIL,
@@ -82,6 +86,7 @@ export function isSupabaseDataEnabled() {
     || USE_SUPABASE_ESTIMATES === true
     || USE_SUPABASE_CONTRACTS === true
     || USE_SUPABASE_PAYMENTS === true
+    || USE_SUPABASE_EVENTS === true
 }
 
 export function isSupabaseAuthEnabled() {
@@ -95,7 +100,7 @@ export function isBackendEnabled() {
 export function getDataModeLabel() {
   if (USE_SUPABASE) return 'Supabase'
   if (
-    [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS, USE_SUPABASE_PAYMENTS].filter(Boolean).length > 1
+    [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_EVENTS].filter(Boolean).length > 1
   ) return 'Selected Entities via Supabase'
   if (USE_SUPABASE_SETTINGS) return 'Settings via Supabase'
   if (USE_SUPABASE_CLIENTS) return 'Clients via Supabase'
@@ -104,6 +109,7 @@ export function getDataModeLabel() {
   if (USE_SUPABASE_ESTIMATES) return 'Estimates via Supabase'
   if (USE_SUPABASE_CONTRACTS) return 'Contracts via Supabase'
   if (USE_SUPABASE_PAYMENTS) return 'Payments via Supabase'
+  if (USE_SUPABASE_EVENTS) return 'Events via Supabase'
   return 'Local Mock Data'
 }
 

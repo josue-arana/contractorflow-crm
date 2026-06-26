@@ -1,4 +1,4 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_EVENTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 
 const TABLE_NAME = 'events'
@@ -39,6 +39,8 @@ const dbToUiStatusMap = {
   cancelled: 'Cancelled',
   no_show: 'No Show',
 }
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function isDev() {
   return Boolean(import.meta.env.DEV)
@@ -103,6 +105,17 @@ function readField(source = {}, keys = []) {
   return undefined
 }
 
+function sanitizeUuid(value) {
+  if (typeof value !== 'string') return null
+
+  const trimmedValue = value.trim()
+
+  if (!trimmedValue) return null
+  if (!uuidPattern.test(trimmedValue)) return null
+
+  return trimmedValue
+}
+
 function mapTypeToDb(type) {
   if (!type) return 'appointment'
   return uiToDbTypeMap[type] || 'other'
@@ -123,37 +136,26 @@ function mapStatusToUi(status) {
   return dbToUiStatusMap[status] || status
 }
 
-function formatDisplayDate(value) {
-  if (!value) return ''
+function parseDateToIso(value) {
+  if (!value) return null
+
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value
+  }
 
   const parsedDate = new Date(value)
   if (Number.isNaN(parsedDate.getTime())) {
-    return String(value)
+    return null
   }
 
-  return parsedDate.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  return parsedDate.toISOString().slice(0, 10)
 }
 
-function formatTime(value) {
+function normalizeTime(value) {
   if (!value) return ''
-
-  const parsedDate = new Date(value)
-  if (Number.isNaN(parsedDate.getTime())) {
-    return ''
+  if (typeof value === 'string' && /^\d{2}:\d{2}$/.test(value.trim())) {
+    return value.trim()
   }
-
-  return parsedDate.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function formatTimeInput(value) {
-  if (!value) return ''
 
   const parsedDate = new Date(value)
   if (Number.isNaN(parsedDate.getTime())) {
@@ -165,14 +167,30 @@ function formatTimeInput(value) {
   return `${hours}:${minutes}`
 }
 
+function formatDisplayDate(value) {
+  if (!value) return ''
+
+  const parsedDate = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
 function buildEventTimestamp(dateValue, timeValue) {
   if (!dateValue) return null
 
-  const baseDate = typeof dateValue === 'string' ? dateValue : ''
-  if (!baseDate) return null
+  const normalizedDate = parseDateToIso(dateValue)
+  if (!normalizedDate) return null
 
-  const time = timeValue || '00:00'
-  const parsedDate = new Date(`${baseDate}T${time}:00`)
+  const normalizedTime = normalizeTime(timeValue) || '00:00'
+  const parsedDate = new Date(`${normalizedDate}T${normalizedTime}:00`)
+
   if (Number.isNaN(parsedDate.getTime())) {
     return null
   }
@@ -205,7 +223,6 @@ function buildEndEventTimestamp(dateValue, startTimeValue, endTimeValue) {
 function serializeDescription(event = {}) {
   const descriptionText = readField(event, ['description'])
   const reminder = readField(event, ['reminder'])
-  const leadId = readField(event, ['leadId', 'lead_id'])
   const clientName = readField(event, ['clientName', 'client_name'])
   const projectTitle = readField(event, ['projectTitle', 'project_title'])
   const displayDate = readField(event, ['displayDate', 'display_date'])
@@ -215,7 +232,6 @@ function serializeDescription(event = {}) {
 
   const hasStructuredFields = [
     reminder,
-    leadId,
     clientName,
     projectTitle,
     displayDate,
@@ -232,7 +248,6 @@ function serializeDescription(event = {}) {
     version: 1,
     summary: descriptionText || '',
     reminder: reminder || 'none',
-    leadId: leadId || null,
     clientName: clientName || '',
     projectTitle: projectTitle || '',
     displayDate: displayDate || '',
@@ -246,7 +261,6 @@ function parseDescription(description) {
   const fallback = {
     summary: description || '',
     reminder: 'none',
-    leadId: null,
     clientName: '',
     projectTitle: '',
     displayDate: '',
@@ -267,7 +281,6 @@ function parseDescription(description) {
     return {
       summary: parsed.summary || '',
       reminder: parsed.reminder || 'none',
-      leadId: parsed.leadId || null,
       clientName: parsed.clientName || '',
       projectTitle: parsed.projectTitle || '',
       displayDate: parsed.displayDate || '',
@@ -280,39 +293,50 @@ function parseDescription(description) {
   }
 }
 
+function sortEvents(events = []) {
+  return [...events].sort((left, right) => {
+    const leftStamp = `${left.date || ''}T${left.startTime || '00:00'}`
+    const rightStamp = `${right.date || ''}T${right.startTime || '00:00'}`
+    return leftStamp.localeCompare(rightStamp)
+  })
+}
+
 function toAppEvent(row) {
   const parsedDescription = parseDescription(row?.description)
-  const startTime = formatTimeInput(row?.starts_at)
-  const endTime = formatTimeInput(row?.ends_at)
+  const eventDate = row?.event_date || (row?.starts_at ? new Date(row.starts_at).toISOString().slice(0, 10) : '')
+  const startTime = normalizeTime(row?.start_time || row?.starts_at)
+  const endTime = normalizeTime(row?.end_time || row?.ends_at)
   const computedTime = startTime
     ? endTime
       ? `${startTime} - ${endTime}`
       : startTime
     : ''
+  const eventType = row?.event_type || parsedDescription.uiType || mapTypeToUi(row?.type)
+  const status = parsedDescription.uiStatus || mapStatusToUi(row?.status)
 
   return {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     projectId: row?.project_id || null,
-    leadId: parsedDescription.leadId || null,
+    leadId: row?.lead_id || null,
     title: row?.title || '',
     description: parsedDescription.summary,
-    type: parsedDescription.uiType || mapTypeToUi(row?.type),
-    eventType: parsedDescription.uiType || mapTypeToUi(row?.type),
-    status: parsedDescription.uiStatus || mapStatusToUi(row?.status),
-    date: row?.starts_at ? new Date(row.starts_at).toISOString().slice(0, 10) : '',
-    displayDate: parsedDescription.displayDate || (row?.starts_at ? formatDisplayDate(row.starts_at) : ''),
+    type: eventType,
+    eventType,
+    status,
+    date: eventDate,
+    displayDate: parsedDescription.displayDate || formatDisplayDate(eventDate),
     startTime,
     endTime,
     time: parsedDescription.time || computedTime,
     location: row?.location || '',
     notes: row?.notes || '',
-    reminder: parsedDescription.reminder || 'none',
+    reminder: row?.reminder || parsedDescription.reminder || 'none',
     clientName: parsedDescription.clientName || '',
     projectTitle: parsedDescription.projectTitle || '',
-    startsAt: row?.starts_at || null,
-    endsAt: row?.ends_at || null,
+    startsAt: row?.starts_at || buildEventTimestamp(eventDate, startTime),
+    endsAt: row?.ends_at || buildEndEventTimestamp(eventDate, startTime, endTime),
     archivedAt: row?.archived_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
@@ -325,24 +349,34 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
   const descriptionInput = serializeDescription(event)
   const typeInput = readField(event, ['type', 'eventType', 'event_type'])
   const statusInput = readField(event, ['status'])
-  const dateInput = readField(event, ['date'])
-  const startTimeInput = readField(event, ['startTime'])
-  const endTimeInput = readField(event, ['endTime'])
+  const dateInput = readField(event, ['date', 'eventDate', 'event_date'])
+  const startTimeInput = readField(event, ['startTime', 'start_time'])
+  const endTimeInput = readField(event, ['endTime', 'end_time'])
   const startsAtInput = readField(event, ['startsAt', 'starts_at'])
   const endsAtInput = readField(event, ['endsAt', 'ends_at'])
   const locationInput = readField(event, ['location', 'address'])
   const notesInput = readField(event, ['notes'])
+  const reminderInput = readField(event, ['reminder'])
+
+  const normalizedEventType = typeInput || 'Site Visit'
+  const normalizedEventDate = parseDateToIso(dateInput)
+  const normalizedStartTime = normalizeTime(startTimeInput)
+  const normalizedEndTime = normalizeTime(endTimeInput)
 
   if (contractorId) {
     payload.contractor_id = contractorId
   }
 
   if (isCreate || readField(event, ['clientId', 'client_id']) !== undefined) {
-    payload.client_id = readField(event, ['clientId', 'client_id']) || null
+    payload.client_id = sanitizeUuid(readField(event, ['clientId', 'client_id']))
   }
 
   if (isCreate || readField(event, ['projectId', 'project_id']) !== undefined) {
-    payload.project_id = readField(event, ['projectId', 'project_id']) || null
+    payload.project_id = sanitizeUuid(readField(event, ['projectId', 'project_id']))
+  }
+
+  if (isCreate || readField(event, ['leadId', 'lead_id']) !== undefined) {
+    payload.lead_id = sanitizeUuid(readField(event, ['leadId', 'lead_id']))
   }
 
   if (titleInput !== undefined) {
@@ -357,10 +391,9 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
     payload.description = null
   }
 
-  if (typeInput !== undefined) {
-    payload.type = mapTypeToDb(typeInput)
-  } else if (isCreate) {
-    payload.type = 'appointment'
+  if (isCreate || typeInput !== undefined) {
+    payload.event_type = normalizedEventType || null
+    payload.type = mapTypeToDb(normalizedEventType)
   }
 
   if (statusInput !== undefined) {
@@ -369,16 +402,28 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
     payload.status = 'scheduled'
   }
 
+  if (isCreate || dateInput !== undefined) {
+    payload.event_date = normalizedEventDate
+  }
+
+  if (isCreate || startTimeInput !== undefined) {
+    payload.start_time = normalizedStartTime || null
+  }
+
+  if (isCreate || endTimeInput !== undefined) {
+    payload.end_time = normalizedEndTime || null
+  }
+
   if (startsAtInput !== undefined) {
     payload.starts_at = startsAtInput || null
   } else if (isCreate || dateInput !== undefined || startTimeInput !== undefined) {
-    payload.starts_at = buildEventTimestamp(dateInput, startTimeInput)
+    payload.starts_at = buildEventTimestamp(normalizedEventDate, normalizedStartTime)
   }
 
   if (endsAtInput !== undefined) {
     payload.ends_at = endsAtInput || null
   } else if (isCreate || dateInput !== undefined || endTimeInput !== undefined) {
-    payload.ends_at = buildEndEventTimestamp(dateInput, startTimeInput, endTimeInput)
+    payload.ends_at = buildEndEventTimestamp(normalizedEventDate, normalizedStartTime, normalizedEndTime)
   }
 
   if (isCreate || locationInput !== undefined) {
@@ -387,6 +432,10 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
 
   if (isCreate || notesInput !== undefined) {
     payload.notes = notesInput || null
+  }
+
+  if (isCreate || reminderInput !== undefined) {
+    payload.reminder = reminderInput || null
   }
 
   return payload
@@ -405,9 +454,9 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for event operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, type, clientId, projectId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', [])
+export async function list({ contractorId, includeArchived = false, status, type, clientId, projectId, leadId } = {}) {
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', [])
   }
 
   if (!contractorId) {
@@ -417,7 +466,7 @@ export async function list({ contractorId, includeArchived = false, status, type
   try {
     const query = buildContractorQuery(contractorId, {
       select: '*',
-      order: 'starts_at.asc',
+      order: 'event_date.asc,start_time.asc,starts_at.asc,created_at.asc',
     })
 
     if (!includeArchived) {
@@ -440,13 +489,17 @@ export async function list({ contractorId, includeArchived = false, status, type
       query.project_id = `eq.${projectId}`
     }
 
+    if (leadId) {
+      query.lead_id = `eq.${leadId}`
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'GET',
       query,
     })
 
     return {
-      data: Array.isArray(data) ? data.map(toAppEvent) : [],
+      data: sortEvents(Array.isArray(data) ? data.map(toAppEvent) : []),
       error: null,
       skipped: false,
     }
@@ -460,8 +513,8 @@ export async function list({ contractorId, includeArchived = false, status, type
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false')
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false')
   }
 
   if (!contractorId) {
@@ -495,8 +548,8 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(eventData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', eventData ?? null)
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', eventData ?? null)
   }
 
   if (!contractorId) {
@@ -524,8 +577,8 @@ export async function create(eventData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', { id, ...(updates || {}) })
   }
 
   if (!contractorId) {
@@ -563,8 +616,8 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', { id, archived: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', { id, archived: true })
   }
 
   if (!contractorId) {
@@ -599,8 +652,8 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', { id, archived: false })
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', { id, archived: false })
   }
 
   if (!contractorId) {
@@ -635,8 +688,8 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
-    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false', { id, deleted: true })
+  if (!USE_SUPABASE && !USE_SUPABASE_EVENTS) {
+    return createSkippedResponse('Supabase events service skipped because USE_SUPABASE=false and USE_SUPABASE_EVENTS=false', { id, deleted: true })
   }
 
   if (!contractorId) {

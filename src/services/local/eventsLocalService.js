@@ -86,7 +86,7 @@ function sortEvents(events = []) {
   return [...events].sort((left, right) => {
     const leftStamp = `${left.date || ''}T${left.startTime || '00:00'}`
     const rightStamp = `${right.date || ''}T${right.startTime || '00:00'}`
-    return rightStamp.localeCompare(leftStamp)
+    return leftStamp.localeCompare(rightStamp)
   })
 }
 
@@ -94,17 +94,19 @@ function matchesFilter(event, filters = {}) {
   if (!filters.includeArchived && event.archivedAt) return false
   if (filters.clientId && event.clientId !== filters.clientId) return false
   if (filters.projectId && event.projectId !== filters.projectId) return false
+  if (filters.leadId && event.leadId !== filters.leadId) return false
   if (filters.type && event.type !== filters.type && event.eventType !== filters.type) return false
   if (filters.status && event.status !== filters.status) return false
   if (filters.contractorId && event.contractorId && event.contractorId !== filters.contractorId) return false
   return true
 }
 
-export async function list({ includeArchived = false, clientId, projectId, type, status, contractorId } = {}) {
+export async function list({ includeArchived = false, clientId, projectId, leadId, type, status, contractorId } = {}) {
   const events = sortEvents(readStoredEvents().filter((event) => matchesFilter(event, {
     includeArchived,
     clientId,
     projectId,
+    leadId,
     type,
     status,
     contractorId,

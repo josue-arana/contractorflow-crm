@@ -1,4 +1,4 @@
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { getEnvironmentStatus } from './system/environmentService'
 
 function getRowStatus(isReady) {
@@ -27,6 +27,8 @@ export function getBackendEnvironmentStatus() {
                     ? 'backendEnvironmentContractsSupabaseModeHelper'
                     : environmentStatus.dataMode === 'payments-supabase'
                       ? 'backendEnvironmentPaymentsSupabaseModeHelper'
+                    : environmentStatus.dataMode === 'events-supabase'
+                      ? 'backendEnvironmentEventsSupabaseModeHelper'
                     : 'backendEnvironmentLocalModeHelper'
 
   return {
@@ -237,17 +239,29 @@ export function getPaymentsBackendStatus() {
 }
 
 export function getEventsBackendStatus() {
+  const environmentStatus = getEnvironmentStatus()
+  const usesSupabase = USE_SUPABASE || USE_SUPABASE_EVENTS
+  const hasMissingEnvWarning = usesSupabase && !environmentStatus.supabaseConfigured
+  const hasAuthWarning = usesSupabase && !USE_AUTH
+  const hasWarning = hasMissingEnvWarning || hasAuthWarning
+
   return {
-    mode: USE_SUPABASE ? 'supabase' : 'local',
-    valueKey: USE_SUPABASE ? 'supabaseReady' : 'localMode',
-    detailKey: USE_SUPABASE ? 'eventsBackendSupabaseDetail' : 'eventsBackendLocalDetail',
-    status: 'PASS',
+    mode: usesSupabase ? 'supabase' : 'local',
+    valueKey: usesSupabase ? 'supabaseMode' : 'localMode',
+    detailKey: usesSupabase
+      ? hasMissingEnvWarning
+        ? 'eventsBackendSupabaseMissingEnvDetail'
+        : hasAuthWarning
+          ? 'eventsBackendSupabaseAuthRequiredDetail'
+          : 'eventsBackendSupabaseDetail'
+      : 'eventsBackendLocalDetail',
+    status: hasWarning ? 'WARNING' : 'PASS',
   }
 }
 
 export function getSupabaseHealthStatus() {
   const environmentStatus = getEnvironmentStatus()
-  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS, USE_SUPABASE_PAYMENTS].filter(Boolean).length
+  const selectedEntityFlagCount = [USE_SUPABASE_SETTINGS, USE_SUPABASE_CLIENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_CONTRACTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_EVENTS].filter(Boolean).length
 
   if (!environmentStatus.supabaseConfigured) {
     return {
@@ -257,7 +271,7 @@ export function getSupabaseHealthStatus() {
     }
   }
 
-  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS && !USE_SUPABASE_ESTIMATES && !USE_SUPABASE_CONTRACTS && !USE_SUPABASE_PAYMENTS) {
+  if (!USE_SUPABASE && !USE_SUPABASE_SETTINGS && !USE_SUPABASE_CLIENTS && !USE_SUPABASE_LEADS && !USE_SUPABASE_PROJECTS && !USE_SUPABASE_ESTIMATES && !USE_SUPABASE_CONTRACTS && !USE_SUPABASE_PAYMENTS && !USE_SUPABASE_EVENTS) {
     return {
       status: 'disabled',
       label: 'Supabase disabled',
@@ -287,6 +301,8 @@ export function getSupabaseHealthStatus() {
                   ? 'Supabase configured for Contracts beta'
                   : USE_SUPABASE_PAYMENTS && !USE_SUPABASE
                     ? 'Supabase configured for Payments beta'
+                    : USE_SUPABASE_EVENTS && !USE_SUPABASE
+                      ? 'Supabase configured for Events beta'
                     : 'Supabase configured',
     details: USE_AUTH
       ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present.'
@@ -306,6 +322,8 @@ export function getSupabaseHealthStatus() {
                 ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Contracts is allowed to use Supabase.'
                 : USE_SUPABASE_PAYMENTS && !USE_SUPABASE
                   ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Payments is allowed to use Supabase.'
+                  : USE_SUPABASE_EVENTS && !USE_SUPABASE
+                    ? 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while only Events is allowed to use Supabase.'
                   : 'VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are present while auth remains disabled.',
   }
 }
