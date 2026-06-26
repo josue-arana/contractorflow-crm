@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, Download, MapPin, Package, PlayCircle } from 'lucide-react'
 import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
 import dataProvider from '../services/dataProvider'
+import { useAuth } from '../contexts/AuthContext'
+import { getEventsContractorId } from '../services/system/eventsRuntimeService'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -56,6 +58,8 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [completedEventIds, setCompletedEventIds] = useState([])
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
+  const { contractor, company, session } = useAuth()
+  const contractorId = getEventsContractorId({ contractor, company, session })
 
   const events = useMemo(() => scheduleEvents.map((event) => {
     const lead = leads.find((item) => item.id === event.leadId)
@@ -171,7 +175,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
                     <td className="px-4 py-3 text-slate-600">{event.location}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
-                        <button onClick={() => onViewProject(event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
+                        <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
                         <button onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('markComplete')}</button>
                         <button onClick={() => onExportEvent(event)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"><Download className="mr-1 inline h-3 w-3" />{t('exportToCalendar')}</button>
                       </div>
@@ -210,7 +214,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
                 </div>
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <button onClick={() => onViewProject(event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
+                  <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
                   <button onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('markComplete')}</button>
                   <button onClick={() => onExportEvent(event)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"><Download className="mr-1 inline h-3 w-3" />{t('exportToCalendar')}</button>
                 </div>
@@ -244,7 +248,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
               <p className="font-bold text-slate-700">{day.day}</p>
               <div className="mt-2 space-y-1">
                 {day.events.slice(0, 2).map((event) => (
-                  <button key={event.id} onClick={() => onViewProject(event.leadId)} className="block w-full truncate rounded-lg bg-white px-2 py-1 text-left text-xs font-semibold text-blue-700 shadow-sm">
+                  <button key={event.id} onClick={() => onViewProject(event.projectId || event.leadId)} className="block w-full truncate rounded-lg bg-white px-2 py-1 text-left text-xs font-semibold text-blue-700 shadow-sm">
                     {tStatus(t, event.type)}
                   </button>
                 ))}
@@ -256,11 +260,21 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
 
       <ScheduleEventModal isOpen={isScheduleOpen} leads={leads} onClose={() => setIsScheduleOpen(false)} onSave={async (event) => {
         try {
-          await dataProvider.events.create?.(event)
+          const response = await dataProvider.events.create?.({
+            ...event,
+            contractorId,
+          }, { contractorId })
+
+          if (response?.error) {
+            throw response.error
+          }
+
+          onCreateEvent?.(response?.data || event)
         } catch (err) {
           // ignore local-mode persistence errors
+          onCreateEvent?.(event)
         }
-        onCreateEvent?.(event)
+        setIsScheduleOpen(false)
       }} t={t} />
     </div>
   )

@@ -1,9 +1,11 @@
 import { buildDeveloperHealthSnapshot } from '../utils/developerHealth'
-import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { USE_AUTH, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
+import { getPaymentsContractorId } from '../services/system/paymentsRuntimeService'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { getEventsContractorId } from '../services/system/eventsRuntimeService'
 import { getSettingsContractorId, hasAuthenticatedSupabaseSettingsUser } from '../services/system/settingsRuntimeService'
 import { isBetaContractorFallbackActive } from '../services/system/contractorRuntimeService'
 import { getSettingsRuntimeStatus } from '../services/supabase/settingsSupabaseService'
@@ -104,6 +106,8 @@ export function TranslationAuditPage({ t }) {
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
   const leadsContractorId = getLeadsContractorId({ contractor, company, session })
   const projectsContractorId = getProjectsContractorId({ contractor, company, session })
+  const paymentsContractorId = getPaymentsContractorId({ contractor, company, session })
+  const eventsContractorId = getEventsContractorId({ contractor, company, session })
   const settingsRuntimeStatus = getSettingsRuntimeStatus()
   const onboardingRuntimeStatus = getContractorOnboardingRuntimeStatus()
   const betaFallbackActive = isBetaContractorFallbackActive({ contractor, company, session })
@@ -261,6 +265,30 @@ export function TranslationAuditPage({ t }) {
       id: 'contractsContractorId',
       label: t('contractsCurrentContractorId'),
       value: projectsContractorId || t('notAvailable'),
+    },
+  ]
+  const paymentsBackendRows = [
+    {
+      id: 'useSupabasePayments',
+      label: t('backendEnvironmentUseSupabasePayments'),
+      value: t(USE_SUPABASE_PAYMENTS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'paymentsContractorId',
+      label: t('paymentsCurrentContractorId'),
+      value: paymentsContractorId || t('notAvailable'),
+    },
+  ]
+  const eventsBackendRows = [
+    {
+      id: 'useSupabaseEvents',
+      label: t('backendEnvironmentUseSupabaseEvents'),
+      value: t(USE_SUPABASE_EVENTS ? 'enabled' : 'disabled'),
+    },
+    {
+      id: 'eventsContractorId',
+      label: t('eventsCurrentContractorId'),
+      value: eventsContractorId || t('notAvailable'),
     },
   ]
 
@@ -489,6 +517,14 @@ export function TranslationAuditPage({ t }) {
           </div>
           <StatusBadge status={snapshot.paymentsBackend.status} />
         </div>
+        <div className="mt-4 space-y-3">
+          {paymentsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
+        </div>
       </SectionCard>
 
       <SectionCard title={t('eventsBackend')}>
@@ -498,6 +534,14 @@ export function TranslationAuditPage({ t }) {
             <p className="mt-1 text-sm text-slate-600">{t(snapshot.eventsBackend.detailKey)}</p>
           </div>
           <StatusBadge status={snapshot.eventsBackend.status} />
+        </div>
+        <div className="mt-4 space-y-3">
+          {eventsBackendRows.map((row) => (
+            <div key={row.id} className="flex flex-col gap-2 rounded-2xl border border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-bold text-slate-950">{row.label}</p>
+              <p className="text-sm font-semibold text-slate-600">{row.value}</p>
+            </div>
+          ))}
         </div>
       </SectionCard>
 

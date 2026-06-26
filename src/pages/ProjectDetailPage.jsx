@@ -14,7 +14,7 @@ import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
-import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
@@ -192,6 +192,14 @@ function getPaymentTypeLabelKey(payment = {}) {
   if (paymentTypeKey === 'progress') return 'progressPayment'
   if (paymentTypeKey === 'final') return 'finalPayment'
   return 'other'
+}
+
+function sortProjectEvents(events = []) {
+  return [...events].sort((left, right) => {
+    const leftStamp = `${left?.date || ''}T${left?.startTime || '00:00'}`
+    const rightStamp = `${right?.date || ''}T${right?.startTime || '00:00'}`
+    return leftStamp.localeCompare(rightStamp)
+  })
 }
 
 function createSafeProject(project, fallbackId = '') {
@@ -644,7 +652,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.payments.list({
           contractorId,
           includeArchived: true,
-          ...(clientId ? { clientId } : { projectId }),
+          ...(projectId ? { projectId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -654,10 +662,16 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           return
         }
 
-        setPaymentRecords(dedupePayments([
-          ...(Array.isArray(response?.data) ? response.data : []),
-          ...fallbackPayments,
-        ]))
+        const persistedPayments = Array.isArray(response?.data) ? response.data : []
+
+        setPaymentRecords(
+          USE_SUPABASE_PAYMENTS
+            ? dedupePayments(persistedPayments)
+            : dedupePayments([
+                ...persistedPayments,
+                ...fallbackPayments,
+              ])
+        )
       } catch (error) {
         if (!isCancelled) {
           setPaymentRecords(fallbackPayments)
@@ -689,7 +703,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.events.list({
           contractorId,
           includeArchived: true,
-          ...(clientId ? { clientId } : projectId ? { projectId } : {}),
+          ...(projectId ? { projectId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -699,10 +713,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           return
         }
 
-        const nextEvents = [
-          ...(Array.isArray(response?.data) ? response.data : []),
-          ...fallbackEvents,
-        ]
+        const persistedEvents = Array.isArray(response?.data) ? response.data : []
+        const nextEvents = (
+          USE_SUPABASE_EVENTS
+            ? persistedEvents
+            : [
+                ...persistedEvents,
+                ...fallbackEvents,
+              ]
+        )
           .filter((event, index, collection) => {
             const key = event?.id || `${event?.title || 'event'}:${event?.date || ''}:${event?.startTime || ''}:${event?.projectId || event?.leadId || index}`
             return collection.findIndex((candidate, candidateIndex) => (
@@ -717,7 +736,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             projectType: baseProject?.projectType || lead?.projectType || '',
           }))
 
-        setProjectEventRecords(nextEvents)
+        setProjectEventRecords(sortProjectEvents(nextEvents))
       } catch (error) {
         if (!isCancelled) {
           setProjectEventRecords(fallbackEvents)
@@ -840,6 +859,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         id: editingPayment?.id || `payment-${Date.now()}`,
         clientId: currentLead.clientId || currentLead.client_id || null,
         projectId: currentLead.id,
+        contractId: resolvedContract?.id || currentLead.contractId || currentLead.contract_id || null,
+        estimateId: resolvedEstimate?.id || currentLead.estimateId || currentLead.estimate_id || null,
         invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
         leadId: linkedLeadId || currentLead.leadId || currentLead.id,
       }, {
@@ -863,10 +884,14 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       ]))
       if (editingPayment?.id) {
         onUpdatePayment?.(savedPayment)
-        showToast(t('paymentUpdated'), 'success')
+        if (!onUpdatePayment) {
+          showToast(t('paymentUpdated'), 'success')
+        }
       } else {
         onRecordPayment?.(savedPayment)
-        showToast(t('paymentRecorded'), 'success')
+        if (!onRecordPayment) {
+          showToast(t('paymentRecorded'), 'success')
+        }
       }
       closePaymentModal()
     } catch (error) {
@@ -899,7 +924,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
       setPaymentRecords((current) => current.filter((payment) => payment.id !== paymentConfirmTarget.id))
       onDeletePayment?.(archivedPayment)
-      showToast(t('paymentDeleted'), 'success')
+      if (!onDeletePayment) {
+        showToast(t('paymentDeleted'), 'success')
+      }
       setOpenPaymentMenuId(null)
       setPaymentConfirmAction(null)
     } catch (error) {
@@ -1220,7 +1247,24 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
                     </button>
                     {openScheduleMenuId === event.id && (
                       <div className="absolute right-0 top-12 z-10 min-w-44 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
-                        <button onClick={() => { onRestoreScheduleEvent?.(event.id); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+                        <button onClick={async () => {
+                          try {
+                            const response = await dataProvider.events.restore?.(event.id, { contractorId })
+                            if (response?.error) {
+                              throw response.error
+                            }
+                          } catch (err) {
+                            // ignore local-mode persistence errors
+                            if (USE_SUPABASE_EVENTS) {
+                              return
+                            }
+                          }
+                          setProjectEventRecords((current) => sortProjectEvents(current.map((entry) => (
+                            entry.id === event.id ? { ...entry, archivedAt: null, archived_at: null } : entry
+                          ))))
+                          onRestoreScheduleEvent?.(event.id)
+                          setOpenScheduleMenuId(null)
+                        }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
                           {t('restore')}
                         </button>
                         <button onClick={() => { setScheduleConfirmAction({ mode: 'delete', event }); setOpenScheduleMenuId(null) }} className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50">
@@ -1315,11 +1359,22 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         onConfirm={async () => {
           try {
             if (scheduleConfirmAction?.mode === 'archive') {
-              await dataProvider.events.archive?.(scheduleConfirmAction.event.id)
+              const response = await dataProvider.events.archive?.(scheduleConfirmAction.event.id, { contractorId })
+              if (response?.error) {
+                throw response.error
+              }
+              const archivedAt = new Date().toISOString()
+              setProjectEventRecords((current) => sortProjectEvents(current.map((event) => (
+                event.id === scheduleConfirmAction.event.id ? { ...event, archivedAt, archived_at: archivedAt } : event
+              ))))
               onArchiveScheduleEvent?.(scheduleConfirmAction.event.id)
             }
             if (scheduleConfirmAction?.mode === 'delete') {
-              await dataProvider.events.deletePermanently?.(scheduleConfirmAction.event.id)
+              const response = await dataProvider.events.deletePermanently?.(scheduleConfirmAction.event.id, { contractorId })
+              if (response?.error) {
+                throw response.error
+              }
+              setProjectEventRecords((current) => current.filter((event) => event.id !== scheduleConfirmAction.event.id))
               onDeleteScheduleEvent?.(scheduleConfirmAction.event.id)
             }
           } catch (err) {

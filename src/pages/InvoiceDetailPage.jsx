@@ -9,6 +9,8 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
 import dataProvider from '../services/dataProvider'
+import { useAuth } from '../contexts/AuthContext'
+import { getPaymentsContractorId } from '../services/system/paymentsRuntimeService'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -24,6 +26,8 @@ function calculateInvoiceTotal(lineItems = []) {
 export function InvoiceDetailRoute({ companySettings, leads, invoices = [], archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getPaymentsContractorId({ contractor, company, session })
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
@@ -93,7 +97,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     try {
       const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
       // create payment in provider (no-op in local mode)
-      await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
+      await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
       const nextAmountPaid = Math.min(Number(currentInvoice.amount || 0), Number(currentInvoice.amountPaid || 0) + Number(payment.amount || 0))
       await dataProvider.invoices.update(currentInvoice.id, { amountPaid: nextAmountPaid, paymentHistory: nextPaymentHistory })
@@ -113,7 +117,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
     }
     try {
       const paymentEntry = { id: `payment-${Date.now()}`, amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
-      await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
+      await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
       await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
     } catch (err) {
@@ -135,7 +139,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
       }
       if (confirmAction?.mode === 'markPaid') {
         const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
-        await dataProvider.payments.create({ ...paymentEntry, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId })
+        await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
         const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
         await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
         onMarkInvoicePaid?.(currentInvoice.id)

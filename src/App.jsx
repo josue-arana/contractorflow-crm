@@ -45,10 +45,11 @@ import { useAuth } from './contexts/AuthContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
+import { getEventsContractorId } from './services/system/eventsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
 import { getSettingsContractorId } from './services/system/settingsRuntimeService'
 import { buildDisplayedUserProfile } from './services/system/userProfileRuntimeService'
@@ -87,6 +88,14 @@ function getProjectPaymentStatus(amountPaid, contractAmount, depositRequired) {
   if (amountPaid < depositRequired) return 'Partially Paid'
   if (amountPaid === depositRequired) return 'Deposit Paid'
   return 'Progress Payment Paid'
+}
+
+function sortScheduleEventRecords(events = []) {
+  return [...events].sort((left, right) => {
+    const leftStamp = `${left?.date || ''}T${left?.startTime || '00:00'}`
+    const rightStamp = `${right?.date || ''}T${right?.startTime || '00:00'}`
+    return leftStamp.localeCompare(rightStamp)
+  })
 }
 
 function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) {
@@ -390,7 +399,7 @@ function App() {
 function ContractorFlowApp() {
   const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads.map(withLeadPipelineStage))
   const [customClients, setCustomClients] = useState([])
-  const [scheduleEvents, setScheduleEvents] = useState(mockScheduleEvents)
+  const [scheduleEvents, setScheduleEvents] = useState(USE_SUPABASE_EVENTS ? [] : mockScheduleEvents)
   const [invoices, setInvoices] = useState(mockInvoices)
   const [scheduleModalState, setScheduleModalState] = useState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   const [jobModalState, setJobModalState] = useState({ isOpen: false, initialClientId: '', initialClient: null })
@@ -433,6 +442,7 @@ function ContractorFlowApp() {
   }), [activeUserProfileKey, contractor, contractorAccess, session, user, userProfilesByUserId])
   const clientsContractorId = getClientsContractorId({ contractor, company, session })
   const leadsContractorId = getLeadsContractorId({ contractor, company, session })
+  const eventsContractorId = getEventsContractorId({ contractor, company, session })
   const projectsContractorId = getProjectsContractorId({ contractor, company, session })
   const settingsContractorId = getSettingsContractorId({ contractor, company, session })
   const isAwaitingResolvedSettings = Boolean(
@@ -652,13 +662,45 @@ function ContractorFlowApp() {
     }
   }, [projectsContractorId])
 
+  useEffect(() => {
+    let isCancelled = false
+
+    if ((!USE_SUPABASE && !USE_SUPABASE_EVENTS) || !eventsContractorId) {
+      if (!USE_SUPABASE_EVENTS) {
+        setScheduleEvents(mockScheduleEvents)
+      } else {
+        setScheduleEvents([])
+      }
+      return undefined
+    }
+
+    async function loadPersistedEvents() {
+      const response = await dataProvider.events.list({
+        contractorId: eventsContractorId,
+        includeArchived: true,
+      })
+
+      if (isCancelled || response?.error || !Array.isArray(response?.data)) {
+        return
+      }
+
+      setScheduleEvents(sortScheduleEventRecords(response.data))
+    }
+
+    loadPersistedEvents()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [eventsContractorId])
+
   const visibleLeads = useMemo(() => leads
     .filter((lead) => !archives.deletedLeadIds.includes(lead.id))
     .map((lead) => mergePersistedDocumentsIntoLead(lead, persistedEstimates, persistedContracts)), [archives.deletedLeadIds, leads, persistedContracts, persistedEstimates])
   const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
-  const visibleScheduleEvents = useMemo(() => scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id)), [scheduleEvents, archives.deletedScheduleEventIds])
-  const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id)), [visibleScheduleEvents, archives.scheduleEventIds])
+  const visibleScheduleEvents = useMemo(() => sortScheduleEventRecords(scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id))), [scheduleEvents, archives.deletedScheduleEventIds])
+  const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id) && !event.archivedAt), [visibleScheduleEvents, archives.scheduleEventIds])
 
   const metrics = useMemo(() => {
     const pipelineCounts = getLeadPipelineStageCounts(activeLeads)
@@ -733,7 +775,14 @@ function ContractorFlowApp() {
     estimate: archiveLeadRecord,
     client: archiveClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'add'); showToast(t('itemArchived')) },
-    scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'add'); showToast(t('itemArchived')) },
+    scheduleEvent: (id) => {
+      const archivedAt = new Date().toISOString()
+      updateArchiveList('scheduleEventIds', id, 'add')
+      setScheduleEvents((current) => current.map((event) => (
+        event.id === id ? { ...event, archivedAt, archived_at: archivedAt } : event
+      )))
+      showToast(t('itemArchived'))
+    },
   }
 
   const restoreRecord = {
@@ -743,7 +792,13 @@ function ContractorFlowApp() {
     estimate: restoreLeadRecord,
     client: restoreClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'remove'); showToast(t('itemRestored')) },
-    scheduleEvent: (id) => { updateArchiveList('scheduleEventIds', id, 'remove'); showToast(t('itemRestored')) },
+    scheduleEvent: (id) => {
+      updateArchiveList('scheduleEventIds', id, 'remove')
+      setScheduleEvents((current) => current.map((event) => (
+        event.id === id ? { ...event, archivedAt: null, archived_at: null } : event
+      )))
+      showToast(t('itemRestored'))
+    },
   }
 
   const deleteRecord = {
@@ -753,7 +808,11 @@ function ContractorFlowApp() {
     estimate: deleteLeadRecord,
     client: deleteClientRecord,
     invoice: (id) => { updateArchiveList('deletedInvoiceIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
-    scheduleEvent: (id) => { updateArchiveList('deletedScheduleEventIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
+    scheduleEvent: (id) => {
+      updateArchiveList('deletedScheduleEventIds', id, 'add')
+      setScheduleEvents((current) => current.filter((event) => event.id !== id))
+      showToast(t('itemDeletedPermanently'))
+    },
   }
 
   function upsertLeadState(leadRecord) {
@@ -2265,13 +2324,13 @@ function ContractorFlowApp() {
   }
 
   function createScheduleEvent(event, source = 'event') {
-    setScheduleEvents((current) => [{ ...event }, ...current])
+    setScheduleEvents((current) => sortScheduleEventRecords([{ ...event }, ...current.filter((item) => item.id !== event.id)]))
     showToast(t(source === 'job' ? 'jobScheduled' : 'eventCreated'))
     addNotification('notificationEventScheduledTitle', 'notificationEventScheduledMessage')
   }
 
   function updateScheduleEvent(eventId, updates) {
-    setScheduleEvents((current) => current.map((event) => (event.id === eventId ? { ...event, ...updates } : event)))
+    setScheduleEvents((current) => sortScheduleEventRecords(current.map((event) => (event.id === eventId ? { ...event, ...updates } : event))))
     showToast(t('eventUpdated'))
   }
 
@@ -2543,14 +2602,14 @@ function ContractorFlowApp() {
           try {
             const eventPayload = {
               ...event,
-              contractorId: contractor?.contractorId || company?.contractorId || session?.user?.user_metadata?.contractor_id || projectsContractorId || undefined,
+              contractorId: contractor?.contractorId || company?.contractorId || session?.user?.user_metadata?.contractor_id || eventsContractorId || projectsContractorId || undefined,
             }
             let response = null
 
             if (scheduleModalState.editingEvent?.id) {
-              response = await dataProvider.events.update?.(scheduleModalState.editingEvent.id, eventPayload, { contractorId: projectsContractorId })
+              response = await dataProvider.events.update?.(scheduleModalState.editingEvent.id, eventPayload, { contractorId: eventsContractorId || projectsContractorId })
             } else {
-              response = await dataProvider.events.create?.(eventPayload, { contractorId: projectsContractorId })
+              response = await dataProvider.events.create?.(eventPayload, { contractorId: eventsContractorId || projectsContractorId })
             }
 
             if (response?.error) {

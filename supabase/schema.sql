@@ -306,9 +306,14 @@ create table payments (
   contractor_id uuid not null references contractors(id) on delete cascade,
   client_id uuid references clients(id) on delete set null,
   project_id uuid references projects(id) on delete set null,
+  contract_id uuid references contracts(id) on delete set null,
+  estimate_id uuid references estimates(id) on delete set null,
+  lead_id uuid references leads(id) on delete set null,
   invoice_id uuid references invoices(id) on delete set null,
   amount numeric(12,2) not null,
-  payment_date date not null default current_date,
+  payment_type text,
+  payment_date date default current_date,
+  payment_method text,
   method text,
   reference_number text,
   status payment_status not null default 'recorded',
@@ -323,14 +328,20 @@ create table events (
   contractor_id uuid not null references contractors(id) on delete cascade,
   client_id uuid references clients(id) on delete set null,
   project_id uuid references projects(id) on delete set null,
+  lead_id uuid references leads(id) on delete set null,
   title text not null,
   description text,
+  event_type text,
+  event_date date,
+  start_time text,
+  end_time text,
   type event_type not null default 'appointment',
   status text not null default 'scheduled' check (status in ('scheduled', 'completed', 'cancelled', 'no_show')),
   starts_at timestamptz not null,
   ends_at timestamptz,
   location text,
   notes text,
+  reminder text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -418,7 +429,11 @@ create index idx_estimates_project_id on estimates(project_id);
 create index idx_contracts_project_id on contracts(project_id);
 create index idx_invoices_project_id on invoices(project_id);
 create index idx_payments_project_id on payments(project_id);
+create index idx_payments_contract_id on payments(contract_id);
+create index idx_payments_estimate_id on payments(estimate_id);
+create index idx_payments_lead_id on payments(lead_id);
 create index idx_events_project_id on events(project_id);
+create index idx_events_lead_id on events(lead_id);
 create index idx_project_photos_project_id on project_photos(project_id);
 
 -- status indexes
