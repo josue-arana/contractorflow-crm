@@ -1,6 +1,6 @@
 import { Component, useEffect, useMemo, useState } from 'react'
 import { Archive, ArrowLeft, CalendarDays, Camera, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
@@ -185,6 +185,10 @@ function formatProjectDetailDate(value, fallback = '') {
   })
 }
 
+function resolvePersistedProjectId(project = {}) {
+  return project?.projectId || project?.project_id || null
+}
+
 function getPaymentTypeLabelKey(payment = {}) {
   const paymentTypeKey = payment?.paymentTypeKey || normalizePaymentRecord(payment).paymentTypeKey
 
@@ -302,11 +306,14 @@ class ProjectDetailErrorBoundary extends Component {
 
 function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
   const { id, leadId } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
-  const projectId = id || leadId || lead?.id || ''
+  const routeProjectId = id || leadId || ''
+  const fallbackLinkedProjectId = lead?.projectId || lead?.project_id || ''
+  const projectId = routeProjectId || lead?.id || ''
   const [project, setProject] = useState(USE_SUPABASE_PROJECTS ? null : lead)
   const [isLoadingProject, setIsLoadingProject] = useState(Boolean(USE_SUPABASE_PROJECTS))
   const [hasLoadedProject, setHasLoadedProject] = useState(!USE_SUPABASE_PROJECTS)
@@ -330,6 +337,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       ? { ...(lead || {}), ...(project || {}) }
       : (project || lead)
   ), [lead, project])
+  const linkedProjectId = useMemo(() => (
+    project?.id
+    || project?.projectId
+    || project?.project_id
+    || baseProject?.projectId
+    || baseProject?.project_id
+    || fallbackLinkedProjectId
+    || (!USE_SUPABASE_PROJECTS ? projectId : '')
+  ), [baseProject?.projectId, baseProject?.project_id, fallbackLinkedProjectId, project?.id, project?.projectId, project?.project_id, projectId])
   const relatedLeadId = useMemo(() => (
     baseProject?.leadId
     || baseProject?.lead_id
@@ -448,6 +464,28 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const hasClientLink = Boolean(currentLead?.clientId)
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return
+
+    if (!routeProjectId && !fallbackLinkedProjectId) {
+      // eslint-disable-next-line no-console
+      console.warn('[dev] Project Workspace opened without a projectId.', {
+        routeState: location.state,
+        leadId: lead?.id || null,
+      })
+      return
+    }
+
+    if (location.state && !location.state.projectId && fallbackLinkedProjectId) {
+      // eslint-disable-next-line no-console
+      console.warn('[dev] Project Workspace received incomplete route state; hydrating from resolved project id instead.', {
+        routeProjectId,
+        fallbackLinkedProjectId,
+        routeState: location.state,
+      })
+    }
+  }, [fallbackLinkedProjectId, lead?.id, location.state, routeProjectId])
+
+  useEffect(() => {
     if (!USE_SUPABASE_PROJECTS) {
       setProject(lead || null)
       setIsLoadingProject(false)
@@ -456,7 +494,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       return undefined
     }
 
-    if (!projectId) {
+    const lookupProjectId = routeProjectId || fallbackLinkedProjectId
+
+    if (!lookupProjectId) {
       setProject(null)
       setIsLoadingProject(false)
       setHasLoadedProject(true)
@@ -471,7 +511,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       setProjectLoadError(null)
 
       try {
-        const response = await dataProvider.projects.getById(projectId, { contractorId })
+        let response = await dataProvider.projects.getById(lookupProjectId, { contractorId })
+
+        if ((response?.error || !response?.data) && fallbackLinkedProjectId && fallbackLinkedProjectId !== lookupProjectId) {
+          response = await dataProvider.projects.getById(fallbackLinkedProjectId, { contractorId })
+        }
 
         if (isCancelled) return
 
@@ -479,7 +523,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           setProject(null)
           setProjectLoadError(response.error)
           logProjectDetailDevError('[dev] ProjectDetailPage failed to load project.', response.error, {
-            projectId,
+            projectId: lookupProjectId,
+            fallbackLinkedProjectId,
           })
           return
         }
@@ -491,7 +536,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         setProject(null)
         setProjectLoadError(error)
         logProjectDetailDevError('[dev] ProjectDetailPage threw while loading project.', error, {
-          projectId,
+          projectId: lookupProjectId,
+          fallbackLinkedProjectId,
         })
       } finally {
         if (!isCancelled) {
@@ -506,7 +552,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [contractorId, lead, projectId])
+  }, [contractorId, fallbackLinkedProjectId, lead, routeProjectId])
 
   useEffect(() => {
     let isCancelled = false
@@ -515,7 +561,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       const draftEstimate = readLinkedEstimateDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id])
       const knownEstimateId = baseProject?.estimateId || baseProject?.estimate_id || lead?.estimateId || draftEstimate?.id || null
 
-      if (!projectId) {
+      if (!linkedProjectId) {
         if (!isCancelled) {
           setEstimateRecord(draftEstimate)
         }
@@ -536,7 +582,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         if (!resolvedEstimateRecord) {
           const response = await dataProvider.estimates.list({
             contractorId,
-            projectId,
+            projectId: linkedProjectId,
             includeArchived: true,
           })
 
@@ -553,7 +599,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           setEstimateRecord(nextEstimate)
 
           if (nextEstimate) {
-            writeLinkedEstimateDrafts([projectId, relatedLeadId, knownEstimateId], nextEstimate)
+            writeLinkedEstimateDrafts([linkedProjectId, projectId, relatedLeadId, knownEstimateId], nextEstimate)
           }
         }
       } catch (error) {
@@ -568,7 +614,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [baseProject, contractorId, lead, projectId, relatedLeadId])
+  }, [baseProject, contractorId, lead, linkedProjectId, projectId, relatedLeadId])
 
   useEffect(() => {
     let isCancelled = false
@@ -577,7 +623,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       const draftContract = readLinkedContractDraft(baseProject || projectId, [projectId, relatedLeadId, lead?.id, resolvedEstimate?.id])
       const knownContractId = baseProject?.contractId || baseProject?.contract_id || lead?.contractId || draftContract?.id || null
 
-      if (!projectId && !resolvedEstimate?.id) {
+      if (!linkedProjectId && !resolvedEstimate?.id) {
         if (!isCancelled) {
           setContractRecord(draftContract)
         }
@@ -610,7 +656,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         if (!resolvedContractRecord && projectId) {
           const response = await dataProvider.contracts.list({
             contractorId,
-            projectId,
+            projectId: linkedProjectId,
             includeArchived: true,
           })
 
@@ -634,7 +680,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [baseProject, contractorId, lead, projectId, relatedLeadId, resolvedEstimate?.id])
+  }, [baseProject, contractorId, lead, linkedProjectId, projectId, relatedLeadId, resolvedEstimate?.id])
 
   useEffect(() => {
     let isCancelled = false
@@ -643,7 +689,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       const fallbackPayments = localPaymentRecords
       const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null
 
-      if (!projectId && !clientId) {
+      if (!linkedProjectId && !clientId) {
         setPaymentRecords(fallbackPayments)
         return
       }
@@ -652,7 +698,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.payments.list({
           contractorId,
           includeArchived: true,
-          ...(projectId ? { projectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -684,7 +730,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [baseProject?.clientId, baseProject?.client_id, contractorId, lead?.clientId, lead?.client_id, localPaymentRecords, projectId])
+  }, [baseProject?.clientId, baseProject?.client_id, contractorId, lead?.clientId, lead?.client_id, linkedProjectId, localPaymentRecords])
 
   useEffect(() => {
     let isCancelled = false
@@ -692,7 +738,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     async function loadProjectEvents() {
       const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || ''
       const fallbackEvents = scheduleEvents.filter((event) => matchesProjectScheduleEvent(event, {
-        projectId,
+        projectId: linkedProjectId || projectId,
         relatedLeadId,
         clientId,
         projectTitle: baseProject?.projectTitle || lead?.projectTitle || '',
@@ -703,7 +749,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.events.list({
           contractorId,
           includeArchived: true,
-          ...(projectId ? { projectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -729,7 +775,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             )) === index
           })
           .filter((event) => matchesProjectScheduleEvent(event, {
-            projectId,
+            projectId: linkedProjectId || projectId,
             relatedLeadId,
             clientId,
             projectTitle: baseProject?.projectTitle || lead?.projectTitle || '',
@@ -749,7 +795,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [baseProject?.clientId, baseProject?.client_id, baseProject?.projectTitle, baseProject?.projectType, contractorId, lead?.clientId, lead?.client_id, lead?.projectTitle, lead?.projectType, projectId, relatedLeadId, scheduleEvents])
+  }, [baseProject?.clientId, baseProject?.client_id, baseProject?.projectTitle, baseProject?.projectType, contractorId, lead?.clientId, lead?.client_id, lead?.projectTitle, lead?.projectType, linkedProjectId, projectId, relatedLeadId, scheduleEvents])
 
   const activeScheduleEvents = useMemo(() => (
     projectEventRecords.filter((event) => !archivedScheduleEventIds.includes(event.id) && !event.archivedAt)
@@ -853,12 +899,13 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
   async function saveProjectPayment(payment) {
     try {
+      const persistedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead)
       const paymentEntry = normalizePaymentRecord({
         ...(editingPayment || {}),
         ...payment,
         id: editingPayment?.id || `payment-${Date.now()}`,
         clientId: currentLead.clientId || currentLead.client_id || null,
-        projectId: currentLead.id,
+        projectId: persistedProjectId,
         contractId: resolvedContract?.id || currentLead.contractId || currentLead.contract_id || null,
         estimateId: resolvedEstimate?.id || currentLead.estimateId || currentLead.estimate_id || null,
         invoiceId: currentLead.invoiceId || currentLead.invoice_id || null,
@@ -897,7 +944,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     } catch (error) {
       showToast(error?.message || t('paymentSaveFailed'), 'error')
       logProjectDetailDevError('[dev] ProjectDetailPage failed to save payment.', error, {
-        projectId: currentLead.id,
+        projectId: baseProject?.id || resolvePersistedProjectId(currentLead) || currentLead.id,
         paymentId: editingPayment?.id || null,
       })
     }
@@ -992,7 +1039,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         <InfoCard title={t('clientInformation')}>
           <DetailRow label={t('name')} value={currentLead.client} />
           <DetailRow label={t('phone')} value={currentLead.phone || '(410) 555-0198'} />
-          <DetailRow label={t('email')} value={currentLead.email || 'customer@example.com'} />
+          <DetailRow label={t('email')} value={currentLead.email || t('notAdded')} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location} />
           {hasClientLink && (
             <button

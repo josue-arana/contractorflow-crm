@@ -161,7 +161,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                 <tr key={client.id} onClick={() => !isClientArchived(client, archivedClientIds) && onOpenClient(client.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{client.address}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{client.phone}</td>
-                  <td className="px-4 py-4 text-slate-600">{client.email}</td>
+                  <td className="px-4 py-4 text-slate-600">{client.email || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{client.projectCount}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>
@@ -180,7 +180,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                 <div><h3 className="font-bold text-slate-950">{client.name}</h3><p className="text-sm text-slate-500">{client.phone}</p></div>
                 <StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} />
               </div>
-              <div className="space-y-2 text-sm text-slate-600"><p>{client.email}</p><p>{client.address}</p></div>
+              <div className="space-y-2 text-sm text-slate-600"><p>{client.email || t('notAdded')}</p><p>{client.address}</p></div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('projects')}</p><p className="font-bold text-slate-950">{client.projectCount}</p></div>
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('balance')}</p><p className="font-bold text-slate-950">{currency.format(client.outstandingBalance)}</p></div>

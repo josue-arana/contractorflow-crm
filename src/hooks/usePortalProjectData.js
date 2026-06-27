@@ -1,0 +1,539 @@
+import { useEffect, useMemo, useState } from 'react'
+import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { useAuth } from '../contexts/AuthContext'
+import dataProvider from '../services/dataProvider'
+import { getClientsContractorId } from '../services/system/clientsRuntimeService'
+import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
+import { hasContractData, readLinkedContractDraft, writeLinkedContractDrafts } from '../utils/contractLinks'
+import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
+import { findPortalProject } from '../utils/portal'
+import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments } from '../utils/projectPayments'
+
+function normalizeEstimateRecord(estimate) {
+  if (!hasEstimateData(estimate)) return null
+
+  return {
+    ...estimate,
+    id: estimate?.id || null,
+    projectId: estimate?.projectId || estimate?.project_id || null,
+    clientId: estimate?.clientId || estimate?.client_id || null,
+    number: estimate?.number || estimate?.estimateNumber || '',
+    title: estimate?.title || estimate?.projectTitle || '',
+    projectTitle: estimate?.projectTitle || estimate?.title || '',
+    total: toSafeNumber(estimate?.total ?? estimate?.totalAmount ?? estimate?.amount),
+    status: estimate?.status || '',
+    summary: estimate?.summary || estimate?.scopeOfWork || estimate?.scope_of_work || '',
+  }
+}
+
+function normalizeContractRecord(contract) {
+  if (!hasContractData(contract)) return null
+
+  return {
+    ...contract,
+    id: contract?.id || null,
+    projectId: contract?.projectId || contract?.project_id || null,
+    clientId: contract?.clientId || contract?.client_id || null,
+    estimateId: contract?.estimateId || contract?.estimate_id || null,
+    number: contract?.number || contract?.contractNumber || '',
+    contractNumber: contract?.contractNumber || contract?.number || '',
+    total: toSafeNumber(contract?.total ?? contract?.totalAmount ?? contract?.contractAmount),
+    status: contract?.status || '',
+    signedDate: contract?.signedDate || contract?.signed_at || '',
+    scope: contract?.scope || contract?.scopeOfWork || contract?.scope_of_work || '',
+  }
+}
+
+function normalizeProjectRecord(project, client, estimate, contract) {
+  if (!project) return null
+
+  const sourcePortal = project?.portal && typeof project.portal === 'object' ? project.portal : {}
+  const projectValue = resolveEstimateTotal(project, estimate, toSafeNumber(project?.value ?? project?.estimatedValue ?? project?.contractValue))
+  const contractAmount = toSafeNumber(
+    contract?.total
+      ?? contract?.totalAmount
+      ?? contract?.contractAmount
+      ?? sourcePortal?.contractAmount
+      ?? project?.contractValue
+      ?? projectValue
+  )
+  const totalPaid = toSafeNumber(sourcePortal?.totalPaid ?? sourcePortal?.amountPaid ?? project?.amountPaid ?? project?.paid)
+  const outstandingBalance = toSafeNumber(
+    sourcePortal?.outstandingBalance
+      ?? project?.remainingBalance
+      ?? project?.remaining
+      ?? Math.max(contractAmount - totalPaid, 0)
+  )
+  const clientName = client?.displayName || client?.name || project?.client || project?.clientName || project?.customerName || ''
+  const address = project?.address || project?.location || client?.address || ''
+
+  return {
+    ...project,
+    client: clientName,
+    clientName,
+    customerName: clientName,
+    phone: project?.phone || client?.phone || '',
+    email: project?.email || client?.email || '',
+    address,
+    location: project?.location || address,
+    projectTitle: project?.projectTitle || project?.title || project?.projectType || '',
+    projectType: project?.projectType || project?.jobType || project?.projectTitle || '',
+    value: projectValue,
+    estimatedValue: toSafeNumber(project?.estimatedValue ?? projectValue),
+    contractValue: toSafeNumber(project?.contractValue ?? contractAmount),
+    amountPaid: totalPaid,
+    paid: totalPaid,
+    remainingBalance: outstandingBalance,
+    remaining: outstandingBalance,
+    portal: {
+      ...sourcePortal,
+      contractAmount,
+      totalPaid,
+      amountPaid: totalPaid,
+      outstandingBalance,
+      estimate: estimate || {},
+      contract: contract || {},
+    },
+  }
+}
+
+function findClientRecord(clients = [], project = {}) {
+  const clientId = project?.clientId || project?.client_id || ''
+
+  if (!clientId) return null
+
+  return clients.find((client) => client?.id === clientId) || null
+}
+
+function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId = '', clientId = '', projectTitle = '', projectType = '' } = {}) {
+  if (!event) return false
+
+  if (projectId && event.projectId === projectId) {
+    return true
+  }
+
+  if (relatedLeadId && event.leadId === relatedLeadId) {
+    return true
+  }
+
+  if (projectId && event.leadId === projectId) {
+    return true
+  }
+
+  if (!event.projectId) {
+    if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
+      return true
+    }
+
+    if (event.projectTitle && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function sortProjectEvents(events = []) {
+  return [...events].sort((left, right) => {
+    const leftStamp = `${left?.date || ''}T${left?.startTime || '00:00'}`
+    const rightStamp = `${right?.date || ''}T${right?.startTime || '00:00'}`
+    return leftStamp.localeCompare(rightStamp)
+  })
+}
+
+function dedupeProjectEvents(events = []) {
+  return events.filter((event, index, collection) => {
+    const key = event?.id || `${event?.title || event?.eventType || event?.type || 'event'}:${event?.date || ''}:${event?.startTime || ''}:${event?.projectId || event?.leadId || index}`
+    return collection.findIndex((candidate, candidateIndex) => {
+      const candidateKey = candidate?.id || `${candidate?.title || candidate?.eventType || candidate?.type || 'event'}:${candidate?.date || ''}:${candidate?.startTime || ''}:${candidate?.projectId || candidate?.leadId || candidateIndex}`
+      return candidateKey === key
+    }) === index
+  })
+}
+
+function readProjectPaymentFallbacks(project = {}) {
+  return dedupePayments([
+    ...(Array.isArray(project?.payments) ? project.payments : []),
+    ...(Array.isArray(project?.portal?.payments) ? project.portal.payments : []),
+    ...(Array.isArray(project?.portal?.paymentHistory) ? project.portal.paymentHistory : []),
+  ])
+}
+
+function readProjectEventFallbacks(project = {}) {
+  return sortProjectEvents(dedupeProjectEvents([
+    ...(Array.isArray(project?.scheduleEvents) ? project.scheduleEvents : []),
+    ...(Array.isArray(project?.schedule) ? project.schedule : []),
+    ...(Array.isArray(project?.events) ? project.events : []),
+  ]))
+}
+
+function isUpcomingEvent(event = {}) {
+  if (!event?.date) return false
+
+  const eventStamp = new Date(`${event.date}T${event.startTime || '00:00'}`)
+
+  if (Number.isNaN(eventStamp.getTime())) {
+    return false
+  }
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  return eventStamp.getTime() >= todayStart.getTime()
+}
+
+export function usePortalProjectData({ portalId = '', projects = [], clients = [] } = {}) {
+  const { contractor, company, session } = useAuth()
+  const projectsContractorId = getProjectsContractorId({ contractor, company, session })
+  const clientsContractorId = getClientsContractorId({ contractor, company, session })
+  const initialProject = useMemo(() => findPortalProject(projects, portalId), [portalId, projects])
+  const [project, setProject] = useState(USE_SUPABASE_PROJECTS ? null : initialProject)
+  const [estimate, setEstimate] = useState(() => normalizeEstimateRecord(
+    initialProject?.portal?.estimate || readLinkedEstimateDraft(initialProject || portalId, portalId)
+  ))
+  const [contract, setContract] = useState(() => normalizeContractRecord(
+    initialProject?.portal?.contract || readLinkedContractDraft(initialProject || portalId, portalId)
+  ))
+  const [client, setClient] = useState(() => findClientRecord(clients, initialProject))
+  const [paymentRecords, setPaymentRecords] = useState(() => readProjectPaymentFallbacks(initialProject))
+  const [eventRecords, setEventRecords] = useState(() => readProjectEventFallbacks(initialProject))
+  const [isLoading, setIsLoading] = useState(Boolean(USE_SUPABASE_PROJECTS && portalId))
+  const [hasLoaded, setHasLoaded] = useState(!USE_SUPABASE_PROJECTS)
+
+  useEffect(() => {
+    if (!USE_SUPABASE_PROJECTS) {
+      setProject(initialProject || null)
+      setIsLoading(false)
+      setHasLoaded(true)
+      return undefined
+    }
+
+    if (!portalId) {
+      setProject(null)
+      setIsLoading(false)
+      setHasLoaded(true)
+      return undefined
+    }
+
+    let isCancelled = false
+
+    async function loadProject() {
+      setIsLoading(true)
+
+      try {
+        let resolvedProject = initialProject || null
+
+        if (!resolvedProject) {
+          const response = await dataProvider.projects.getById(portalId, { contractorId: projectsContractorId })
+
+          if (response?.data && !response?.error) {
+            resolvedProject = response.data
+          } else {
+            const listResponse = await dataProvider.projects.list({
+              contractorId: projectsContractorId,
+              includeArchived: true,
+            })
+
+            if (!listResponse?.error && Array.isArray(listResponse?.data)) {
+              resolvedProject = findPortalProject(listResponse.data, portalId)
+            }
+          }
+        }
+
+        if (!isCancelled) {
+          setProject(resolvedProject || null)
+        }
+      } catch {
+        if (!isCancelled) {
+          setProject(initialProject || null)
+        }
+      } finally {
+        if (!isCancelled) {
+          setHasLoaded(true)
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadProject()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [initialProject, portalId, projectsContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEstimate() {
+      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedLeadId = project?.leadId || project?.lead_id || ''
+      const projectDraft = readLinkedEstimateDraft(project || portalId, [portalId, linkedProjectId, linkedLeadId])
+      const knownEstimateId = project?.estimateId || project?.estimate_id || project?.portal?.estimate?.id || projectDraft?.id || null
+      let nextEstimate = normalizeEstimateRecord(projectDraft || project?.portal?.estimate)
+
+      try {
+        if (knownEstimateId) {
+          const byIdResponse = await dataProvider.estimates.getById?.(knownEstimateId, { contractorId: projectsContractorId })
+
+          if (byIdResponse?.data && !byIdResponse?.error) {
+            nextEstimate = normalizeEstimateRecord(byIdResponse.data)
+          }
+        }
+
+        if (!nextEstimate && linkedProjectId) {
+          const listResponse = await dataProvider.estimates.list({
+            contractorId: projectsContractorId,
+            projectId: linkedProjectId,
+            includeArchived: true,
+          })
+
+          if (!listResponse?.error) {
+            nextEstimate = normalizeEstimateRecord(listResponse?.data?.[0] || null)
+          }
+        }
+      } catch {
+        nextEstimate = normalizeEstimateRecord(projectDraft || project?.portal?.estimate)
+      }
+
+      if (isCancelled) return
+
+      setEstimate(nextEstimate)
+
+      if (nextEstimate) {
+        writeLinkedEstimateDrafts([linkedProjectId, linkedLeadId, portalId, knownEstimateId], nextEstimate)
+      }
+    }
+
+    loadEstimate()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [portalId, project, projectsContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadContract() {
+      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedLeadId = project?.leadId || project?.lead_id || ''
+      const linkedEstimateId = estimate?.id || project?.estimateId || project?.estimate_id || ''
+      const projectDraft = readLinkedContractDraft(project || portalId, [portalId, linkedProjectId, linkedLeadId, linkedEstimateId])
+      const knownContractId = project?.contractId || project?.contract_id || project?.portal?.contract?.id || projectDraft?.id || null
+      let nextContract = normalizeContractRecord(projectDraft || project?.portal?.contract)
+
+      try {
+        if (knownContractId) {
+          const byIdResponse = await dataProvider.contracts.getById?.(knownContractId, { contractorId: projectsContractorId })
+
+          if (byIdResponse?.data && !byIdResponse?.error) {
+            nextContract = normalizeContractRecord(byIdResponse.data)
+          }
+        }
+
+        if (!nextContract && linkedProjectId) {
+          const listResponse = await dataProvider.contracts.list({
+            contractorId: projectsContractorId,
+            projectId: linkedProjectId,
+            includeArchived: true,
+          })
+
+          if (!listResponse?.error) {
+            nextContract = normalizeContractRecord(listResponse?.data?.[0] || null)
+          }
+        }
+      } catch {
+        nextContract = normalizeContractRecord(projectDraft || project?.portal?.contract)
+      }
+
+      if (isCancelled) return
+
+      setContract(nextContract)
+
+      if (nextContract) {
+        writeLinkedContractDrafts([linkedProjectId, linkedLeadId, linkedEstimateId, portalId, knownContractId], nextContract)
+      }
+    }
+
+    loadContract()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [estimate?.id, portalId, project, projectsContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadClient() {
+      const fallbackClient = findClientRecord(clients, project)
+      const clientId = project?.clientId || project?.client_id || fallbackClient?.id || ''
+
+      if (!clientId) {
+        setClient(null)
+        return
+      }
+
+      setClient(fallbackClient || null)
+
+      try {
+        const response = await dataProvider.clients.getById?.(clientId, { contractorId: clientsContractorId })
+
+        if (!isCancelled && response?.data && !response?.error) {
+          setClient(response.data)
+        }
+      } catch {
+        if (!isCancelled) {
+          setClient(fallbackClient || null)
+        }
+      }
+    }
+
+    loadClient()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [clients, clientsContractorId, project])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadPayments() {
+      const fallbackPayments = readProjectPaymentFallbacks(project)
+      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const clientId = project?.clientId || project?.client_id || ''
+
+      if (!linkedProjectId && !clientId) {
+        setPaymentRecords(fallbackPayments)
+        return
+      }
+
+      try {
+        const response = await dataProvider.payments.list({
+          contractorId: projectsContractorId,
+          includeArchived: true,
+          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setPaymentRecords(fallbackPayments)
+          return
+        }
+
+        const persistedPayments = Array.isArray(response?.data) ? response.data : []
+        const nextPayments = USE_SUPABASE_PAYMENTS
+          ? dedupePayments(persistedPayments)
+          : dedupePayments([
+              ...persistedPayments,
+              ...fallbackPayments,
+            ])
+
+        setPaymentRecords(nextPayments)
+      } catch {
+        if (!isCancelled) {
+          setPaymentRecords(fallbackPayments)
+        }
+      }
+    }
+
+    loadPayments()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [project, projectsContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadEvents() {
+      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const relatedLeadId = project?.leadId || project?.lead_id || ''
+      const clientId = project?.clientId || project?.client_id || ''
+      const fallbackEvents = readProjectEventFallbacks(project).filter((event) => matchesProjectScheduleEvent(event, {
+        projectId: linkedProjectId || portalId,
+        relatedLeadId,
+        clientId,
+        projectTitle: project?.projectTitle || '',
+        projectType: project?.projectType || '',
+      }))
+
+      try {
+        const response = await dataProvider.events.list({
+          contractorId: projectsContractorId,
+          includeArchived: true,
+          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setEventRecords(fallbackEvents)
+          return
+        }
+
+        const persistedEvents = Array.isArray(response?.data) ? response.data : []
+        const nextEvents = dedupeProjectEvents(
+          USE_SUPABASE_EVENTS
+            ? persistedEvents
+            : [
+                ...persistedEvents,
+                ...fallbackEvents,
+              ]
+        ).filter((event) => matchesProjectScheduleEvent(event, {
+          projectId: linkedProjectId || portalId,
+          relatedLeadId,
+          clientId,
+          projectTitle: project?.projectTitle || '',
+          projectType: project?.projectType || '',
+        }))
+
+        setEventRecords(sortProjectEvents(nextEvents))
+      } catch {
+        if (!isCancelled) {
+          setEventRecords(fallbackEvents)
+        }
+      }
+    }
+
+    loadEvents()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [portalId, project, projectsContractorId])
+
+  const hydratedProject = useMemo(
+    () => normalizeProjectRecord(project, client, estimate, contract),
+    [client, contract, estimate, project]
+  )
+  const paymentSummary = useMemo(() => calculateProjectPaymentSummary({
+    ...(hydratedProject || {}),
+    portal: {
+      ...(hydratedProject?.portal || {}),
+      estimate: estimate || {},
+      contract: contract || {},
+    },
+  }, paymentRecords, {
+    relatedInvoiceIds: collectProjectInvoiceIds(hydratedProject || {}),
+  }), [contract, estimate, hydratedProject, paymentRecords])
+  const upcomingEvents = useMemo(() => (
+    eventRecords
+      .filter((event) => !event?.archivedAt)
+      .filter(isUpcomingEvent)
+  ), [eventRecords])
+
+  return {
+    project: hydratedProject,
+    client,
+    estimate,
+    contract,
+    paymentSummary,
+    upcomingEvents,
+    isLoading,
+    notFound: hasLoaded && !hydratedProject,
+  }
+}

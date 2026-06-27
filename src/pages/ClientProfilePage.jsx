@@ -108,7 +108,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
       <section className="grid gap-4 xl:grid-cols-3">
         <InfoCard title={t('contactInformation')} icon={Phone}>
           <DetailRow label={t('phone')} value={client.phone} />
-          <DetailRow label={t('email')} value={client.email} />
+          <DetailRow label={t('email')} value={client.email || t('notAdded')} />
           <DetailRow label={t('address')} value={client.address} />
         </InfoCard>
 

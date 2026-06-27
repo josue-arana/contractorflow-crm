@@ -249,7 +249,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
               <div className="mt-2 space-y-1">
                 {day.events.slice(0, 2).map((event) => (
                   <button key={event.id} onClick={() => onViewProject(event.projectId || event.leadId)} className="block w-full truncate rounded-lg bg-white px-2 py-1 text-left text-xs font-semibold text-blue-700 shadow-sm">
-                    {tStatus(t, event.type)}
+                    {tStatus(t, event.clientName) }
                   </button>
                 ))}
               </div>

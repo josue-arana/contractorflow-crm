@@ -1,5 +1,3 @@
-import { generateEstimateNumber } from './estimateNumber'
-
 export function extractPortalRouteIdFromShareUrl(shareUrl = '') {
   if (!shareUrl || typeof shareUrl !== 'string') return ''
 
@@ -38,53 +36,33 @@ export function findPortalProject(records = [], portalId = '') {
 
 export function getPortalData(lead) {
   const portalRouteId = resolvePortalRouteId(lead)
-  const fallbackContract = lead.value || 0
-  const fallbackPaid = Math.round(fallbackContract * 0.5)
-  const depositRequired = lead.portal?.depositRequired ?? Math.round(fallbackContract * 0.5)
-  const totalPaid = lead.portal?.totalPaid ?? lead.portal?.amountPaid ?? fallbackPaid
-  const depositPaid = lead.portal?.depositPaid ?? Math.min(totalPaid, depositRequired)
-  const otherPaymentsTotal = lead.portal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)
+  const sourcePortal = lead?.portal && typeof lead.portal === 'object' ? lead.portal : {}
+  const fallbackContract = Number(lead?.contractValue ?? lead?.value ?? lead?.estimatedValue ?? 0) || 0
+  const totalPaid = Number(sourcePortal?.totalPaid ?? sourcePortal?.amountPaid ?? lead?.amountPaid ?? lead?.paid ?? 0) || 0
+  const depositRequired = Number(sourcePortal?.depositRequired ?? 0) || 0
+  const depositPaid = Number(sourcePortal?.depositPaid ?? Math.min(totalPaid, depositRequired)) || 0
+  const otherPaymentsTotal = Number(sourcePortal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)) || 0
 
   return {
-    shareUrl: lead.portal?.shareUrl || `https://contractorflow.app/portal/${portalRouteId}`,
-    percentComplete: lead.portal?.percentComplete ?? 42,
-    contractAmount: lead.portal?.contractAmount ?? fallbackContract,
+    shareUrl: sourcePortal?.shareUrl || (portalRouteId ? `https://contractorflow.app/portal/${portalRouteId}` : ''),
+    percentComplete: Number(sourcePortal?.percentComplete ?? 0) || 0,
+    contractAmount: Number(sourcePortal?.contractAmount ?? fallbackContract) || 0,
     depositRequired,
     depositPaid,
     otherPaymentsTotal,
     totalPaid,
-    amountPaid: lead.portal?.amountPaid ?? totalPaid,
-    outstandingBalance: lead.portal?.outstandingBalance ?? Math.max(fallbackContract - totalPaid, 0),
-    paymentStatus: lead.portal?.paymentStatus || 'Deposit Paid',
-    startDate: lead.portal?.startDate || 'June 18, 2026',
-    estimatedCompletion: lead.portal?.estimatedCompletion || 'July 2, 2026',
-    timeline: lead.portal?.timeline || [
-      { title: 'Contract Signed', date: 'June 7, 2026', status: 'Complete', note: 'Agreement approved and signed by homeowner.' },
-      { title: 'Deposit Received', date: 'June 8, 2026', status: 'Complete', note: 'Deposit payment recorded.' },
-      { title: 'Demolition Complete', date: 'June 19, 2026', status: 'Complete', note: 'Demo work completed and area cleaned.' },
-      { title: 'Installation', date: 'In Progress', status: 'In Progress', note: 'Crew is completing installation work.' },
-      { title: 'Final Walkthrough', date: 'Upcoming', status: 'Upcoming', note: 'Final walkthrough and punch list review.' },
-    ],
-    photos: lead.portal?.photos || [
-      { label: 'Before photo', description: 'Project area before work started' },
-      { label: 'Progress photo', description: 'Current work progress' },
-      { label: 'Finish photo', description: 'Final photo will be uploaded' },
-    ],
-    documents: lead.portal?.documents || [
-      { name: 'Estimate', type: 'PDF', status: 'Available' },
-      { name: 'Contract', type: 'PDF', status: 'Pending' },
-      { name: 'Invoice', type: 'Invoice', status: 'Pending' },
-    ],
-    payments: lead.portal?.payments || lead.portal?.paymentHistory || [],
-    estimate: lead.portal?.estimate || {
-      number: generateEstimateNumber(lead),
-      total: fallbackContract,
-      summary: lead.projectType || 'Project estimate',
-    },
-    contract: lead.portal?.contract || {
-      number: `CON-${lead.id.replace(/\D/g, '').padStart(4, '0')}`,
-      signedDate: 'Not Signed',
-      status: 'Not generated',
-    },
+    amountPaid: Number(sourcePortal?.amountPaid ?? totalPaid) || 0,
+    outstandingBalance: Number(sourcePortal?.outstandingBalance ?? lead?.remainingBalance ?? lead?.remaining ?? Math.max(fallbackContract - totalPaid, 0)) || 0,
+    paymentStatus: sourcePortal?.paymentStatus || '',
+    startDate: sourcePortal?.startDate || lead?.startDate || '',
+    estimatedCompletion: sourcePortal?.estimatedCompletion || lead?.targetCompletion || '',
+    timeline: Array.isArray(sourcePortal?.timeline) ? sourcePortal.timeline : [],
+    photos: Array.isArray(sourcePortal?.photos) ? sourcePortal.photos : [],
+    documents: Array.isArray(sourcePortal?.documents) ? sourcePortal.documents : [],
+    payments: Array.isArray(sourcePortal?.payments)
+      ? sourcePortal.payments
+      : (Array.isArray(sourcePortal?.paymentHistory) ? sourcePortal.paymentHistory : []),
+    estimate: sourcePortal?.estimate && typeof sourcePortal.estimate === 'object' ? sourcePortal.estimate : {},
+    contract: sourcePortal?.contract && typeof sourcePortal.contract === 'object' ? sourcePortal.contract : {},
   }
 }

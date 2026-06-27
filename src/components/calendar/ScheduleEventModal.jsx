@@ -21,6 +21,13 @@ const reminderOptions = [
   { value: '1440', labelKey: 'reminder1Day' },
 ]
 
+const emptyAutoState = {
+  generatedTitle: '',
+  titleManuallyEdited: false,
+  generatedLocation: '',
+  locationManuallyEdited: false,
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -47,32 +54,65 @@ function addHourToTime(value) {
   return `${hours}:${minutes}`
 }
 
+function getLeadDisplayName(lead, t) {
+  return lead?.client || lead?.clientName || t('unknownClient')
+}
+
+function getLeadProjectTitle(lead, t) {
+  return lead?.projectTitle || lead?.projectType || t('unknownProject')
+}
+
+function getLeadLocation(lead) {
+  return lead?.address || lead?.location || ''
+}
+
+function buildEventTitle({ eventType, client, project, t }) {
+  const eventTypeLabel = tStatus(t, eventType || 'Other')
+  if (project) return `${project} ${eventTypeLabel}`.trim()
+  if (client) return `${client} ${eventTypeLabel}`.trim()
+  return eventTypeLabel
+}
+
 export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', context = 'event', editingEvent = null, onClose, onSave, t }) {
   const dateRef = useRef(null)
+  const [autoState, setAutoState] = useState(emptyAutoState)
   const defaultLead = useMemo(() => leads.find((lead) => matchesLeadRecord(lead, initialLeadId)) || leads[0], [initialLeadId, leads])
   const buildDefaultForm = () => {
+    const baseLead = editingEvent
+      ? leads.find((lead) => matchesLeadRecord(lead, editingEvent.leadId || editingEvent.projectId))
+      : defaultLead
+    const clientName = getLeadDisplayName(baseLead, t)
+    const projectTitle = getLeadProjectTitle(baseLead, t)
+    const generatedTitle = buildEventTitle({
+      eventType: editingEvent?.type || 'Site Visit',
+      client: clientName,
+      project: projectTitle,
+      t,
+    })
+    const generatedLocation = editingEvent?.location || getLeadLocation(baseLead)
+
     if (editingEvent) {
       return {
-        title: editingEvent.title || '',
+        title: editingEvent.title || generatedTitle,
         type: editingEvent.type || 'Site Visit',
-        leadId: editingEvent.leadId || defaultLead?.id || '',
+        leadId: editingEvent.leadId || baseLead?.id || defaultLead?.id || '',
         date: editingEvent.date || todayIso(),
         startTime: editingEvent.startTime || '09:00',
         endTime: editingEvent.endTime || '10:00',
-        location: editingEvent.location || defaultLead?.address || defaultLead?.location || '',
+        location: generatedLocation || '',
         notes: editingEvent.notes || '',
         reminder: editingEvent.reminder || 'none',
       }
     }
 
     return {
-      title: defaultLead ? `${defaultLead.projectTitle || defaultLead.projectType} ${t('siteVisit').toLowerCase()}` : '',
+      title: generatedTitle,
       type: 'Site Visit',
-      leadId: defaultLead?.id || '',
+      leadId: baseLead?.id || defaultLead?.id || '',
       date: todayIso(),
       startTime: '09:00',
       endTime: '10:00',
-      location: defaultLead?.address || defaultLead?.location || '',
+      location: generatedLocation || '',
       notes: '',
       reminder: 'none',
     }
@@ -81,12 +121,34 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
   const [form, setForm] = useState(buildDefaultForm)
 
   useEffect(() => {
-    if (isOpen) setForm(buildDefaultForm())
-  }, [editingEvent, initialLeadId, isOpen, leads.length])
+    if (!isOpen) return
 
-  if (!isOpen) return null
+    const nextForm = buildDefaultForm()
+    const matchedLead = leads.find((lead) => matchesLeadRecord(lead, nextForm.leadId))
+    const generatedTitle = buildEventTitle({
+      eventType: nextForm.type,
+      client: matchedLead ? getLeadDisplayName(matchedLead, t) : '',
+      project: matchedLead ? getLeadProjectTitle(matchedLead, t) : '',
+      t,
+    })
+    const generatedLocation = getLeadLocation(matchedLead) || nextForm.location || ''
+
+    setForm(nextForm)
+    setAutoState({
+      generatedTitle,
+      titleManuallyEdited: Boolean(editingEvent?.title && editingEvent.title !== generatedTitle),
+      generatedLocation,
+      locationManuallyEdited: Boolean(editingEvent?.location && editingEvent.location !== generatedLocation),
+    })
+  }, [editingEvent, initialLeadId, isOpen, leads, t])
 
   const selectedLead = leads.find((lead) => matchesLeadRecord(lead, form.leadId))
+  const filteredLeads = (() => {
+    if (!selectedLead?.client) return leads
+    return leads.filter((lead) => getLeadDisplayName(lead, t) === getLeadDisplayName(selectedLead, t))
+  })()
+
+  if (!isOpen) return null
 
   function updateField(field, value) {
     if (field === 'startTime') {
@@ -113,14 +175,77 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
       return
     }
 
+    if (field === 'title') {
+      setForm((current) => ({
+        ...current,
+        title: value,
+      }))
+      setAutoState((current) => ({
+        ...current,
+        titleManuallyEdited: value !== current.generatedTitle,
+      }))
+      return
+    }
+
+    if (field === 'location') {
+      setForm((current) => ({
+        ...current,
+        location: value,
+      }))
+      setAutoState((current) => ({
+        ...current,
+        locationManuallyEdited: value !== current.generatedLocation,
+      }))
+      return
+    }
+
+    if (field === 'leadId') {
+      const nextLead = leads.find((lead) => matchesLeadRecord(lead, value))
+      const generatedTitle = buildEventTitle({
+        eventType: form.type,
+        client: nextLead ? getLeadDisplayName(nextLead, t) : '',
+        project: nextLead ? getLeadProjectTitle(nextLead, t) : '',
+        t,
+      })
+      const generatedLocation = getLeadLocation(nextLead)
+
+      setForm((current) => ({
+        ...current,
+        leadId: value,
+        title: !current.title || !autoState.titleManuallyEdited || current.title === autoState.generatedTitle ? generatedTitle : current.title,
+        location: !current.location || !autoState.locationManuallyEdited || current.location === autoState.generatedLocation ? (generatedLocation || current.location) : current.location,
+      }))
+      setAutoState((current) => ({
+        ...current,
+        generatedTitle,
+        generatedLocation,
+      }))
+      return
+    }
+
+    if (field === 'type') {
+      const generatedTitle = buildEventTitle({
+        eventType: value,
+        client: selectedLead ? getLeadDisplayName(selectedLead, t) : '',
+        project: selectedLead ? getLeadProjectTitle(selectedLead, t) : '',
+        t,
+      })
+
+      setForm((current) => ({
+        ...current,
+        type: value,
+        title: !current.title || !autoState.titleManuallyEdited || current.title === autoState.generatedTitle ? generatedTitle : current.title,
+      }))
+      setAutoState((current) => ({
+        ...current,
+        generatedTitle,
+      }))
+      return
+    }
+
     setForm((current) => ({
       ...current,
       [field]: value,
-      ...(field === 'leadId'
-        ? {
-            location: leads.find((lead) => matchesLeadRecord(lead, value))?.address || leads.find((lead) => matchesLeadRecord(lead, value))?.location || current.location,
-          }
-        : {}),
     }))
   }
 
@@ -166,11 +291,6 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="md:col-span-2">
-            <span className="mb-1 block text-sm font-bold text-slate-700">{t('eventTitle')}</span>
-            <input value={form.title} onChange={(event) => updateField('title', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" placeholder={t('eventTitlePlaceholder')} />
-          </label>
-
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('eventType')}</span>
             <SelectField value={form.type} onChange={(event) => updateField('type', event.target.value)} className="bg-white">
@@ -188,8 +308,13 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('projectJob')}</span>
             <SelectField value={form.leadId} onChange={(event) => updateField('leadId', event.target.value)} className="bg-white">
-              {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.projectTitle || lead.projectType}</option>)}
+              {filteredLeads.map((lead) => <option key={lead.id} value={lead.id}>{lead.projectTitle || lead.projectType}</option>)}
             </SelectField>
+          </label>
+
+          <label className="md:col-span-2">
+            <span className="mb-1 block text-sm font-bold text-slate-700">{t('eventTitle')}</span>
+            <input value={form.title} onChange={(event) => updateField('title', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" placeholder={t('eventTitlePlaceholder')} />
           </label>
 
           <label>

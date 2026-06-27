@@ -66,7 +66,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     return () => {
       mounted = false
     }
-  }, [contractorAccess?.membershipStatus, contractorId, setLanguage, setPortalLanguage, t])
+  }, [contractorAccess?.membershipStatus, contractorId, setLanguage, setPortalLanguage])
 
   function updateSection(section, field, value) {
     setDraft((current) => ({
@@ -277,10 +277,16 @@ function SettingsInput({ label, value, onChange, type = 'text' }) {
 }
 
 function LanguageSelect({ label, value, onChange, t }) {
+  const normalizedValue = value === 'es' ? 'es' : 'en'
+
   return (
     <label className="block text-sm font-bold text-slate-700">
       {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
+      <select
+        value={normalizedValue}
+        onChange={(event) => onChange(event.target.value === 'es' ? 'es' : 'en')}
+        className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+      >
         <option value="en">🇺🇸 {t('english')}</option>
         <option value="es">🇪🇸 {t('spanish')}</option>
       </select>

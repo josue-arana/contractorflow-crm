@@ -1,6 +1,19 @@
+import { Inbox } from 'lucide-react'
 import { SelectField } from '../ui/SelectField'
 import { currency } from '../../utils/formatters'
 import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageLabelKey, getLeadStageLabel, getPriorityLabel } from '../../utils/leadPipeline'
+
+const stageAccentClasses = {
+  NEW_LEAD: 'border-t-blue-500',
+  ESTIMATE_CREATED: 'border-t-emerald-500',
+  ESTIMATE_SENT: 'border-t-violet-500',
+  FOLLOW_UP: 'border-t-fuchsia-500',
+  ESTIMATE_APPROVED: 'border-t-cyan-500',
+  READY_FOR_JOB: 'border-t-amber-500',
+  CONVERTED_TO_JOB: 'border-t-orange-500',
+  LOST: 'border-t-rose-500',
+  ARCHIVED: 'border-t-slate-400',
+}
 
 export function PipelineBoard({
   leads,
@@ -16,7 +29,7 @@ export function PipelineBoard({
   const selectedStageLeads = leads.filter((lead) => getLeadPipelineStage(lead) === selectedMobileStage)
 
   return (
-    <section>
+    <section className="rounded-[2rem] border border-slate-200/90 bg-white p-5 shadow-[0_12px_34px_rgba(15,23,42,0.06)] lg:p-6">
       <div className="mb-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-xl font-bold text-slate-950">{t('leadPipeline')}</h2>
@@ -38,7 +51,7 @@ export function PipelineBoard({
         />
       </div>
 
-      <div className="hidden gap-4 overflow-x-auto pb-4 lg:flex">
+      <div className="hidden gap-4 overflow-x-auto pb-2 lg:flex">
         {statuses.map((status) => (
           <PipelineColumn
             key={status}
@@ -114,7 +127,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
 
   return (
     <div
-      className="min-h-[420px] min-w-[280px] rounded-3xl border border-slate-200 bg-slate-100/80 p-4"
+      className={`min-h-[440px] min-w-[290px] rounded-[1.75rem] border border-slate-200 bg-slate-50/90 p-4 shadow-sm border-t-4 ${stageAccentClasses[status] || 'border-t-slate-300'}`}
       onDragOver={(event) => event.preventDefault()}
       onDrop={() => {
         if (draggedLeadId) moveLead(draggedLeadId, status)
@@ -134,7 +147,8 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
           <LeadCard key={lead.id} lead={lead} onDragStart={() => setDraggedLeadId(lead.id)} onClick={() => onLeadClick(lead.id)} t={t} />
         ))}
         {leads.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white/60 p-6 text-center text-sm text-slate-400">
+          <div className="rounded-[1.35rem] border border-dashed border-slate-300 bg-white/70 p-6 text-center text-sm text-slate-400">
+            <Inbox className="mx-auto mb-3 h-5 w-5 text-slate-300" />
             {t('dropLeadHere')}
           </div>
         )}
@@ -158,7 +172,7 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
       draggable={!mobile}
       onDragStart={onDragStart}
       onClick={onClick}
-      className={`${mobile ? '' : 'cursor-grab active:cursor-grabbing'} rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}
+      className={`${mobile ? '' : 'cursor-grab active:cursor-grabbing'} rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>

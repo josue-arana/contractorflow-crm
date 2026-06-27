@@ -94,6 +94,42 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
     }))
   }, [clientMode, isOpen, selectedClientId, sortedClients])
 
+  function clearClientFields() {
+    setForm((current) => ({
+      ...current,
+      client: '',
+      address: '',
+      location: '',
+    }))
+  }
+
+  function handleClientModeChange(nextMode) {
+    if (nextMode === clientMode) return
+
+    setClientMode(nextMode)
+    setSelectedClientId('')
+
+    if (nextMode === 'new') {
+      clearClientFields()
+      return
+    }
+
+    setForm((current) => ({
+      ...current,
+      client: '',
+      address: '',
+      location: '',
+    }))
+  }
+
+  function handleSelectedClientChange(nextClientId) {
+    setSelectedClientId(nextClientId)
+
+    if (!nextClientId) {
+      clearClientFields()
+    }
+  }
+
   if (!isOpen) return null
 
   function updateField(field, value) {
@@ -148,12 +184,13 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
           <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <label className="mb-2 block text-sm font-bold text-slate-700">{t('client')}</label>
             <div className="grid gap-3 sm:grid-cols-[180px_1fr]">
-              <SelectField value={clientMode} onChange={(event) => setClientMode(event.target.value)} className="bg-white">
+              <SelectField value={clientMode} onChange={(event) => handleClientModeChange(event.target.value)} className="bg-white">
                 <option value="existing">{t('existingClient')}</option>
                 <option value="new">{t('newClient')}</option>
               </SelectField>
               {clientMode === 'existing' && (
-                <SelectField value={selectedClientId} onChange={(event) => setSelectedClientId(event.target.value)} className="bg-white">
+                <SelectField value={selectedClientId} onChange={(event) => handleSelectedClientChange(event.target.value)} className="bg-white">
+                  <option value="">{t('selectClient')}</option>
                   {sortedClients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
                 </SelectField>
               )}
