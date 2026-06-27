@@ -52,7 +52,7 @@ function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId
     return true
   }
 
-  if (!event.projectId) {
+  if (!event.projectId && !event.leadId && !projectId && !relatedLeadId) {
     if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
       return true
     }
@@ -687,8 +687,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     async function loadPayments() {
       const fallbackPayments = localPaymentRecords
       const clientId = baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null
+      const paymentLeadId = relatedLeadId || baseProject?.leadId || baseProject?.lead_id || lead?.id || null
 
-      if (!linkedProjectId && !clientId) {
+      if (!linkedProjectId && !paymentLeadId && !clientId) {
         setPaymentRecords(fallbackPayments)
         return
       }
@@ -702,7 +703,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.payments.list({
           contractorId,
           includeArchived: true,
-          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : paymentLeadId ? { leadId: paymentLeadId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -734,7 +735,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     return () => {
       isCancelled = true
     }
-  }, [baseProject?.clientId, baseProject?.client_id, contractorId, lead?.clientId, lead?.client_id, linkedProjectId, localPaymentRecords])
+  }, [baseProject?.clientId, baseProject?.client_id, baseProject?.leadId, baseProject?.lead_id, contractorId, lead?.clientId, lead?.client_id, lead?.id, linkedProjectId, localPaymentRecords, relatedLeadId])
 
   useEffect(() => {
     let isCancelled = false
@@ -758,7 +759,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         const response = await dataProvider.events.list({
           contractorId,
           includeArchived: true,
-          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : relatedLeadId ? { leadId: relatedLeadId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return

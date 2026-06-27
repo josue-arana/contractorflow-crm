@@ -12,7 +12,7 @@ import { USE_SUPABASE_LEADS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
-import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal } from '../utils/estimateLinks'
+import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft } from '../utils/estimateLinks'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { getLeadNextStepKey, getLeadPipelineStage, getLeadPrimaryAction, leadPipelineStages } from '../utils/leadPipeline'
@@ -42,10 +42,8 @@ function createSafeLead(lead, fallbackId = '') {
 
   const clientName = lead.client || lead.clientName || lead.customerName || lead.name || ''
   const projectType = lead.projectType || lead.projectTitle || lead.title || ''
-  const linkedEstimate = hasEstimateData(lead?.portal?.estimate)
-    ? lead.portal.estimate
-    : readLinkedEstimateDraft(lead, fallbackId)
-  const estimateDrivenValue = resolveEstimateTotal(lead, linkedEstimate)
+  const linkedEstimate = getEstimateForLead(lead, [lead?.portal?.estimate, readLinkedEstimateDraft(lead, fallbackId)])
+  const estimateDrivenValue = getEstimatedValueForLead(lead, [linkedEstimate])
 
   return {
     ...lead,
@@ -125,7 +123,13 @@ export function LeadDetailPage({
       ...(baseLead.portal?.estimate || {}),
       ...estimateRecord,
     }
-    const estimateValue = resolveEstimateTotal(baseLead, nextEstimate)
+    const estimateValue = getEstimatedValueForLead({
+      ...baseLead,
+      portal: {
+        ...(baseLead.portal || {}),
+        estimate: nextEstimate,
+      },
+    }, [nextEstimate])
 
     return {
       ...baseLead,

@@ -20,6 +20,7 @@ import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/es
 import { downloadEstimatePdf } from '../utils/estimatePdf'
 import { printDocumentElement } from '../utils/printDocument'
 import { createTranslator } from '../translations'
+import { findLeadByProjectLookup } from '../utils/projectIdentity'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -487,7 +488,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = id || leadId
-  const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
+  const lead = findLeadByProjectLookup(leads, projectId)
   const estimateSource = location.state?.source
   const sourceLeadId = location.state?.leadId
   const sourceProjectId = location.state?.projectId || projectId

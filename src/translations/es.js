@@ -551,6 +551,7 @@ export const es = {
   "contactInformation": 'Información de contacto',
   "clientSummary": 'Resumen del cliente',
   "quickActions": 'Acciones rápidas',
+  "clientProjectQuickActionsHelp": "Usa los botones de cada tarjeta de trabajo para abrir ese trabajo, estimado, contrato o flujo de pago exacto.",
   "callClient": 'Llamar al cliente',
   "textClient": 'Enviar texto',
   "createNewProject": 'Crear nuevo trabajo',

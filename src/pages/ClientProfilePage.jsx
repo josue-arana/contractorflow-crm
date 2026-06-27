@@ -7,10 +7,14 @@ import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
 import { archivePanelButtonClasses } from '../utils/buttonStyles'
+import { getContractDisplayNumber } from '../utils/contractNumber'
 import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { hasEstimateData } from '../utils/estimateLinks'
+import { hasContractData } from '../utils/contractLinks'
+import { dedupeById, getContractForProject, getEstimateForProject, getProjectsForClient } from '../utils/projectIdentity'
 
 function isClientArchived(client, archivedClientIds = []) {
   return Boolean(
@@ -21,7 +25,7 @@ function isClientArchived(client, archivedClientIds = []) {
   )
 }
 
-export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onCreateJob, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
+export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onOpenEstimate, onOpenContract, onCreateJob, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
@@ -39,7 +43,10 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   }
 
   const isArchived = isClientArchived(client, archivedClientIds)
-  const primaryProject = client.projects[0] || null
+  const clientProjects = useMemo(
+    () => getProjectsForClient(client, client.projects),
+    [client]
+  )
 
   async function runConfirmAction() {
     if (!confirmAction) return
@@ -59,9 +66,25 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
     setConfirmAction(null)
   }
 
-  const estimates = client.projects.map((project) => project.portal?.estimate).filter(Boolean)
-  const contracts = client.projects.map((project) => project.portal?.contract).filter(Boolean)
-  const payments = client.projects.flatMap((project) => [
+  const estimates = useMemo(
+    () => dedupeById(
+      clientProjects
+        .map((project) => getEstimateForProject(project, [project.portal?.estimate]))
+        .filter((estimate) => hasEstimateData(estimate)),
+      ['projectId', 'project_id', 'number', 'estimateNumber']
+    ),
+    [clientProjects]
+  )
+  const contracts = useMemo(
+    () => dedupeById(
+      clientProjects
+        .map((project) => getContractForProject(project, [project.portal?.contract], getEstimateForProject(project, [project.portal?.estimate])))
+        .filter((contract) => hasContractData(contract)),
+      ['projectId', 'project_id', 'estimateId', 'estimate_id', 'number', 'contractNumber']
+    ),
+    [clientProjects]
+  )
+  const payments = clientProjects.flatMap((project) => [
     { type: t('depositPaid'), project: project.projectTitle || project.projectType, amount: project.portal?.depositRequired || 0, status: project.portal?.paymentStatus || project.projectStatus },
     ...(project.portal?.amountPaid > (project.portal?.depositRequired || 0) ? [{ type: t('progressPayment'), project: project.projectTitle || project.projectType, amount: project.portal.amountPaid - (project.portal.depositRequired || 0), status: project.portal.paymentStatus }] : []),
   ]).filter((payment) => payment.amount > 0)
@@ -119,39 +142,79 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         </InfoCard>
 
         <InfoCard title={t('quickActions')} icon={WalletCards}>
-          <div className="grid gap-2">
-            <button
-              onClick={() => primaryProject && onOpenProject(primaryProject.id)}
-              disabled={!primaryProject}
-              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
-            >
-              {t('viewProjects')}
-            </button>
-            <button
-              onClick={() => primaryProject && onRecordPayment(primaryProject.id)}
-              disabled={!primaryProject}
-              className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-500"
-            >
-              {t('recordPayment')}
-            </button>
-          </div>
+          <p className="text-sm leading-6 text-slate-500">{t('clientProjectQuickActionsHelp')}</p>
         </InfoCard>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
         <InfoCard title={t('projectHistory')} icon={BriefcaseBusiness}>
           <div className="space-y-3">
-            {client.projects.length > 0 ? client.projects.map((project) => (
-              <button key={project.id} onClick={() => onOpenProject(project.id)} className="w-full rounded-2xl border border-slate-200 p-4 text-left transition hover:bg-blue-50/40">
+            {clientProjects.length > 0 ? clientProjects.map((project) => (
+              <article key={project.id} className="rounded-2xl border border-slate-200 p-4 text-left">
                 <div className="flex items-start justify-between gap-3">
-                  <div><p className="font-bold text-slate-950">{project.projectTitle || project.projectType}</p><p className="mt-1 text-sm text-slate-500">{project.location}</p></div>
+                  <div>
+                    <p className="font-bold text-slate-950">{project.projectTitle || project.projectType}</p>
+                    <p className="mt-1 text-sm text-slate-500">{project.location}</p>
+                  </div>
                   <StatusBadge status={project.latestStatus} t={t} />
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                  <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p><p className="font-bold text-slate-950">{currency.format(project.projectValue)}</p></div>
-                  <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('remaining')}</p><p className="font-bold text-slate-950">{currency.format(project.outstandingBalance)}</p></div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p>
+                    <p className="font-bold text-slate-950">{currency.format(project.projectValue)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('remaining')}</p>
+                    <p className="font-bold text-slate-950">{currency.format(project.outstandingBalance)}</p>
+                  </div>
                 </div>
-              </button>
+                <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('estimate')}</p>
+                    <p className="mt-1 font-bold text-slate-950">
+                      {hasEstimateData(project.portal?.estimate) ? getEstimateDisplayNumber(project.portal.estimate, project) : t('noEstimates')}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('contract')}</p>
+                    <p className="mt-1 font-bold text-slate-950">
+                      {hasContractData(project.portal?.contract) ? project.portal.contract.number || project.portal.contract.contractNumber : t('noContracts')}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('paymentsRecorded')}</p>
+                    <p className="mt-1 font-bold text-slate-950">
+                      {Array.isArray(project.portal?.payments) ? project.portal.payments.length : Array.isArray(project.payments) ? project.payments.length : 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('calendar')}</p>
+                    <p className="mt-1 font-bold text-slate-950">
+                      {Array.isArray(project.scheduleEvents) ? project.scheduleEvents.length : Array.isArray(project.events) ? project.events.length : 0}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button onClick={() => onOpenProject(project.id)} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800">
+                    {t('view')}
+                  </button>
+                  {hasEstimateData(project.portal?.estimate) && (
+                    <button onClick={() => onOpenEstimate?.(project.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                      {t('openEstimate')}
+                    </button>
+                  )}
+                  {hasContractData(project.portal?.contract) && (
+                    <button onClick={() => onOpenContract?.(project.id)} className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50">
+                      {t('openContract')}
+                    </button>
+                  )}
+                  <button onClick={() => onRecordPayment?.(project.id)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100">
+                    {t('recordPayment')}
+                  </button>
+                </div>
+              </article>
             )) : <p className="text-sm text-slate-500">{t('noJobs')}</p>}
           </div>
         </InfoCard>
@@ -172,7 +235,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
 
         <InfoCard title={t('contracts')} icon={FileSignature}>
           <div className="space-y-3">
-            {contracts.length ? contracts.map((contract) => <div key={contract.number} className="rounded-2xl bg-slate-50 p-4"><p className="font-bold text-slate-950">{contract.number}</p><p className="mt-1 text-sm text-slate-500">{t('signedDate')}: {contract.signedDate}</p><StatusBadge status={contract.status} t={t} /></div>) : <p className="text-sm text-slate-500">{t('noContracts')}</p>}
+            {contracts.length ? contracts.map((contract, index) => <div key={contract.id || contract.number || contract.contractNumber || `contract-${index}`} className="rounded-2xl bg-slate-50 p-4"><p className="font-bold text-slate-950">{getContractDisplayNumber(contract, contract)}</p><p className="mt-1 text-sm text-slate-500">{t('signedDate')}: {contract.signedDate}</p><StatusBadge status={contract.status} t={t} /></div>) : <p className="text-sm text-slate-500">{t('noContracts')}</p>}
           </div>
         </InfoCard>
 

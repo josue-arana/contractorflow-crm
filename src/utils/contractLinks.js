@@ -31,8 +31,6 @@ export function buildContractLookupIds(record = {}, extraIds = []) {
     record?.project_id,
     record?.leadId,
     record?.lead_id,
-    record?.clientId,
-    record?.client_id,
     record?.id,
     ...(Array.isArray(extraIds) ? extraIds : [extraIds]),
   ]

@@ -123,7 +123,7 @@ function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId
     return true
   }
 
-  if (!event.projectId) {
+  if (!event.projectId && !event.leadId && !projectId && !relatedLeadId) {
     if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
       return true
     }
@@ -405,9 +405,10 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     async function loadPayments() {
       const fallbackPayments = readProjectPaymentFallbacks(project)
       const linkedProjectId = resolveLinkedProjectId(project)
+      const linkedLeadId = project?.leadId || project?.lead_id || ''
       const clientId = project?.clientId || project?.client_id || ''
 
-      if (!linkedProjectId && !clientId) {
+      if (!linkedProjectId && !linkedLeadId && !clientId) {
         setPaymentRecords(fallbackPayments)
         return
       }
@@ -424,7 +425,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
         const response = await dataProvider.payments.list({
           contractorId: projectsContractorId,
           includeArchived: true,
-          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : linkedLeadId ? { leadId: linkedLeadId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return
@@ -481,7 +482,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
         const response = await dataProvider.events.list({
           contractorId: projectsContractorId,
           includeArchived: true,
-          ...(linkedProjectId ? { projectId: linkedProjectId } : clientId ? { clientId } : {}),
+          ...(linkedProjectId ? { projectId: linkedProjectId } : relatedLeadId ? { leadId: relatedLeadId } : clientId ? { clientId } : {}),
         })
 
         if (isCancelled) return

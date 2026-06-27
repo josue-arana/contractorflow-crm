@@ -16,6 +16,7 @@ import { readLinkedContractDraft } from '../utils/contractLinks'
 import { downloadContractPdf } from '../utils/contractPdf'
 import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
 import { printDocumentElement } from '../utils/printDocument'
+import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 
 function formatContractDate(value) {
   if (!value) {
@@ -431,7 +432,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = location.state?.projectId || id || leadId
-  const lead = leads.find((item) => item.id === projectId || item.projectId === projectId || item.project_id === projectId)
+  const lead = findLeadByProjectLookup(leads, projectId)
   const [loadedContract, setLoadedContract] = useState(null)
 
   useEffect(() => {
@@ -523,16 +524,14 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
 export function ContractsPage({ leads, contracts = [], onViewContract, t }) {
   const usesSupabaseContracts = USE_SUPABASE || USE_SUPABASE_CONTRACTS
   const contractRows = usesSupabaseContracts && contracts.length > 0
-    ? contracts.map((contract) => {
-      const linkedLead = leads.find((lead) => (
-        (contract?.leadId && contract.leadId === lead.id)
-        || (contract?.projectId && (contract.projectId === lead.id || contract.projectId === lead.projectId || contract.projectId === lead.project_id))
-        || (contract?.estimateId && contract.estimateId === lead.estimateId)
-      )) || null
+    ? dedupeById(contracts, ['projectId', 'project_id', 'estimateId', 'estimate_id', 'number', 'contractNumber']).map((contract) => {
+      const linkedLead = findLeadByProjectLookup(leads, contract?.projectId, contract?.project_id, contract?.leadId, contract?.lead_id)
+        || leads.find((lead) => contract?.estimateId && contract.estimateId === lead.estimateId)
+        || null
 
       return {
         id: contract.id,
-        routeId: linkedLead?.projectId || linkedLead?.project_id || linkedLead?.id || contract.projectId || contract.leadId || contract.id,
+        routeId: resolveLinkedProjectId(linkedLead, contract.projectId || contract.project_id || contract.leadId || contract.lead_id || contract.id),
         client: linkedLead?.client || contract.client || t('customer'),
         projectTitle: linkedLead?.projectTitle || linkedLead?.projectType || contract.projectTitle || contract.title || t('contract'),
         status: contract.status || t('draft'),

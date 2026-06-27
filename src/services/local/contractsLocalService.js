@@ -4,11 +4,12 @@
 
 import { clearContractDraft } from './contractDraftStorage'
 import { hasContractData, listStoredContractDrafts, writeLinkedContractDrafts } from '../../utils/contractLinks'
+import { createLocalRecordId } from '../../utils/projectIdentity'
 
 function normalizeContract(contract = {}) {
   return {
     ...contract,
-    id: contract.id || `contract-${Date.now()}`,
+    id: contract.id || createLocalRecordId('contract'),
     number: contract.number || contract.contractNumber || '',
     contractNumber: contract.contractNumber || contract.number || '',
     status: contract.status || 'Draft',
@@ -98,7 +99,6 @@ export async function deletePermanently(id) {
       existing.estimateId,
       existing.projectId,
       existing.leadId,
-      existing.clientId,
     ].filter(Boolean)
 
     lookupIds.forEach((lookupId) => clearContractDraft(lookupId))

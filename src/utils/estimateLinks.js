@@ -61,6 +61,55 @@ export function writeLinkedEstimateDrafts(record = {}, estimate, extraIds = []) 
   })
 }
 
+function matchesEstimateToLead(lead = {}, estimate = null) {
+  if (!hasEstimateData(estimate)) return false
+
+  const leadProjectId = normalizeLookupId(lead?.projectId || lead?.project_id)
+  const leadRecordId = normalizeLookupId(lead?.id || lead?.leadId || lead?.lead_id)
+  const leadEstimateId = normalizeLookupId(lead?.estimateId || lead?.estimate_id)
+  const estimateProjectId = normalizeLookupId(estimate?.projectId || estimate?.project_id)
+  const estimateLeadId = normalizeLookupId(estimate?.leadId || estimate?.lead_id)
+  const estimateId = normalizeLookupId(estimate?.id)
+
+  if (leadProjectId) {
+    return estimateProjectId === leadProjectId
+  }
+
+  if (leadRecordId && estimateLeadId) {
+    return estimateLeadId === leadRecordId
+  }
+
+  return Boolean(leadEstimateId && estimateId && leadEstimateId === estimateId)
+}
+
+export function getEstimateForLead(lead = {}, estimates = []) {
+  const leadProjectId = normalizeLookupId(lead?.projectId || lead?.project_id)
+  const leadRecordId = normalizeLookupId(lead?.id || lead?.leadId || lead?.lead_id)
+  const candidateEstimates = [
+    ...(Array.isArray(estimates) ? estimates : []),
+    lead?.portal?.estimate,
+    readLinkedEstimateDraft(lead, [leadProjectId, leadRecordId]),
+  ]
+
+  for (const estimate of candidateEstimates) {
+    if (matchesEstimateToLead(lead, estimate)) {
+      return estimate
+    }
+  }
+
+  return null
+}
+
+export function getEstimatedValueForLead(lead = {}, estimates = []) {
+  const linkedEstimate = getEstimateForLead(lead, estimates)
+
+  if (!hasEstimateData(linkedEstimate)) {
+    return null
+  }
+
+  return resolveEstimateTotal({}, linkedEstimate, null)
+}
+
 export function resolveEstimateTotal(record = {}, estimate = null, fallback = 0) {
   const estimateCandidates = [
     estimate?.total,
