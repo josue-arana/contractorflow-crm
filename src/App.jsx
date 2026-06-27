@@ -59,7 +59,7 @@ import { generateContractNumber } from './utils/contractNumber'
 import { generateEstimateNumber } from './utils/estimateNumber'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
-import { findPortalProject, resolvePortalRouteId } from './utils/portal'
+import { resolvePortalRouteId } from './utils/portal'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -96,6 +96,32 @@ function sortScheduleEventRecords(events = []) {
     const rightStamp = `${right?.date || ''}T${right?.startTime || '00:00'}`
     return leftStamp.localeCompare(rightStamp)
   })
+}
+
+function buildDateKey(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function toDateKey(value) {
+  if (!value) return ''
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return value.trim()
+  }
+
+  return buildDateKey(value)
+}
+
+function resolvePaymentProjectId(record = {}) {
+  return record?.projectId || record?.project_id || null
 }
 
 function mergeCreatedJobDraft(jobDraft, persistedJob = {}, clientRecord = null) {
@@ -701,6 +727,153 @@ function ContractorFlowApp() {
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => sortScheduleEventRecords(scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id))), [scheduleEvents, archives.deletedScheduleEventIds])
   const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id) && !event.archivedAt), [visibleScheduleEvents, archives.scheduleEventIds])
+  const mobileTodaySummary = useMemo(() => {
+    const todayKey = buildDateKey(new Date())
+    const findLeadByAnyId = (...ids) => {
+      const normalizedIds = ids.map((id) => String(id || '').trim()).filter(Boolean)
+      if (normalizedIds.length === 0) return null
+
+      return visibleLeads.find((lead) => normalizedIds.includes(String(lead.id || '').trim())
+        || normalizedIds.includes(String(lead.projectId || '').trim())
+        || normalizedIds.includes(String(lead.project_id || '').trim()))
+    }
+    const resolveProjectRouteId = (record = {}) => {
+      const matchedLead = findLeadByAnyId(record.projectId, record.project_id, record.leadId, record.lead_id, record.id)
+      return matchedLead?.projectId
+        || matchedLead?.project_id
+        || record.projectId
+        || record.project_id
+        || matchedLead?.id
+        || record.leadId
+        || record.lead_id
+        || ''
+    }
+
+    const todayEvent = activeScheduleEvents.find((event) => {
+      const eventDate = toDateKey(event?.date || event?.eventDate || event?.event_date || event?.startsAt || event?.starts_at)
+      return eventDate === todayKey
+    })
+
+    if (todayEvent) {
+      const projectRouteId = resolveProjectRouteId(todayEvent)
+      const eventTime = todayEvent.time || todayEvent.startTime || todayEvent.start_time || ''
+      const eventLabel = todayEvent.type || todayEvent.eventType || todayEvent.event_type || todayEvent.title || t('todayScheduledJob')
+      const clientName = todayEvent.clientName
+        || findLeadByAnyId(todayEvent.leadId, todayEvent.projectId)?.client
+        || ''
+      const projectTitle = todayEvent.projectTitle || ''
+      const eventTitle = todayEvent.title || ''
+      const supportingLine = clientName || projectTitle || eventTitle || t('todayScheduledJob')
+      const eventHeadline = [eventTime, eventLabel]
+        .filter(Boolean)
+        .join(' ')
+
+      return {
+        title: t('today'),
+        headline: eventHeadline || t('todayScheduledJob'),
+        supporting: supportingLine,
+        to: projectRouteId ? `/projects/${projectRouteId}` : appRoutes.calendar,
+      }
+    }
+
+    const estimateLead = visibleLeads.find((lead) => getLeadPipelineStage(lead) === leadPipelineStages.ESTIMATE_CREATED)
+
+    if (estimateLead) {
+      return {
+        title: t('today'),
+        headline: t('todayEstimateReady'),
+        supporting: t('todaySendEstimateForProject', { project: estimateLead.projectTitle || estimateLead.projectType || estimateLead.client || t('estimate') }),
+        to: `/projects/${estimateLead.id}/estimate`,
+      }
+    }
+
+    const contractLead = visibleLeads.find((lead) => {
+      const contract = hasContractData(lead?.portal?.contract) ? lead.portal.contract : readLinkedContractDraft(lead)
+      if (!hasContractData(contract)) return false
+
+      const contractStatus = String(contract?.status || '').trim().toLowerCase()
+      const signed = Boolean(
+        contract?.signedAt
+        || contract?.signed_at
+        || contract?.signedDate
+        || contract?.isSigned
+        || contractStatus === 'signed'
+      )
+
+      return !signed && ['sent', 'draft', 'pending', 'pending_signature', 'viewed'].includes(contractStatus || 'draft')
+    })
+
+    if (contractLead) {
+      return {
+        title: t('today'),
+        headline: t('todayContractAwaitingSignature'),
+        supporting: contractLead.projectTitle || contractLead.projectType || contractLead.client || t('contracts'),
+        to: `/projects/${contractLead.id}/contract`,
+      }
+    }
+
+    const overdueInvoice = invoices.find((invoice) => {
+      const remainingBalance = Math.max(Number(invoice?.amount || 0) - Number(invoice?.amountPaid || 0), 0)
+      if (remainingBalance <= 0) return false
+
+      const invoiceStatus = String(invoice?.status || '').trim().toLowerCase()
+      if (invoiceStatus === 'overdue') return true
+
+      const dueDate = new Date(invoice?.dueDate || '')
+      return !Number.isNaN(dueDate.getTime()) && buildDateKey(dueDate) < todayKey
+    })
+
+    if (overdueInvoice) {
+      const remainingBalance = Math.max(Number(overdueInvoice?.amount || 0) - Number(overdueInvoice?.amountPaid || 0), 0)
+      const customerName = overdueInvoice.client || findLeadByAnyId(overdueInvoice.leadId, overdueInvoice.projectId)?.client || t('client')
+
+      return {
+        title: t('today'),
+        headline: t('todayOverdueInvoice'),
+        supporting: t('todayCustomerAmountLine', { name: customerName, amount: currency.format(remainingBalance), suffix: t('todayDueSuffix') }),
+        to: `/invoices/${overdueInvoice.id}`,
+      }
+    }
+
+    const outstandingProject = visibleLeads
+      .map((lead) => {
+        const outstandingBalance = Math.max(
+          Number(
+            lead?.portal?.outstandingBalance
+            ?? lead?.remainingBalance
+            ?? lead?.remaining
+            ?? ((lead?.portal?.contractAmount || lead?.contractValue || lead?.value || 0) - (lead?.portal?.amountPaid || 0))
+          ) || 0,
+          0,
+        )
+
+        return {
+          lead,
+          outstandingBalance,
+        }
+      })
+      .find((record) => record.outstandingBalance > 0)
+
+    if (outstandingProject) {
+      return {
+        title: t('today'),
+        headline: t('todayOutstandingBalance'),
+        supporting: t('todayCustomerAmountLine', {
+          name: outstandingProject.lead.client || t('client'),
+          amount: currency.format(outstandingProject.outstandingBalance),
+          suffix: t('todayRemainingSuffix'),
+        }),
+        to: `/projects/${outstandingProject.lead.id}`,
+      }
+    }
+
+    return {
+      title: t('today'),
+      headline: t('todayCaughtUp'),
+      supporting: t('todayNothingRequiresAttention'),
+      to: appRoutes.dashboard,
+    }
+  }, [activeScheduleEvents, invoices, t, visibleLeads])
 
   const metrics = useMemo(() => {
     const pipelineCounts = getLeadPipelineStageCounts(activeLeads)
@@ -710,10 +883,10 @@ function ContractorFlowApp() {
     const pipelineValue = activeLeads.reduce((sum, lead) => sum + lead.value, 0)
 
     return [
-      { label: t('metricNewLeads'), value: newLeads, helper: t('metricNewLeadsHelper'), icon: Users },
-      { label: t('metricActiveEstimates'), value: estimates, helper: t('metricActiveEstimatesHelper'), icon: ClipboardList },
-      { label: t('metricJobsInProgress'), value: activeJobs, helper: t('metricJobsInProgressHelper'), icon: BriefcaseBusiness },
-      { label: t('metricRevenuePipeline'), value: currency.format(pipelineValue), helper: t('metricRevenuePipelineHelper'), icon: DollarSign },
+      { label: t('metricNewLeads'), value: newLeads, helper: t('metricNewLeadsHelper'), icon: Users, tone: 'blue' },
+      { label: t('metricActiveEstimates'), value: estimates, helper: t('metricActiveEstimatesHelper'), icon: ClipboardList, tone: 'violet' },
+      { label: t('metricJobsInProgress'), value: activeJobs, helper: t('metricJobsInProgressHelper'), icon: BriefcaseBusiness, tone: 'amber' },
+      { label: t('metricRevenuePipeline'), value: currency.format(pipelineValue), helper: t('metricRevenuePipelineHelper'), icon: DollarSign, tone: 'emerald' },
     ]
   }, [activeLeads, t])
 
@@ -1547,11 +1720,12 @@ function ContractorFlowApp() {
   function recordProjectPayment(leadId, payment) {
     const sourceLead = leads.find((item) => item.id === leadId)
     const portal = sourceLead?.portal || {}
+    const relatedProjectId = payment?.projectId || payment?.project_id || resolvePaymentProjectId(sourceLead)
     const paymentEntry = normalizePaymentRecord({
       id: payment?.id || `payment-${Date.now()}`,
       ...payment,
       clientId: sourceLead?.clientId || sourceLead?.client_id || null,
-      projectId: sourceLead?.id || leadId,
+      projectId: relatedProjectId,
       leadId: sourceLead?.leadId || sourceLead?.lead_id || sourceLead?.id || leadId,
     })
     const existingPayments = dedupePayments([
@@ -1572,11 +1746,12 @@ function ContractorFlowApp() {
   function updateProjectPayment(leadId, payment) {
     const sourceLead = leads.find((item) => item.id === leadId)
     const portal = sourceLead?.portal || {}
+    const relatedProjectId = payment?.projectId || payment?.project_id || resolvePaymentProjectId(sourceLead)
     const paymentEntry = normalizePaymentRecord({
       id: payment?.id || `payment-${Date.now()}`,
       ...payment,
       clientId: sourceLead?.clientId || sourceLead?.client_id || null,
-      projectId: sourceLead?.id || leadId,
+      projectId: relatedProjectId,
       leadId: sourceLead?.leadId || sourceLead?.lead_id || sourceLead?.id || leadId,
     })
     const existingPayments = dedupePayments([
@@ -2447,6 +2622,7 @@ function ContractorFlowApp() {
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
       successMessage={dashboardSuccessMessage}
       t={t}
+      userProfile={userProfile}
     />
   )
 
@@ -2468,7 +2644,7 @@ function ContractorFlowApp() {
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
-      <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} leads={activeLeads} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
+      <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.forgotPassword} element={<ForgotPasswordPage t={t} language={language} setLanguage={setLanguage} />} />
@@ -2554,10 +2730,10 @@ function ContractorFlowApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} />
+    <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
 
-      <div className="lg:pl-72">
+      <div className="lg:pl-[280px]">
         <Topbar
           onMenuClick={() => setSidebarOpen(true)}
           language={language}
@@ -2577,6 +2753,8 @@ function ContractorFlowApp() {
             }))
           }}
           onOpenSettings={() => navigate('/settings')}
+          onCreateLead={() => setIsDashboardLeadModalOpen(true)}
+          onCreateJob={() => openJobModal()}
         />
 
         <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
@@ -2693,28 +2871,8 @@ function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, on
   )
 }
 
-function PortalRoute({ companySettings, leads, onBack, t, language, setLanguage }) {
-  const { portalId, id, leadId } = useParams()
-  const resolvedPortalId = portalId || id || leadId || ''
-  const lead = findPortalProject(leads, resolvedPortalId)
-
-  if (!lead) {
-    return <ClientPortalNotFound onBack={() => onBack(resolvedPortalId)} t={t} />
-  }
-
-  return <CustomerPortalPage lead={lead} onBack={() => onBack(lead.id)} t={t} language={language} setLanguage={setLanguage} companySettings={companySettings} />
-}
-
-function ClientPortalNotFound({ onBack, t }) {
-  return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-      <h1 className="text-2xl font-bold text-slate-950">{t('clientPortalNotFound')}</h1>
-      <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('clientPortalNotFoundHelp')}</p>
-      <button onClick={onBack} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">
-        {t('backToDashboardAction')}
-      </button>
-    </section>
-  )
+function PortalRoute({ companySettings, projects, clients, onBack, t, language, setLanguage }) {
+  return <CustomerPortalPage projects={projects} clients={clients} onBack={onBack} t={t} language={language} setLanguage={setLanguage} companySettings={companySettings} />
 }
 
 function ProjectNotFound({ onBack, t }) {

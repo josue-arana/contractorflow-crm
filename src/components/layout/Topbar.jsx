@@ -1,9 +1,10 @@
-import { Bell, ChevronDown, Menu, Search, X } from 'lucide-react'
+import { Bell, ChevronDown, Menu, Plus, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { appRoutes } from '../../config/appRoutes'
 import { USE_AUTH } from '../../config/backendConfig'
 import { useAuth } from '../../contexts/AuthContext'
+import { ActionMenu } from '../common/ActionMenu'
 import { useToast } from '../common/ToastProvider'
 import { LanguageToggleButton } from '../common/LanguageToggleButton'
 import { ModalShell } from '../common/ModalShell'
@@ -21,6 +22,8 @@ export function Topbar({
   userProfile,
   onSaveUserProfile,
   onOpenSettings,
+  onCreateLead,
+  onCreateJob,
 }) {
   const navigate = useNavigate()
   const { logout } = useAuth()
@@ -31,6 +34,20 @@ export function Topbar({
   const [profileDraft, setProfileDraft] = useState(userProfile)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const unreadCount = notifications.filter((notification) => !notification.read).length
+  const quickAddItems = [
+    {
+      id: 'addLead',
+      label: t('addLead'),
+      icon: <Plus className="mr-2 h-4 w-4" />,
+      onClick: onCreateLead,
+    },
+    {
+      id: 'scheduleJob',
+      label: t('scheduleJob'),
+      icon: <Plus className="mr-2 h-4 w-4" />,
+      onClick: onCreateJob,
+    },
+  ].filter((item) => typeof item.onClick === 'function')
 
   useEffect(() => {
     setProfileDraft(userProfile)
@@ -98,20 +115,27 @@ export function Topbar({
 
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/92 px-4 py-4 backdrop-blur sm:px-6 lg:px-8">
         <div className="relative z-10 flex items-center justify-between gap-4">
           <button className="rounded-2xl border border-slate-200 p-2 lg:hidden" onClick={onMenuClick} aria-label={t('menu')}>
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="hidden flex-1 items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 md:flex">
-            <Search className="h-4 w-4 text-slate-400" />
-            <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder={t('searchPlaceholder')} />
+          <div className="hidden flex-1 items-center gap-4 lg:flex">
+            <div className="flex max-w-2xl flex-1 items-center gap-3 rounded-[1.6rem] border border-slate-200 bg-slate-50 px-5 py-3.5 shadow-sm">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400" placeholder={t('searchPlaceholder')} />
+            </div>
           </div>
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
-            <LanguageToggleButton language={language} setLanguage={setLanguage} t={t} />
-            <button onClick={openNotifications} className="relative rounded-2xl border border-slate-200 p-3 hover:bg-slate-50" aria-label={t('notificationCenter')}>
+            <LanguageToggleButton
+              language={language}
+              setLanguage={setLanguage}
+              t={t}
+              className="px-2.5 py-2 text-[11px] sm:px-3 sm:py-3 sm:text-xs lg:px-3 lg:py-3"
+            />
+            <button onClick={openNotifications} className="relative rounded-[1.35rem] border border-slate-200 bg-white p-3 hover:bg-slate-50" aria-label={t('notificationCenter')}>
               <Bell className="h-5 w-5 text-slate-600" />
               {unreadCount > 0 && (
                 <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white">
@@ -119,13 +143,21 @@ export function Topbar({
                 </span>
               )}
             </button>
-            <button onClick={() => { setIsAccountOpen((value) => !value); setIsNotificationsOpen(false); setAccountScreen(null) }} className="flex items-center gap-3 rounded-2xl border border-slate-200 px-3 py-2 hover:bg-slate-50" aria-label={t('accountMenu')}>
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-bold text-white">{userProfile?.initials || t('userInitials')}</div>
-              <div className="hidden text-left sm:block">
-                <p className="text-sm font-semibold">{userProfile?.name || t('userName')}</p>
-                <p className="text-xs text-slate-500">{userProfile?.email || t('email')}</p>
+            <div className="hidden xl:block">
+              <ActionMenu
+                label={<><Plus className="h-4 w-4" /> {t('quickAdd')}</>}
+                ariaLabel={t('quickAdd')}
+                items={quickAddItems}
+                buttonClassName="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-[1.35rem] border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-50"
+              />
+            </div>
+            <button onClick={() => { setIsAccountOpen((value) => !value); setIsNotificationsOpen(false); setAccountScreen(null) }} className="flex items-center gap-3 rounded-[1.35rem] border border-slate-200 bg-white px-3 py-2.5 shadow-sm hover:bg-slate-50" aria-label={t('accountMenu')}>
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white">{userProfile?.initials || t('userInitials')}</div>
+              <div className="hidden text-left lg:block">
+                <p className="text-sm font-semibold text-slate-950">{userProfile?.name || t('userName')}</p>
+                <p className="text-xs text-slate-500">{t('ownerAdmin')}</p>
               </div>
-              <ChevronDown className="hidden h-4 w-4 text-slate-400 sm:block" />
+              <ChevronDown className="hidden h-4 w-4 text-slate-400 lg:block" />
             </button>
           </div>
         </div>

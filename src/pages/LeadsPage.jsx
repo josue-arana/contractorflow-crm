@@ -12,7 +12,7 @@ import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
-import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageCounts } from '../utils/leadPipeline'
+import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageCounts, getPriorityLabel } from '../utils/leadPipeline'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -199,8 +199,8 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(lead.value || 0)}</td>
                   <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} /></td>
-                  <td className="px-4 py-4"><StatusBadge status={lead.priority} t={t} /></td>
-                  <td className="px-4 py-4 text-slate-600">{lead.source || t('notAdded')}</td>
+                  <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>
+                  <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right">{renderLeadActions(lead)}</td>
                 </tr>
               ))}
@@ -212,13 +212,13 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
           {filteredLeads.map((lead) => (
             <article key={lead.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
-                <div><h3 className="font-bold text-slate-950">{lead.client}</h3><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></div>
+                <div><h3 className="font-bold text-slate-950">{lead.client}</h3><p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectTitle || lead.projectType, t)}</p></div>
                 <StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} />
               </div>
               <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p><p className="font-bold text-slate-950">{currency.format(lead.value || 0)}</p></div>
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{tStatus(t, lead.priority)}</p></div>
-                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{t(getLeadNextStepKey(getLeadPipelineStage(lead)))}</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{getPriorityLabel(lead.priority, t)}</p></div>
+                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{getLeadNextStepLabel(lead.nextStep, t, lead)}</p></div>
               </div>
               <div className="mt-3">{renderLeadActions(lead, true)}</div>
             </article>
