@@ -8,6 +8,7 @@ import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
+import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 
 const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
 
@@ -39,24 +40,23 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     isArchived: archivedIds.includes(lead.id),
   })), [archivedIds, leads, t])
 
-  const persistedEstimates = useMemo(() => estimates.map((estimate) => {
-    const linkedLead = leads.find((lead) => (
-      (estimate?.leadId && estimate.leadId === lead.id)
-      || (estimate?.projectId && (estimate.projectId === lead.id || estimate.projectId === lead.projectId || estimate.projectId === lead.project_id))
-      || (estimate?.clientId && (estimate.clientId === lead.clientId || estimate.clientId === lead.client_id))
-    )) || null
+  const persistedEstimates = useMemo(() => dedupeById(estimates, ['projectId', 'project_id', 'leadId', 'lead_id', 'number', 'estimateNumber']).map((estimate) => {
+    const linkedLead = findLeadByProjectLookup(leads, estimate?.projectId, estimate?.project_id, estimate?.leadId, estimate?.lead_id)
+      || leads.find((lead) => estimate?.id && lead?.estimateId === estimate.id)
+      || null
     const linkedContract = contracts.find((contract) => (
       (estimate?.id && contract?.estimateId === estimate.id)
-      || (estimate?.projectId && contract?.projectId === estimate.projectId)
-      || (estimate?.leadId && contract?.leadId === estimate.leadId)
+      || ((estimate?.projectId || estimate?.project_id) && (contract?.projectId === (estimate.projectId || estimate.project_id) || contract?.project_id === (estimate.projectId || estimate.project_id)))
+      || ((estimate?.leadId || estimate?.lead_id) && (contract?.leadId === (estimate.leadId || estimate.lead_id) || contract?.lead_id === (estimate.leadId || estimate.lead_id)))
     )) || linkedLead?.portal?.contract || null
     const isArchived = Boolean(estimate?.archivedAt || estimate?.archived_at)
+    const routeId = resolveLinkedProjectId(linkedLead, estimate.projectId || estimate.project_id || estimate.leadId || estimate.lead_id || estimate.id)
 
     return {
       ...estimate,
       id: estimate.id,
       sourceLeadId: linkedLead?.id || estimate.leadId || estimate.projectId || estimate.id,
-      routeId: linkedLead?.projectId || linkedLead?.project_id || linkedLead?.id || estimate.projectId || estimate.leadId || estimate.id,
+      routeId,
       client: linkedLead?.client || estimate.client || t('customer'),
       projectTitle: linkedLead?.projectTitle || linkedLead?.projectType || estimate.projectTitle || estimate.title || t('estimate'),
       amount: Number(estimate.total || estimate.totalAmount || estimate.amount || 0),

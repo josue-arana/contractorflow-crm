@@ -13,6 +13,7 @@ import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageCounts, getPriorityLabel } from '../utils/leadPipeline'
+import { getEstimatedValueForLead } from '../utils/estimateLinks'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -25,11 +26,21 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
   const { contractor, company, session } = useAuth()
   const contractorId = getLeadsContractorId({ contractor, company, session })
 
-  const activeLeads = useMemo(() => leads.filter((lead) => !archivedIds.includes(lead.id)), [leads, archivedIds])
+  const leadsWithEstimatedValues = useMemo(() => leads.map((lead) => {
+    const estimatedValue = getEstimatedValueForLead(lead)
+
+    return {
+      ...lead,
+      leadEstimatedValue: estimatedValue,
+      leadEstimatedValueDisplay: estimatedValue === null ? t('notEstimated') : currency.format(estimatedValue),
+    }
+  }), [leads, t])
+
+  const activeLeads = useMemo(() => leadsWithEstimatedValues.filter((lead) => !archivedIds.includes(lead.id)), [leadsWithEstimatedValues, archivedIds])
 
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
-    return leads.filter((lead) => {
+    return leadsWithEstimatedValues.filter((lead) => {
       const isArchived = archivedIds.includes(lead.id)
       const matchesStatus = selectedFilter === 'All'
         ? !isArchived
@@ -41,13 +52,13 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
         .some((value) => String(value).toLowerCase().includes(term))
       return matchesStatus && matchesSearch
     })
-  }, [leads, archivedIds, searchTerm, selectedFilter])
+  }, [leadsWithEstimatedValues, archivedIds, searchTerm, selectedFilter])
 
   const pipelineCounts = useMemo(() => getLeadPipelineStageCounts(activeLeads), [activeLeads])
   const newLeadCount = pipelineCounts.newLeads
   const contactedCount = pipelineCounts.estimatesToSend
   const estimateSentCount = pipelineCounts.followUpsDue
-  const totalValue = activeLeads.reduce((sum, lead) => sum + (lead.value || 0), 0)
+  const totalValue = activeLeads.reduce((sum, lead) => sum + (lead.leadEstimatedValue || 0), 0)
 
   const summaryCards = [
     { label: t('newLeads'), value: newLeadCount, helper: t('newLeadsHelper'), icon: UserPlus },
@@ -197,7 +208,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                 <tr key={lead.id} onClick={() => !archivedIds.includes(lead.id) && onViewLead(lead.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{lead.client}</p><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(lead.value || 0)}</td>
+                  <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>
                   <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} /></td>
                   <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>
                   <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>
@@ -216,7 +227,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                 <StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} />
               </div>
               <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('value')}</p><p className="font-bold text-slate-950">{currency.format(lead.value || 0)}</p></div>
+                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('estimatedValue')}</p><p className="font-bold text-slate-950">{lead.leadEstimatedValueDisplay}</p></div>
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{getPriorityLabel(lead.priority, t)}</p></div>
                 <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{getLeadNextStepLabel(lead.nextStep, t, lead)}</p></div>
               </div>

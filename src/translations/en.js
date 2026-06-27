@@ -551,6 +551,7 @@ export const en = {
   "contactInformation": 'Contact Information',
   "clientSummary": 'Client Summary',
   "quickActions": 'Quick Actions',
+  "clientProjectQuickActionsHelp": "Use the action buttons on each project card below to open that exact project, estimate, contract, or payment flow.",
   "callClient": 'Call Client',
   "textClient": 'Text Client',
   "createNewProject": 'Create New Project',

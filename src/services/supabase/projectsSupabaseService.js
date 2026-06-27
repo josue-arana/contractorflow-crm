@@ -129,6 +129,8 @@ export function mapProjectRowToUiProject(row) {
 
   return {
     id: row?.id || undefined,
+    projectId: row?.id || undefined,
+    project_id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
     leadId: row?.lead_id || null,
