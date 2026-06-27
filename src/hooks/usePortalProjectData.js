@@ -7,6 +7,7 @@ import { getProjectsContractorId } from '../services/system/projectsRuntimeServi
 import { hasContractData, readLinkedContractDraft, writeLinkedContractDrafts } from '../utils/contractLinks'
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { findPortalProject } from '../utils/portal'
+import { resolveLinkedProjectId } from '../utils/projectIdentity'
 import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments } from '../utils/projectPayments'
 
 function normalizeEstimateRecord(estimate) {
@@ -48,6 +49,7 @@ function normalizeProjectRecord(project, client, estimate, contract) {
   if (!project) return null
 
   const sourcePortal = project?.portal && typeof project.portal === 'object' ? project.portal : {}
+  const linkedProjectId = resolveLinkedProjectId(project)
   const projectValue = resolveEstimateTotal(project, estimate, toSafeNumber(project?.value ?? project?.estimatedValue ?? project?.contractValue))
   const contractAmount = toSafeNumber(
     contract?.total
@@ -69,6 +71,7 @@ function normalizeProjectRecord(project, client, estimate, contract) {
 
   return {
     ...project,
+    projectId: project?.projectId || project?.project_id || linkedProjectId || null,
     client: clientName,
     clientName,
     customerName: clientName,
@@ -265,7 +268,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     let isCancelled = false
 
     async function loadEstimate() {
-      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedProjectId = resolveLinkedProjectId(project)
       const linkedLeadId = project?.leadId || project?.lead_id || ''
       const projectDraft = readLinkedEstimateDraft(project || portalId, [portalId, linkedProjectId, linkedLeadId])
       const knownEstimateId = project?.estimateId || project?.estimate_id || project?.portal?.estimate?.id || projectDraft?.id || null
@@ -315,7 +318,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     let isCancelled = false
 
     async function loadContract() {
-      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedProjectId = resolveLinkedProjectId(project)
       const linkedLeadId = project?.leadId || project?.lead_id || ''
       const linkedEstimateId = estimate?.id || project?.estimateId || project?.estimate_id || ''
       const projectDraft = readLinkedContractDraft(project || portalId, [portalId, linkedProjectId, linkedLeadId, linkedEstimateId])
@@ -401,10 +404,18 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
 
     async function loadPayments() {
       const fallbackPayments = readProjectPaymentFallbacks(project)
-      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedProjectId = resolveLinkedProjectId(project)
       const clientId = project?.clientId || project?.client_id || ''
 
       if (!linkedProjectId && !clientId) {
+        setPaymentRecords(fallbackPayments)
+        return
+      }
+
+      // Public portal visits can reach this route without contractor context under the
+      // existing auth/RLS rules. In that case we keep project-scoped fallback data
+      // instead of wiping valid hydrated records with an empty protected query result.
+      if (USE_SUPABASE_PAYMENTS && !projectsContractorId) {
         setPaymentRecords(fallbackPayments)
         return
       }
@@ -450,7 +461,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     let isCancelled = false
 
     async function loadEvents() {
-      const linkedProjectId = project?.id || project?.projectId || project?.project_id || ''
+      const linkedProjectId = resolveLinkedProjectId(project)
       const relatedLeadId = project?.leadId || project?.lead_id || ''
       const clientId = project?.clientId || project?.client_id || ''
       const fallbackEvents = readProjectEventFallbacks(project).filter((event) => matchesProjectScheduleEvent(event, {
@@ -460,6 +471,11 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
         projectTitle: project?.projectTitle || '',
         projectType: project?.projectType || '',
       }))
+
+      if (USE_SUPABASE_EVENTS && !projectsContractorId) {
+        setEventRecords(fallbackEvents)
+        return
+      }
 
       try {
         const response = await dataProvider.events.list({
@@ -512,6 +528,8 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
   )
   const paymentSummary = useMemo(() => calculateProjectPaymentSummary({
     ...(hydratedProject || {}),
+    id: resolveLinkedProjectId(hydratedProject || project, portalId),
+    projectId: resolveLinkedProjectId(hydratedProject || project, portalId),
     portal: {
       ...(hydratedProject?.portal || {}),
       estimate: estimate || {},
@@ -519,7 +537,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     },
   }, paymentRecords, {
     relatedInvoiceIds: collectProjectInvoiceIds(hydratedProject || {}),
-  }), [contract, estimate, hydratedProject, paymentRecords])
+  }), [contract, estimate, hydratedProject, paymentRecords, portalId, project])
   const upcomingEvents = useMemo(() => (
     eventRecords
       .filter((event) => !event?.archivedAt)

@@ -24,6 +24,7 @@ import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeN
 import { formatContractDisplayNumber } from '../utils/contractNumber'
 import { formatEstimateDisplayNumber } from '../utils/estimateNumber'
 import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments, mergeProjectTimeline, normalizePaymentRecord } from '../utils/projectPayments'
+import { resolveLinkedProjectId } from '../utils/projectIdentity'
 import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
 function logProjectDetailDevError(message, error, meta) {
@@ -338,14 +339,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       : (project || lead)
   ), [lead, project])
   const linkedProjectId = useMemo(() => (
-    project?.id
-    || project?.projectId
-    || project?.project_id
-    || baseProject?.projectId
-    || baseProject?.project_id
+    resolveLinkedProjectId(project)
+    || resolveLinkedProjectId(baseProject)
     || fallbackLinkedProjectId
     || (!USE_SUPABASE_PROJECTS ? projectId : '')
-  ), [baseProject?.projectId, baseProject?.project_id, fallbackLinkedProjectId, project?.id, project?.projectId, project?.project_id, projectId])
+  ), [baseProject, fallbackLinkedProjectId, project, projectId])
   const relatedLeadId = useMemo(() => (
     baseProject?.leadId
     || baseProject?.lead_id
@@ -389,14 +387,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   ]), [baseProject, lead])
   const paymentSummary = useMemo(() => calculateProjectPaymentSummary({
     ...(baseProject || {}),
-    id: projectId,
+    id: linkedProjectId || projectId,
+    projectId: linkedProjectId || baseProject?.projectId || baseProject?.project_id || null,
     clientId: baseProject?.clientId || baseProject?.client_id || lead?.clientId || lead?.client_id || null,
     leadId: relatedLeadId || baseProject?.leadId || baseProject?.lead_id || null,
     portal: {
       ...(baseProject?.portal || {}),
       ...(lead?.portal || {}),
     },
-  }, [...paymentRecords, ...localPaymentRecords], { relatedInvoiceIds }), [baseProject, lead, localPaymentRecords, paymentRecords, projectId, relatedInvoiceIds, relatedLeadId])
+  }, [...paymentRecords, ...localPaymentRecords], { relatedInvoiceIds }), [baseProject, lead, linkedProjectId, localPaymentRecords, paymentRecords, projectId, relatedInvoiceIds, relatedLeadId])
   const portalTimeline = useMemo(() => mergeProjectTimeline(
     baseProject?.portal?.timeline || lead?.portal?.timeline || [],
     paymentSummary.payments
@@ -694,6 +693,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         return
       }
 
+      if (USE_SUPABASE_PAYMENTS && !contractorId) {
+        setPaymentRecords(fallbackPayments)
+        return
+      }
+
       try {
         const response = await dataProvider.payments.list({
           contractorId,
@@ -744,6 +748,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         projectTitle: baseProject?.projectTitle || lead?.projectTitle || '',
         projectType: baseProject?.projectType || lead?.projectType || '',
       }))
+
+      if (USE_SUPABASE_EVENTS && !contractorId) {
+        setProjectEventRecords(fallbackEvents)
+        return
+      }
 
       try {
         const response = await dataProvider.events.list({
