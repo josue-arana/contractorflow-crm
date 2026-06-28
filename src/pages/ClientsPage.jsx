@@ -8,6 +8,8 @@ import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import dataProvider from '../services/dataProvider'
+import clientsHeroBackground from '../assets/page-heroes/clients-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const clientFilters = ['Active', 'Archived']
 
@@ -107,15 +109,18 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('clients')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('clientsPageTitle')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('clientsPageHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(clientsHeroBackground, 'rgba(2, 6, 23, 0.82)', 'rgba(15, 23, 42, 0.35)', '72% center')}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('clients')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('clientsPageTitle')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('clientsPageHelp')}</p>
+          </div>
+          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+            <Plus className="h-4 w-4" /> {t('createClient')}
+          </button>
         </div>
-        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <Plus className="h-4 w-4" /> {t('createClient')}
-        </button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

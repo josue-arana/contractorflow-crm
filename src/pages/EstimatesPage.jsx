@@ -9,6 +9,8 @@ import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
+import estimatesHeroBackground from '../assets/page-heroes/estimates-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const estimateFilters = ['All', 'Archived', 'Draft', 'Sent', 'Approved', 'Rejected', 'Converted to Contract']
 
@@ -137,11 +139,14 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('estimates')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('estimatesManagement')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('estimatesManagementHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(estimatesHeroBackground)}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('estimates')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('estimatesManagement')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('estimatesManagementHelp')}</p>
+          </div>
         </div>
       </section>
 

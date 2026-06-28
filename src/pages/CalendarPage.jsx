@@ -9,6 +9,8 @@ import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { scheduleEventTypes } from '../data/mockScheduleEvents'
 import { tStatus } from '../translations'
+import calendarHeroBackground from '../assets/page-heroes/calendar-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const today = '2026-06-04'
 const weekEnd = '2026-06-10'
@@ -98,8 +100,9 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-blue-900 p-6 text-white shadow-sm sm:p-8">
-        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-sm sm:p-8" style={buildHeroBackgroundStyle(calendarHeroBackground, 'rgba(2, 6, 23, 0.82)', 'rgba(15, 23, 42, 0.35)', '72% center')}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-blue-200">{t('calendar')}</p>
             <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{t('calendarPageTitle')}</h1>

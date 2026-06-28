@@ -9,6 +9,8 @@ import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import dataProvider from '../services/dataProvider'
+import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const invoiceFilters = ['All', 'Archived', 'Draft', 'Sent', 'Paid', 'Overdue', 'Canceled']
 
@@ -95,11 +97,14 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('invoices')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('invoicesManagement')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('invoicesManagementHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(invoicesHeroBackground)}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('invoices')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('invoicesManagement')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('invoicesManagementHelp')}</p>
+          </div>
         </div>
       </section>
 

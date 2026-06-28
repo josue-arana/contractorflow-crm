@@ -14,6 +14,8 @@ import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageCounts, getPriorityLabel } from '../utils/leadPipeline'
 import { getEstimatedValueForLead } from '../utils/estimateLinks'
+import leadsHeroBackground from '../assets/page-heroes/leads-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -150,15 +152,18 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('leads')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('leadsPageTitle')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('leadsPageHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(leadsHeroBackground, 'rgba(2, 6, 23, 0.82)', 'rgba(15, 23, 42, 0.35)', '72% center')}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('leads')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('leadsPageTitle')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('leadsPageHelp')}</p>
+          </div>
+          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+            <Plus className="h-4 w-4" /> {t('createLead')}
+          </button>
         </div>
-        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <Plus className="h-4 w-4" /> {t('createLead')}
-        </button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
