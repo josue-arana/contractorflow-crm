@@ -13,6 +13,8 @@ import { getPortalData } from '../utils/portal'
 import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
+import jobsHeroBackground from '../assets/page-heroes/jobs-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const supabaseStatusToDisplayMap = {
   scheduled: 'Scheduled',
@@ -260,17 +262,20 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('jobs')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('jobsPageTitle')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
-            {t('jobsHeroText')}
-          </p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(jobsHeroBackground, 'rgba(2, 6, 23, 0.82)', 'rgba(15, 23, 42, 0.35)', '72% center')}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('jobs')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('jobsPageTitle')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">
+              {t('jobsHeroText')}
+            </p>
+          </div>
+          <button onClick={() => onCreateJob?.()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+            <BriefcaseBusiness className="h-4 w-4" /> {t('createJob')}
+          </button>
         </div>
-        <button onClick={() => onCreateJob?.()} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <BriefcaseBusiness className="h-4 w-4" /> {t('createJob')}
-        </button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">

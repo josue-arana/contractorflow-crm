@@ -7,6 +7,7 @@ import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
+import { useSimpleMode } from '../contexts/SimpleModeContext'
 import { currency } from '../utils/formatters'
 import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
@@ -14,6 +15,8 @@ import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageCounts, getPriorityLabel } from '../utils/leadPipeline'
 import { getEstimatedValueForLead } from '../utils/estimateLinks'
+import leadsHeroBackground from '../assets/page-heroes/leads-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
@@ -24,6 +27,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
   const [confirmAction, setConfirmAction] = useState(null)
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
+  const { isSimpleMode } = useSimpleMode()
   const contractorId = getLeadsContractorId({ contractor, company, session })
 
   const leadsWithEstimatedValues = useMemo(() => leads.map((lead) => {
@@ -129,6 +133,17 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     }
   }
 
+  function openLeadItem(leadId) {
+    onViewLead(leadId)
+  }
+
+  function handleLeadItemKeyDown(event, leadId) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+
+    event.preventDefault()
+    openLeadItem(leadId)
+  }
+
   function renderLeadActions(lead, compact = false) {
     const isArchived = archivedIds.includes(lead.id)
     if (isArchived) {
@@ -150,15 +165,18 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('leads')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('leadsPageTitle')}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('leadsPageHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-6 text-white shadow-xl" style={buildHeroBackgroundStyle(leadsHeroBackground, 'rgba(2, 6, 23, 0.82)', 'rgba(15, 23, 42, 0.35)', '72% center')}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative flex flex-col justify-between gap-4 md:flex-row md:items-end">
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('leads')}</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('leadsPageTitle')}</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{t('leadsPageHelp')}</p>
+          </div>
+          <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
+            <Plus className="h-4 w-4" /> {t('createLead')}
+          </button>
         </div>
-        <button onClick={() => setIsCreateOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm transition hover:bg-blue-50">
-          <Plus className="h-4 w-4" /> {t('createLead')}
-        </button>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -196,22 +214,31 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
               <tr>
                 <th className="px-4 py-3">{t('customerProject')}</th>
                 <th className="px-4 py-3">{t('phone')}</th>
-                <th className="px-4 py-3 text-right">{t('estimatedValue')}</th>
+                {!isSimpleMode && <th className="px-4 py-3 text-right">{t('estimatedValue')}</th>}
                 <th className="px-4 py-3">{t('status')}</th>
-                <th className="px-4 py-3">{t('priority')}</th>
-                <th className="px-4 py-3">{t('source')}</th>
+                {!isSimpleMode && <th className="px-4 py-3">{t('priority')}</th>}
+                {!isSimpleMode && <th className="px-4 py-3">{t('source')}</th>}
                 <th className="px-4 py-3 text-right">{t('action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredLeads.map((lead) => (
-                <tr key={lead.id} onClick={() => !archivedIds.includes(lead.id) && onViewLead(lead.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr
+                  key={lead.id}
+                  onClick={() => openLeadItem(lead.id)}
+                  onKeyDown={(event) => handleLeadItemKeyDown(event, lead.id)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={t('viewLead')}
+                  title={t('viewLead')}
+                  className="cursor-pointer bg-white transition hover:bg-blue-50/40 focus:outline-none focus-visible:bg-blue-50/60"
+                >
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{lead.client}</p><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>
+                  {!isSimpleMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>}
                   <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} /></td>
-                  <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>
-                  <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>
+                  {!isSimpleMode && <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>}
+                  {!isSimpleMode && <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>}
                   <td className="px-4 py-4 text-right">{renderLeadActions(lead)}</td>
                 </tr>
               ))}
@@ -221,16 +248,38 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
         <div className="space-y-3 md:hidden">
           {filteredLeads.map((lead) => (
-            <article key={lead.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <article
+              key={lead.id}
+              onClick={() => openLeadItem(lead.id)}
+              onKeyDown={(event) => handleLeadItemKeyDown(event, lead.id)}
+              tabIndex={0}
+              role="button"
+              aria-label={t('viewLead')}
+              title={t('viewLead')}
+              className="cursor-pointer rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/30 focus:outline-none focus-visible:border-blue-300 focus-visible:bg-blue-50/40"
+            >
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{lead.client}</h3><p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectTitle || lead.projectType, t)}</p></div>
                 <StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} />
               </div>
-              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('estimatedValue')}</p><p className="font-bold text-slate-950">{lead.leadEstimatedValueDisplay}</p></div>
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{getPriorityLabel(lead.priority, t)}</p></div>
-                <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{getLeadNextStepLabel(lead.nextStep, t, lead)}</p></div>
-              </div>
+              {isSimpleMode ? (
+                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('phone')}</p>
+                    <p className="font-medium text-slate-700">{lead.phone || t('notAdded')}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('email')}</p>
+                    <p className="truncate font-medium text-slate-700">{lead.email || t('notAdded')}</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
+                  <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('estimatedValue')}</p><p className="font-bold text-slate-950">{lead.leadEstimatedValueDisplay}</p></div>
+                  <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('priority')}</p><p className="font-bold text-slate-950">{getPriorityLabel(lead.priority, t)}</p></div>
+                  <div className="col-span-2"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('nextStep')}</p><p className="font-medium text-slate-700">{getLeadNextStepLabel(lead.nextStep, t, lead)}</p></div>
+                </div>
+              )}
               <div className="mt-3">{renderLeadActions(lead, true)}</div>
             </article>
           ))}

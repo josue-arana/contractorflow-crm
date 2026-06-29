@@ -10,6 +10,7 @@ import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { USE_SUPABASE_LEADS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { useSimpleMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft } from '../utils/estimateLinks'
@@ -105,6 +106,7 @@ export function LeadDetailPage({
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
+  const { isSimpleMode } = useSimpleMode()
   const contractorId = getLeadsContractorId({ contractor, company, session })
   const leadId = id || lead?.id || ''
   const [record, setRecord] = useState(USE_SUPABASE_LEADS ? null : lead)
@@ -591,12 +593,14 @@ export function LeadDetailPage({
           <DetailRow label={t('email')} value={currentLead.email || t('notAdded')} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location || t('unknownAddress')} />
         </InfoCard>
-        <InfoCard title={recordDetailsTitle}>
-          <DetailRow label={t('status')} value={<StatusBadge status={isArchived ? 'Archived' : currentLead.status} t={t} />} />
-          <DetailRow label={t('priority')} value={currentLead.priority} />
-          <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
-          <DetailRow label={t('projectType')} value={currentLead.projectType || t('unknownProject')} />
-        </InfoCard>
+        {!isSimpleMode && (
+          <InfoCard title={recordDetailsTitle}>
+            <DetailRow label={t('status')} value={<StatusBadge status={isArchived ? 'Archived' : currentLead.status} t={t} />} />
+            <DetailRow label={t('priority')} value={currentLead.priority} />
+            <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
+            <DetailRow label={t('projectType')} value={currentLead.projectType || t('unknownProject')} />
+          </InfoCard>
+        )}
         <InfoCard title={t('nextStep')}>
           <p className="text-sm leading-6 text-slate-600">{nextStepDisplay}</p>
           <button onClick={handlePrimaryAction} className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">

@@ -12,6 +12,7 @@ import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { useSimpleMode } from '../contexts/SimpleModeContext'
 import { hasEstimateData } from '../utils/estimateLinks'
 import { hasContractData } from '../utils/contractLinks'
 import { dedupeById, getContractForProject, getEstimateForProject, getProjectsForClient } from '../utils/projectIdentity'
@@ -25,10 +26,11 @@ function isClientArchived(client, archivedClientIds = []) {
   )
 }
 
-export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onOpenEstimate, onOpenContract, onCreateJob, onRecordPayment, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
+export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onOpenLead, onOpenEstimate, onOpenContract, onCreateJob, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { isSimpleMode } = useSimpleMode()
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const client = clients.find((item) => item.id === clientId)
 
@@ -103,7 +105,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <a href={`tel:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50"><Phone className="h-4 w-4" /> {t('callClient')}</a>
-            <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>
+            {!isSimpleMode && <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>}
             <button onClick={() => onCreateJob?.(client)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
             <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
             {isArchived ? (
@@ -141,9 +143,11 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           <DetailRow label={t('outstandingBalance')} value={currency.format(client.outstandingBalance)} />
         </InfoCard>
 
-        <InfoCard title={t('quickActions')} icon={WalletCards}>
-          <p className="text-sm leading-6 text-slate-500">{t('clientProjectQuickActionsHelp')}</p>
-        </InfoCard>
+        {!isSimpleMode && (
+          <InfoCard title={t('quickActions')} icon={WalletCards}>
+            <p className="text-sm leading-6 text-slate-500">{t('clientProjectQuickActionsHelp')}</p>
+          </InfoCard>
+        )}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -186,7 +190,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                   <div className="rounded-2xl bg-slate-50 p-3">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('paymentsRecorded')}</p>
                     <p className="mt-1 font-bold text-slate-950">
-                      {Array.isArray(project.portal?.payments) ? project.portal.payments.length : Array.isArray(project.payments) ? project.payments.length : 0}
+                      {project.isProjectRecord ? (Array.isArray(project.portal?.payments) ? project.portal.payments.length : Array.isArray(project.payments) ? project.payments.length : 0) : t('notAvailable')}
                     </p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-3">
@@ -197,7 +201,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => onOpenProject(project.id)} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800">
+                  <button onClick={() => (project.isProjectRecord ? onOpenProject(project.id) : onOpenLead?.(project.id))} className="rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800">
                     {t('view')}
                   </button>
                   {hasEstimateData(project.portal?.estimate) && (
@@ -210,9 +214,6 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                       {t('openContract')}
                     </button>
                   )}
-                  <button onClick={() => onRecordPayment?.(project.id)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-bold text-blue-700 hover:bg-blue-100">
-                    {t('recordPayment')}
-                  </button>
                 </div>
               </article>
             )) : <p className="text-sm text-slate-500">{t('noJobs')}</p>}

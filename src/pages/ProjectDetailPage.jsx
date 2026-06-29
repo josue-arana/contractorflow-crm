@@ -1,7 +1,8 @@
 import { Component, useEffect, useMemo, useState } from 'react'
-import { Archive, ArrowLeft, CalendarDays, Camera, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2 } from 'lucide-react'
+import { Archive, ArrowLeft, CalendarDays, Camera, Clock, Download, Edit3, ExternalLink, Eye, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2, X } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
+import { ModalShell } from '../components/common/ModalShell'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -16,6 +17,7 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
 import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { useSimpleMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
@@ -23,8 +25,9 @@ import { readLinkedContractDraft } from '../utils/contractLinks'
 import { hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { formatContractDisplayNumber } from '../utils/contractNumber'
 import { formatEstimateDisplayNumber } from '../utils/estimateNumber'
+import { PROJECT_PHOTO_MAX_FILE_SIZE_BYTES, revokeProjectPhotoPreviewUrl, validateProjectPhotoFile } from '../services/photosService'
 import { calculateProjectPaymentSummary, collectProjectInvoiceIds, dedupePayments, mergeProjectTimeline, normalizePaymentRecord } from '../utils/projectPayments'
-import { resolveLinkedProjectId } from '../utils/projectIdentity'
+import { dedupeById, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
 function logProjectDetailDevError(message, error, meta) {
@@ -268,6 +271,55 @@ function createSafeProject(project, fallbackId = '') {
   }
 }
 
+function normalizeProjectWorkspacePhoto(photo = {}, fallbackProjectId = '') {
+  const previewUrl = photo.previewUrl || photo.url || ''
+  const filePath = photo.filePath || photo.file_path || ''
+  const fileName = photo.fileName || photo.file_name || filePath.split('/').pop() || ''
+  const label = photo.label || fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || photo.caption || photo.description || 'Project Photo'
+
+  return {
+    ...photo,
+    id: photo.id || filePath || previewUrl || label,
+    contractorId: photo.contractorId || photo.contractor_id || '',
+    contractor_id: photo.contractorId || photo.contractor_id || '',
+    clientId: photo.clientId || photo.client_id || null,
+    client_id: photo.clientId || photo.client_id || null,
+    projectId: photo.projectId || photo.project_id || fallbackProjectId,
+    project_id: photo.projectId || photo.project_id || fallbackProjectId,
+    filePath,
+    file_path: filePath,
+    fileName,
+    file_name: fileName,
+    fileSize: Number(photo.fileSize || photo.file_size || 0) || 0,
+    file_size: Number(photo.fileSize || photo.file_size || 0) || 0,
+    mimeType: photo.mimeType || photo.mime_type || '',
+    mime_type: photo.mimeType || photo.mime_type || '',
+    caption: photo.caption || photo.description || '',
+    description: photo.caption || photo.description || '',
+    label,
+    previewUrl,
+    url: previewUrl,
+    source: photo.source || 'seed',
+    createdAt: photo.createdAt || photo.created_at || '',
+    created_at: photo.createdAt || photo.created_at || '',
+  }
+}
+
+function dedupeProjectPhotos(photos = [], fallbackProjectId = '') {
+  return dedupeById(
+    photos.map((photo) => normalizeProjectWorkspacePhoto(photo, fallbackProjectId)),
+    ['filePath', 'url', 'label']
+  )
+}
+
+function formatProjectPhotoFileSize(bytes = 0) {
+  const numericBytes = Number(bytes || 0)
+
+  if (!numericBytes) return ''
+  if (numericBytes >= 1024 * 1024) return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(numericBytes / 1024))} KB`
+}
+
 function ProjectDetailFallbackState({ onBack, t }) {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -311,6 +363,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
+  const { isSimpleMode } = useSimpleMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const routeProjectId = id || leadId || ''
   const fallbackLinkedProjectId = lead?.projectId || lead?.project_id || ''
@@ -330,6 +383,12 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [paymentConfirmAction, setPaymentConfirmAction] = useState(null)
   const [openPaymentMenuId, setOpenPaymentMenuId] = useState(null)
   const [showPhotoModal, setShowPhotoModal] = useState(false)
+  const [projectPhotos, setProjectPhotos] = useState([])
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false)
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false)
+  const [deletingPhotoId, setDeletingPhotoId] = useState('')
+  const [selectedPhoto, setSelectedPhoto] = useState(null)
+  const [hiddenFallbackPhotoIds, setHiddenFallbackPhotoIds] = useState([])
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
   const [scheduleConfirmAction, setScheduleConfirmAction] = useState(null)
@@ -455,6 +514,17 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       return buildSafePortal(currentLead)
     }
   }, [currentLead, projectId])
+  const fallbackProjectPhotos = useMemo(() => {
+    const hiddenIds = new Set(hiddenFallbackPhotoIds)
+    const scopedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead) || currentLead?.id || projectId
+
+    return dedupeProjectPhotos([
+      ...(Array.isArray(baseProject?.photos) ? baseProject.photos : []),
+      ...(Array.isArray(baseProject?.portal?.photos) ? baseProject.portal.photos : []),
+      ...(Array.isArray(lead?.photos) ? lead.photos : []),
+      ...(Array.isArray(lead?.portal?.photos) ? lead.portal.photos : []),
+    ], scopedProjectId).filter((photo) => !hiddenIds.has(photo.id))
+  }, [baseProject?.photos, baseProject?.portal?.photos, currentLead, hiddenFallbackPhotoIds, lead?.photos, lead?.portal?.photos, linkedProjectId, projectId])
   const projectIsArchived = Boolean(currentLead?.isArchived || currentLead?.archivedAt || isArchived)
   const recordDetailsTitle = t(getRecordDetailsTitleKey(currentLead, { isProjectWorkspace: true }))
   const hasEstimate = hasProjectEstimate(currentLead)
@@ -807,6 +877,64 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }, [baseProject?.clientId, baseProject?.client_id, baseProject?.projectTitle, baseProject?.projectType, contractorId, lead?.clientId, lead?.client_id, lead?.projectTitle, lead?.projectType, linkedProjectId, projectId, relatedLeadId, scheduleEvents])
 
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadProjectPhotos() {
+      const scopedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead) || currentLead?.id || projectId
+      const clientId = currentLead?.clientId || currentLead?.client_id || null
+
+      if (!scopedProjectId || !contractorId) {
+        setProjectPhotos(fallbackProjectPhotos)
+        setIsLoadingPhotos(false)
+        return
+      }
+
+      setIsLoadingPhotos(true)
+
+      try {
+        const response = await dataProvider.photos.listProjectPhotos({
+          contractorId,
+          projectId: scopedProjectId,
+          clientId,
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setProjectPhotos(fallbackProjectPhotos)
+          return
+        }
+
+        const persistedPhotos = Array.isArray(response?.data) ? response.data : []
+        const nextPhotos = response?.skipped
+          ? [...persistedPhotos, ...fallbackProjectPhotos]
+          : persistedPhotos
+
+        setProjectPhotos(dedupeProjectPhotos(nextPhotos, scopedProjectId))
+      } catch (error) {
+        if (!isCancelled) {
+          setProjectPhotos(fallbackProjectPhotos)
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingPhotos(false)
+        }
+      }
+    }
+
+    loadProjectPhotos()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [contractorId, currentLead, fallbackProjectPhotos, linkedProjectId, projectId])
+
+  useEffect(() => {
+    setHiddenFallbackPhotoIds([])
+    setSelectedPhoto(null)
+  }, [linkedProjectId, projectId])
+
   const activeScheduleEvents = useMemo(() => (
     projectEventRecords.filter((event) => !archivedScheduleEventIds.includes(event.id) && !event.archivedAt)
   ), [archivedScheduleEventIds, projectEventRecords])
@@ -910,6 +1038,28 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   async function saveProjectPayment(payment) {
     try {
       const persistedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead)
+      const parsedAmount = Number(payment?.amount)
+
+      if (!payment?.amount && payment?.amount !== 0) {
+        showToast(t('enterPaymentAmount'), 'error')
+        return
+      }
+
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        showToast(t('paymentAmountMustBeGreaterThanZero'), 'error')
+        return
+      }
+
+      if (!persistedProjectId) {
+        showToast(t('projectRequiredBeforePayment'), 'error')
+        return
+      }
+
+      if (!contractorId && USE_SUPABASE_PAYMENTS) {
+        showToast(t('paymentSaveFailed'), 'error')
+        return
+      }
+
       const paymentEntry = normalizePaymentRecord({
         ...(editingPayment || {}),
         ...payment,
@@ -995,6 +1145,134 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     }
   }
 
+  async function uploadProjectPhotos({ files = [], description = '' } = {}) {
+    const scopedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead) || currentLead?.id || projectId
+    const clientId = currentLead?.clientId || currentLead?.client_id || null
+    if (!scopedProjectId || !contractorId) {
+      showToast(t('photoUploadFailed'), 'error')
+      return false
+    }
+
+    if (!files.length) {
+      return false
+    }
+
+    for (const file of files) {
+      const validation = validateProjectPhotoFile(file)
+
+      if (!validation.valid) {
+        showToast(t(validation.code === 'PROJECT_PHOTO_TOO_LARGE' ? 'photoTooLarge' : 'unsupportedFileType'), 'error')
+        return false
+      }
+    }
+
+    setIsUploadingPhotos(true)
+
+    try {
+      const uploadedPhotos = []
+
+      for (const file of files) {
+        const response = await dataProvider.photos.uploadProjectPhoto({
+          contractorId,
+          projectId: scopedProjectId,
+          clientId,
+          file,
+          caption: description,
+        })
+
+        if (response?.error) {
+          throw response.error
+        }
+
+        if (response?.data) {
+          uploadedPhotos.push(response.data)
+        }
+      }
+
+      if (uploadedPhotos.length > 0) {
+        setProjectPhotos((current) => dedupeProjectPhotos([
+          ...uploadedPhotos,
+          ...current,
+        ], scopedProjectId))
+        showToast(t(uploadedPhotos.length > 1 ? 'photosUploaded' : 'photoUploaded'))
+      }
+
+      onUploadPhotos?.(uploadedPhotos)
+      return true
+    } catch (error) {
+      showToast(
+        error?.code === 'PROJECT_PHOTO_STORAGE_NOT_CONFIGURED'
+          ? t('projectPhotoStorageNotConfigured')
+          : error?.code === 'PROJECT_PHOTO_PERMISSION_DENIED'
+            ? t('projectPhotoUploadPermissionDenied')
+          : error?.message || t('photoUploadFailed'),
+        'error'
+      )
+      logProjectDetailDevError('[dev] ProjectDetailPage failed to upload project photos.', error, {
+        contractorId,
+        projectId: scopedProjectId,
+      })
+      return false
+    } finally {
+      setIsUploadingPhotos(false)
+    }
+  }
+
+  async function deleteProjectPhoto(photo) {
+    const scopedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead) || currentLead?.id || projectId
+
+    if (!photo?.id) {
+      showToast(t('photoDeleteFailed'), 'error')
+      return
+    }
+
+    if (photo.source === 'seed') {
+      setHiddenFallbackPhotoIds((current) => [...new Set([...current, photo.id])])
+      setProjectPhotos((current) => current.filter((entry) => entry.id !== photo.id))
+      if (selectedPhoto?.id === photo.id) {
+        setSelectedPhoto(null)
+      }
+      showToast(t('photoDeleted'))
+      return
+    }
+
+    if (!scopedProjectId || !contractorId) {
+      showToast(t('photoDeleteFailed'), 'error')
+      return
+    }
+
+    setDeletingPhotoId(photo.id)
+
+    try {
+      const response = await dataProvider.photos.deleteProjectPhoto({
+        id: photo.id,
+        contractorId,
+        projectId: scopedProjectId,
+      })
+
+      if (response?.error) {
+        throw response.error
+      }
+
+      revokeProjectPhotoPreviewUrl(photo.previewUrl || photo.url || '')
+      setHiddenFallbackPhotoIds((current) => [...new Set([...current, photo.id])])
+      setProjectPhotos((current) => current.filter((entry) => entry.id !== photo.id))
+      if (selectedPhoto?.id === photo.id) {
+        setSelectedPhoto(null)
+      }
+      showToast(t('photoDeleted'))
+    } catch (error) {
+      showToast(error?.message || t('photoDeleteFailed'), 'error')
+      logProjectDetailDevError('[dev] ProjectDetailPage failed to delete project photo.', error, {
+        contractorId,
+        projectId: scopedProjectId,
+        photoId: photo.id,
+      })
+    } finally {
+      setDeletingPhotoId('')
+    }
+  }
+
   return (
     <div className="space-y-6">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
@@ -1017,32 +1295,32 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-slate-950">{t('contractorActions')}</h2>
-          <p className="mt-1 text-sm text-slate-500">{t('contractorActionsHelp')}</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {actionButtons.map((button) => {
-            const Icon = button.icon
-            return (
-              <button
-                key={button.label}
-                onClick={button.action}
-                className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
-              >
-                <Icon className="h-4 w-4" /> {button.label}
-              </button>
-            )
-          })}
-          {moreMenuItems.length > 0 && (
-            <ActionMenu label={t('more')} items={moreMenuItems} />
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-slate-950">{t('contractorActions')}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t('contractorActionsHelp')}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {actionButtons.map((button) => {
+              const Icon = button.icon
+              return (
+                <button
+                  key={button.label}
+                  onClick={button.action}
+                  className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
+                >
+                  <Icon className="h-4 w-4" /> {button.label}
+                </button>
+              )
+            })}
+            {moreMenuItems.length > 0 && (
+              <ActionMenu label={t('more')} items={moreMenuItems} />
+            )}
+          </div>
+          {projectIsArchived && (
+            <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
+              <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
+            </button>
           )}
-        </div>
-        {projectIsArchived && (
-          <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
-            <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
-          </button>
-        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -1054,21 +1332,25 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           {hasClientLink && (
             <button
               onClick={() => navigate(`/clients/${currentLead.clientId}`)}
-              className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50"
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:w-auto"
             >
               {t('viewClient')}
             </button>
           )}
         </InfoCard>
-        <InfoCard title={recordDetailsTitle}>
-          <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
-          <DetailRow label={t('priority')} value={currentLead.priority} />
-          <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
-          <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
-        </InfoCard>
+        {/* {!isSimpleMode && (
+          <InfoCard title={recordDetailsTitle}>
+            <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
+            <DetailRow label={t('priority')} value={currentLead.priority} />
+            <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
+            <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
+          </InfoCard>
+        )} */}
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('clientPortalCardHelp')}</p>
-          <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">{portal.shareUrl}</div>
+          <div className="mt-4 min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
+            <p className="break-all">{portal.shareUrl}</p>
+          </div>
           <div className="mt-4 grid gap-3">
             <button onClick={onOpenPortal} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">
               {t('openCustomerPortal')} <ExternalLink className="h-4 w-4" />
@@ -1231,6 +1513,85 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
+            <h2 className="text-xl font-bold text-slate-950">{t('projectPhotos')}</h2>
+            <p className="text-sm text-slate-500">{t('uploadProjectPhotosHelp')}</p>
+          </div>
+          <button
+            onClick={() => setShowPhotoModal(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700"
+          >
+            <Camera className="h-4 w-4" /> {t('uploadPhoto')}
+          </button>
+        </div>
+
+        <div className="mb-4 rounded-2xl bg-slate-50 px-4 py-3 text-xs font-medium text-slate-500">
+          {`.jpg, .jpeg, .png, .webp • ${Math.round(PROJECT_PHOTO_MAX_FILE_SIZE_BYTES / (1024 * 1024))} MB max`}
+        </div>
+
+        {isLoadingPhotos ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">
+            {t('loading')}
+          </div>
+        ) : projectPhotos.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {projectPhotos.map((photo) => (
+              <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+                {photo.previewUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPhoto(photo)}
+                    className="block h-52 w-full overflow-hidden bg-slate-200"
+                    aria-label={t('previewPhoto')}
+                  >
+                    <img src={photo.previewUrl} alt={photo.label} className="h-full w-full object-cover" />
+                  </button>
+                ) : (
+                  <div className="flex h-52 items-center justify-center bg-slate-200 px-6 text-center text-sm font-semibold text-slate-500">
+                    {photo.label}
+                  </div>
+                )}
+                <div className="space-y-3 p-4">
+                  <div>
+                    <p className="truncate font-bold text-slate-950">{photo.label}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                      {photo.createdAt && <span>{formatProjectDetailDate(photo.createdAt, photo.createdAt)}</span>}
+                      {photo.fileSize > 0 && <span>{formatProjectPhotoFileSize(photo.fileSize)}</span>}
+                    </div>
+                    {photo.caption && <p className="mt-2 text-sm text-slate-600">{photo.caption}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPhoto(photo)}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100"
+                    >
+                      <Eye className="h-4 w-4" /> {t('previewPhoto')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteProjectPhoto(photo)}
+                      disabled={deletingPhotoId === photo.id}
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingPhotoId === photo.id ? t('loading') : t('deletePhoto')}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
+            <p className="font-bold text-slate-900">{t('projectPhotos')}</p>
+            <p className="mt-1 text-sm text-slate-500">{t('noPhotosUploadedYet')}</p>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
             <h2 className="text-xl font-bold text-slate-950">{t('projectSchedule')}</h2>
             <p className="text-sm text-slate-500">{t('projectScheduleHelp')}</p>
           </div>
@@ -1349,6 +1710,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       <RecordPaymentModal
         isOpen={showPaymentModal}
         remainingBalance={portal.outstandingBalance}
+        projectValue={paymentSummary.projectValue}
         initialPayment={editingPayment}
         onClose={closePaymentModal}
         onSave={saveProjectPayment}
@@ -1357,9 +1719,40 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       <PhotoUploadModal
         isOpen={showPhotoModal}
         onClose={() => setShowPhotoModal(false)}
-        onSave={(photos) => onUploadPhotos?.(photos)}
+        isSaving={isUploadingPhotos}
+        onSave={uploadProjectPhotos}
         t={t}
       />
+      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={() => setSelectedPhoto(null)} panelClassName="sm:max-w-4xl">
+        {selectedPhoto && (
+          <div>
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-950">{t('previewPhoto')}</h2>
+                <p className="mt-1 text-sm text-slate-500">{selectedPhoto.label}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPhoto(null)}
+                className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                aria-label={t('close')}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {selectedPhoto.previewUrl ? (
+              <img src={selectedPhoto.previewUrl} alt={selectedPhoto.label} className="max-h-[70vh] w-full rounded-3xl bg-slate-100 object-contain" />
+            ) : (
+              <div className="flex min-h-80 items-center justify-center rounded-3xl bg-slate-100 p-6 text-center text-sm font-semibold text-slate-500">
+                {selectedPhoto.label}
+              </div>
+            )}
+            {selectedPhoto.caption && (
+              <p className="mt-4 text-sm text-slate-600">{selectedPhoto.caption}</p>
+            )}
+          </div>
+        )}
+      </ModalShell>
       <SendToCustomerModal
         isOpen={showPortalLinkModal}
         documentType="portalLink"

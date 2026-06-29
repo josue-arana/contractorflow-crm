@@ -32,10 +32,10 @@ function CompanyBadge({ company = {}, t }) {
         <div style={{ display: 'flex', width: '48px', height: '48px', alignItems: 'center', justifyContent: 'center', borderRadius: '14px', backgroundColor: colors.slate900, color: colors.white, fontSize: '13px', fontWeight: 700 }}>{initials}</div>
       )}
       <div style={{ minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.slate900 }}>{company?.name || t('brandName')}</p>
-        {company?.ownerName ? <p style={{ margin: '3px 0 0', fontSize: '11px', color: colors.slate500 }}>{company.ownerName}</p> : null}
-        {company?.phone ? <p style={{ margin: '3px 0 0', fontSize: '11px', color: colors.slate500 }}>{company.phone}</p> : null}
-        {company?.email ? <p style={{ margin: '2px 0 0', fontSize: '11px', color: colors.slate500 }}>{company.email}</p> : null}
+        <p style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{company?.name || t('brandName')}</p>
+        {company?.ownerName ? <p style={{ margin: '3px 0 0', fontSize: '11px', color: colors.slate500, overflowWrap: 'anywhere' }}>{company.ownerName}</p> : null}
+        {company?.phone ? <p style={{ margin: '3px 0 0', fontSize: '11px', color: colors.slate500, overflowWrap: 'anywhere' }}>{company.phone}</p> : null}
+        {company?.email ? <p style={{ margin: '2px 0 0', fontSize: '11px', color: colors.slate500, overflowWrap: 'anywhere' }}>{company.email}</p> : null}
       </div>
     </div>
   )
@@ -45,7 +45,7 @@ function InfoBlock({ label, children }) {
   return (
     <div style={{ minWidth: 0 }}>
       <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: colors.slate400 }}>{label}</p>
-      <div style={{ marginTop: '4px', fontSize: '12px', lineHeight: 1.5, color: colors.slate700 }}>{children}</div>
+      <div style={{ marginTop: '4px', fontSize: '12px', lineHeight: 1.5, color: colors.slate700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</div>
     </div>
   )
 }
@@ -107,11 +107,11 @@ function DescriptionSection({ title, projectTitle, scope, total, t }) {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 188px', gap: '0', backgroundColor: colors.slate50 }}>
         <div style={{ padding: '12px 14px', borderRight: `1px solid ${colors.slate200}` }}>
           <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: colors.slate400 }}>{t('description')}</p>
-          <p style={{ margin: '6px 0 0', fontSize: '15px', fontWeight: 700, color: colors.slate900 }}>{projectTitle}</p>
+          <p style={{ margin: '6px 0 0', fontSize: '15px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{projectTitle}</p>
         </div>
         <div style={{ padding: '12px 14px', textAlign: 'right' }}>
           <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: colors.blue700 }}>{t('projectTotal')}</p>
-          <p style={{ margin: '6px 0 0', fontSize: '20px', fontWeight: 700, color: colors.slate900 }}>{currency.format(total)}</p>
+          <p style={{ margin: '6px 0 0', fontSize: '20px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{currency.format(total)}</p>
         </div>
       </div>
       <div
@@ -157,8 +157,8 @@ function NotesAndTermsSection({ items, t }) {
               pageBreakInside: 'auto',
             }}
           >
-            <p style={{ margin: 0, fontSize: '11px', fontWeight: 700, color: colors.slate900 }}>{item.title}</p>
-            <div style={{ marginTop: '3px', whiteSpace: 'pre-line', fontSize: '11px', lineHeight: 1.4, color: colors.slate700 }}>{item.content}</div>
+          <p style={{ margin: 0, fontSize: '11px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{item.title}</p>
+            <div style={{ marginTop: '3px', whiteSpace: 'pre-line', fontSize: '11px', lineHeight: 1.4, color: colors.slate700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{item.content}</div>
           </div>
         ))}
       </div>
@@ -208,9 +208,9 @@ export function ContractPdfTemplate({
         <CompanyBadge company={company} t={t} />
         <div style={{ textAlign: 'right' }}>
           <p style={{ margin: 0, fontSize: '11px', fontWeight: 700, letterSpacing: '0.28em', textTransform: 'uppercase', color: colors.blue500 }}>{t('contract')}</p>
-          <p style={{ margin: '6px 0 0', fontSize: '14px', fontWeight: 700, color: colors.slate900 }}>{contractNumber}</p>
+          <p style={{ margin: '6px 0 0', fontSize: '14px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{contractNumber}</p>
           <p style={{ margin: '8px 0 0', fontSize: '10px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: colors.slate400 }}>{t('date')}</p>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', color: colors.slate700 }}>{contractDate}</p>
+          <p style={{ margin: '4px 0 0', fontSize: '12px', color: colors.slate700, overflowWrap: 'anywhere' }}>{contractDate}</p>
         </div>
       </div>
 

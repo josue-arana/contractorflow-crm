@@ -6,6 +6,8 @@ import { USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
 import { getSettingsContractorId } from '../services/system/settingsRuntimeService'
+import settingsHeroBackground from '../assets/page-heroes/settings-bg.png'
+import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const { contractor, company: authCompany, contractorAccess, session } = useAuth()
@@ -88,6 +90,13 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
 
   function updatePortal(field, value) {
     updateSection('portal', field, value)
+  }
+
+  function updateRootField(field, value) {
+    setDraft((current) => ({
+      ...(current || {}),
+      [field]: value,
+    }))
   }
 
   function handleLogoUpload(event) {
@@ -174,10 +183,13 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
-        <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('settings')}</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">{t('settingsTitle')}</h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{t('settingsHelp')}</p>
+      <section className="relative overflow-hidden rounded-3xl p-5 text-white shadow-xl sm:p-6" style={buildHeroBackgroundStyle(settingsHeroBackground)}>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/55 via-slate-950/20 to-transparent" />
+        <div className="relative">
+          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('settings')}</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight">{t('settingsTitle')}</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">{t('settingsHelp')}</p>
+        </div>
       </section>
 
       {successMessage && (
@@ -235,6 +247,16 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
               <LanguageSelect label={t('contractorAppLanguage')} value={language} onChange={setLanguage} t={t} />
               <LanguageSelect label={t('customerPortalDefaultLanguage')} value={portalLanguage} onChange={setPortalLanguage} t={t} />
             </div>
+          </InfoCard>
+
+          <InfoCard title={t('simpleMode')} icon={Globe2}>
+            <ToggleRow
+              label={t('simpleMode')}
+              description={t('simpleModeDescription')}
+              checked={Boolean(draft?.simpleMode)}
+              onChange={(checked) => updateRootField('simpleMode', checked)}
+              t={t}
+            />
           </InfoCard>
         </div>
 
@@ -294,11 +316,14 @@ function LanguageSelect({ label, value, onChange, t }) {
   )
 }
 
-function ToggleRow({ label, checked, onChange, t }) {
+function ToggleRow({ label, description = '', checked, onChange, t }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-bold text-slate-700">{label}</span>
+        <div className="min-w-0">
+          <span className="text-sm font-bold text-slate-700">{label}</span>
+          {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+        </div>
         <button onClick={() => onChange(!checked)} className={`rounded-full px-4 py-2 text-xs font-bold ${checked ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'}`} type="button">
           {checked ? t('yes') : t('no')}
         </button>

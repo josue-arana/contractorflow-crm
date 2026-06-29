@@ -42,6 +42,7 @@ import { buildClientProfiles, getClientSlug } from './utils/clients'
 import { appRoutes } from './config/appRoutes'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './contexts/AuthContext'
+import { SimpleModeProvider } from './contexts/SimpleModeContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
@@ -622,12 +623,16 @@ function ContractorFlowApp() {
   useEffect(() => {
     let isCancelled = false
 
-    if (!USE_SUPABASE_SETTINGS || !settingsContractorId || contractorAccess?.membershipStatus !== 'active') {
+    if (USE_SUPABASE_SETTINGS && (!settingsContractorId || contractorAccess?.membershipStatus !== 'active')) {
       return undefined
     }
 
     async function loadCompanySettings() {
-      const response = await dataProvider?.settings?.getSettings?.({ contractorId: settingsContractorId })
+      const response = await dataProvider?.settings?.getSettings?.(
+        USE_SUPABASE_SETTINGS
+          ? { contractorId: settingsContractorId }
+          : {}
+      )
 
       if (isCancelled) return
 
@@ -640,7 +645,7 @@ function ContractorFlowApp() {
       }
 
       if (response?.data) {
-        setCompanySettings(response.data)
+        setCompanySettings(createDefaultCompanySettings(response.data))
       }
     }
 
@@ -2516,6 +2521,50 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     addNotification('notificationContractSignedTitle', 'notificationContractSignedMessage')
   }
 
+  function markContractUnsigned(leadId, contract) {
+    let persistedEstimate = null
+
+    setLeads((current) => current.map((lead) => {
+      if (lead.id !== leadId) return lead
+      const portal = lead.portal || {}
+      persistedEstimate = hasEstimateData(portal.estimate) ? { ...portal.estimate, status: 'Converted to Contract' } : null
+      const contractAmount = Number(contract?.total || portal.contractAmount || portal.estimate?.total || lead.value || 0)
+
+      return {
+        ...lead,
+        portal: {
+          ...portal,
+          contractAmount,
+          outstandingBalance: Math.max(contractAmount - Number(portal.amountPaid || 0), 0),
+          contract: {
+            ...(portal.contract || {}),
+            ...contract,
+            number: contract?.number || portal.contract?.number || `CON-${String(lead.id).replace(/\D/g, '').padStart(4, '0')}`,
+            status: contract?.status || 'Draft',
+            signed: false,
+            signedDate: '',
+            signedAt: null,
+            signed_at: null,
+            signedBy: '',
+            signed_by: '',
+            total: contractAmount,
+          },
+        },
+      }
+    }))
+    syncLeadContractState(leadId, {
+      ...contract,
+      status: contract?.status || 'Draft',
+      signed: false,
+      signedDate: '',
+      signedAt: null,
+      signed_at: null,
+      signedBy: '',
+      signed_by: '',
+    }, persistedEstimate)
+    showToast(t('contractMarkedUnsigned'))
+  }
+
   function getInvoiceStatus(invoice) {
     if (invoice.status === 'Archived' || invoice.status === 'Canceled') return invoice.status
     const amount = Number(invoice.amount || 0)
@@ -2649,7 +2698,13 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
   function openProject(leadId) {
     const matchingLead = findLeadByProjectLookup(visibleLeads, leadId)
-    const routeId = resolveLinkedProjectId(matchingLead, leadId)
+    const routeId = matchingLead?.projectId || matchingLead?.project_id || ''
+
+    if (!routeId) {
+      navigate(`/leads/${matchingLead?.id || leadId}`)
+      setSidebarOpen(false)
+      return
+    }
 
     navigate(`/projects/${routeId}`, {
       state: {
@@ -2735,13 +2790,13 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
-      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onRecordPayment={openProject} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
+      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
-      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} t={t} />} />
+      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} t={t} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />
@@ -2753,7 +2808,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   )
 
   if (isAuthPage) {
-    return routeElements
+    return (
+      <SimpleModeProvider settings={companySettings}>
+        {routeElements}
+      </SimpleModeProvider>
+    )
   }
 
   if (USE_AUTH && isLoading) {
@@ -2828,85 +2887,87 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
+    <SimpleModeProvider settings={companySettings}>
+      <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
+        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
 
-      <div className="lg:pl-[280px]">
-        <Topbar
-          onMenuClick={() => setSidebarOpen(true)}
-          language={language}
-          setLanguage={setLanguage}
+        <div className="lg:pl-[280px]">
+          <Topbar
+            onMenuClick={() => setSidebarOpen(true)}
+            language={language}
+            setLanguage={setLanguage}
+            t={t}
+            notifications={notifications}
+            onMarkAllNotificationsRead={markAllNotificationsRead}
+            onClearNotifications={clearNotifications}
+            userProfile={userProfile}
+            onSaveUserProfile={(nextProfile) => {
+              setUserProfilesByUserId((current) => ({
+                ...current,
+                [activeUserProfileKey]: {
+                  ...(current[activeUserProfileKey] || {}),
+                  ...nextProfile,
+                },
+              }))
+            }}
+            onOpenSettings={() => navigate('/settings')}
+            onCreateLead={() => setIsDashboardLeadModalOpen(true)}
+            onCreateJob={() => openJobModal()}
+          />
+
+          <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
+        </div>
+        <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
+        <JobFormModal
+          isOpen={jobModalState.isOpen}
+          clients={clients}
+          initialClientId={jobModalState.initialClientId}
+          initialClient={jobModalState.initialClient}
+          onClose={closeJobModal}
+          onSave={createJobFromModal}
           t={t}
-          notifications={notifications}
-          onMarkAllNotificationsRead={markAllNotificationsRead}
-          onClearNotifications={clearNotifications}
-          userProfile={userProfile}
-          onSaveUserProfile={(nextProfile) => {
-            setUserProfilesByUserId((current) => ({
-              ...current,
-              [activeUserProfileKey]: {
-                ...(current[activeUserProfileKey] || {}),
-                ...nextProfile,
-              },
-            }))
-          }}
-          onOpenSettings={() => navigate('/settings')}
-          onCreateLead={() => setIsDashboardLeadModalOpen(true)}
-          onCreateJob={() => openJobModal()}
         />
+        <ScheduleEventModal
+          isOpen={scheduleModalState.isOpen}
+          leads={activeLeads}
+          initialLeadId={scheduleModalState.leadId}
+          context={scheduleModalState.context}
+          editingEvent={scheduleModalState.editingEvent}
+          onClose={closeScheduleModal}
+          onSave={async (event) => {
+            try {
+              const eventPayload = {
+                ...event,
+                contractorId: contractor?.contractorId || company?.contractorId || session?.user?.user_metadata?.contractor_id || eventsContractorId || projectsContractorId || undefined,
+              }
+              let response = null
 
-        <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
+              if (scheduleModalState.editingEvent?.id) {
+                response = await dataProvider.events.update?.(scheduleModalState.editingEvent.id, eventPayload, { contractorId: eventsContractorId || projectsContractorId })
+              } else {
+                response = await dataProvider.events.create?.(eventPayload, { contractorId: eventsContractorId || projectsContractorId })
+              }
+
+              if (response?.error) {
+                throw response.error
+              }
+
+              const savedEvent = response?.data || eventPayload
+
+              if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, savedEvent)
+              else createScheduleEvent(savedEvent, scheduleModalState.context)
+              closeScheduleModal()
+            } catch (error) {
+              logLeadDevError('[dev] Failed to save schedule event.', error, {
+                event,
+                context: scheduleModalState.context,
+              })
+            }
+          }}
+          t={t}
+        />
       </div>
-      <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
-      <JobFormModal
-        isOpen={jobModalState.isOpen}
-        clients={clients}
-        initialClientId={jobModalState.initialClientId}
-        initialClient={jobModalState.initialClient}
-        onClose={closeJobModal}
-        onSave={createJobFromModal}
-        t={t}
-      />
-      <ScheduleEventModal
-        isOpen={scheduleModalState.isOpen}
-        leads={activeLeads}
-        initialLeadId={scheduleModalState.leadId}
-        context={scheduleModalState.context}
-        editingEvent={scheduleModalState.editingEvent}
-        onClose={closeScheduleModal}
-        onSave={async (event) => {
-          try {
-            const eventPayload = {
-              ...event,
-              contractorId: contractor?.contractorId || company?.contractorId || session?.user?.user_metadata?.contractor_id || eventsContractorId || projectsContractorId || undefined,
-            }
-            let response = null
-
-            if (scheduleModalState.editingEvent?.id) {
-              response = await dataProvider.events.update?.(scheduleModalState.editingEvent.id, eventPayload, { contractorId: eventsContractorId || projectsContractorId })
-            } else {
-              response = await dataProvider.events.create?.(eventPayload, { contractorId: eventsContractorId || projectsContractorId })
-            }
-
-            if (response?.error) {
-              throw response.error
-            }
-
-            const savedEvent = response?.data || eventPayload
-
-            if (scheduleModalState.editingEvent?.id) updateScheduleEvent(scheduleModalState.editingEvent.id, savedEvent)
-            else createScheduleEvent(savedEvent, scheduleModalState.context)
-            closeScheduleModal()
-          } catch (error) {
-            logLeadDevError('[dev] Failed to save schedule event.', error, {
-              event,
-              context: scheduleModalState.context,
-            })
-          }
-        }}
-        t={t}
-      />
-    </div>
+    </SimpleModeProvider>
   )
 }
 
