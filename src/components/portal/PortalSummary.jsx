@@ -119,6 +119,11 @@ function formatDisplayDate(value) {
   })
 }
 
+function getPortalPhotoDisplayTitle(photo = {}, t = (key) => key) {
+  const caption = typeof photo?.caption === 'string' ? photo.caption.trim() : ''
+  return caption || t('projectPhoto')
+}
+
 function buildPreviewLead(project = {}, client = {}) {
   return {
     client: client?.displayName || client?.name || project?.client || project?.clientName || '',
@@ -221,15 +226,29 @@ function SectionTitle({ icon, tone, children }) {
   )
 }
 
-export function PortalSummary({ project, client, estimate, contract, paymentSummary, upcomingEvents = [], company = {}, t = (key) => key }) {
+export function PortalSummary({
+  project,
+  client,
+  estimate,
+  contract,
+  paymentSummary,
+  upcomingEvents = [],
+  projectPhotos = [],
+  isLoadingPhotos = false,
+  photosLoadFailed = false,
+  company = {},
+  t = (key) => key,
+}) {
   const { showToast } = useToast()
   const estimatePreviewRef = useRef(null)
   const contractPreviewRef = useRef(null)
   const [openDocument, setOpenDocument] = useState(null)
+  const [selectedPhoto, setSelectedPhoto] = useState(null)
   const hasEstimate = Boolean(estimate)
   const hasContract = Boolean(contract)
   const hasPayments = Boolean(paymentSummary?.payments?.length)
   const hasUpcomingEvents = upcomingEvents.length > 0
+  const hasProjectPhotos = projectPhotos.length > 0
   const previewLead = useMemo(() => buildPreviewLead(project, client), [client, project])
   const estimateNumber = estimate ? getEstimateDisplayNumber(estimate, project) : ''
   const contractNumber = contract ? getContractDisplayNumber(contract, project) : ''
@@ -402,7 +421,45 @@ export function PortalSummary({ project, client, estimate, contract, paymentSumm
 
         <div className="lg:col-span-2">
           <InfoCard title={<SectionTitle icon={Images} tone="purple">{t('projectPhotos')}</SectionTitle>}>
-            <CenteredEmptyState icon={Images} message={t('portalPhotosEmptyState')} tone="purple" />
+            {isLoadingPhotos ? (
+              <EmptyState message={t('loading')} />
+            ) : photosLoadFailed ? (
+              <CalloutEmptyState icon={CircleAlert} message={t('unableToLoadProjectPhotos')} />
+            ) : hasProjectPhotos ? (
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {projectPhotos.map((photo) => (
+                  <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPhoto(photo)}
+                      className="block h-48 w-full overflow-hidden bg-slate-200"
+                      aria-label={t('viewPhoto')}
+                    >
+                      <img src={photo.previewUrl || photo.url} alt={getPortalPhotoDisplayTitle(photo, t)} className="h-full w-full object-cover" />
+                    </button>
+                    <div className="space-y-3 p-4">
+                      <div className="min-w-0">
+                        {photo.createdAt ? (
+                          <p className="mt-1 text-xs text-slate-500">{formatDisplayDate(photo.createdAt)}</p>
+                        ) : null}
+                        {photo.caption ? (
+                          <p className="mt-2 text-sm leading-6 text-slate-600">{photo.caption}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPhoto(photo)}
+                        className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-100"
+                      >
+                        {t('viewPhoto')}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <CenteredEmptyState icon={Images} message={t('noProjectPhotosUploadedYet')} tone="purple" />
+            )}
           </InfoCard>
         </div>
       </div>
@@ -452,6 +509,45 @@ export function PortalSummary({ project, client, estimate, contract, paymentSumm
           </div>
         </DocumentPreviewModal>
       ) : null}
+
+      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={() => setSelectedPhoto(null)} panelClassName="sm:max-w-4xl sm:p-8">
+        {selectedPhoto ? (
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">{t('projectPhotos')}</p>
+                <h2 className="mt-2 truncate text-2xl font-bold text-slate-950">{getPortalPhotoDisplayTitle(selectedPhoto, t)}</h2>
+                {selectedPhoto.createdAt ? (
+                  <p className="mt-2 text-sm text-slate-500">{formatDisplayDate(selectedPhoto.createdAt)}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPhoto(null)}
+                className="rounded-2xl border border-slate-200 p-3 text-slate-600 hover:bg-slate-50"
+                aria-label={t('closePhotoPreview')}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <img
+              src={selectedPhoto.previewUrl || selectedPhoto.url}
+              alt={getPortalPhotoDisplayTitle(selectedPhoto, t)}
+              className="max-h-[70vh] w-full rounded-3xl bg-slate-100 object-contain"
+            />
+            {selectedPhoto.caption ? (
+              <p className="text-sm leading-6 text-slate-600">{selectedPhoto.caption}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto(null)}
+              className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 sm:w-auto"
+            >
+              {t('closePhotoPreview')}
+            </button>
+          </div>
+        ) : null}
+      </ModalShell>
     </>
   )
 }

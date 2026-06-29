@@ -1,10 +1,66 @@
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, MapPin, Phone } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { PortalSummary } from '../components/portal/PortalSummary'
 import { usePortalProjectData } from '../hooks/usePortalProjectData'
 import heroBackground from '../assets/portal/blue-bg.png'
+import dataProvider from '../services/dataProvider'
 import { currency } from '../utils/formatters'
+import { dedupeById, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { tStatus } from '../translations'
+
+function normalizePortalPhoto(photo = {}, fallbackProjectId = '', fallbackContractorId = '', fallbackClientId = null) {
+  const previewUrl = photo.previewUrl || photo.url || ''
+  const filePath = photo.filePath || photo.file_path || ''
+  const fileName = photo.fileName || photo.file_name || filePath.split('/').pop() || ''
+  const label = photo.label || fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || photo.caption || photo.description || ''
+
+  return {
+    ...photo,
+    id: photo.id || filePath || previewUrl || label,
+    contractorId: photo.contractorId || photo.contractor_id || fallbackContractorId,
+    contractor_id: photo.contractorId || photo.contractor_id || fallbackContractorId,
+    clientId: photo.clientId || photo.client_id || fallbackClientId,
+    client_id: photo.clientId || photo.client_id || fallbackClientId,
+    projectId: photo.projectId || photo.project_id || fallbackProjectId,
+    project_id: photo.projectId || photo.project_id || fallbackProjectId,
+    filePath,
+    file_path: filePath,
+    fileName,
+    file_name: fileName,
+    fileSize: Number(photo.fileSize || photo.file_size || 0) || 0,
+    file_size: Number(photo.fileSize || photo.file_size || 0) || 0,
+    mimeType: photo.mimeType || photo.mime_type || '',
+    mime_type: photo.mimeType || photo.mime_type || '',
+    caption: photo.caption || photo.description || '',
+    description: photo.caption || photo.description || '',
+    label: label || 'Project Photo',
+    previewUrl,
+    url: previewUrl,
+    createdAt: photo.createdAt || photo.created_at || '',
+    created_at: photo.createdAt || photo.created_at || '',
+    source: photo.source || 'portal',
+  }
+}
+
+function dedupePortalPhotos(photos = [], fallbackProjectId = '', fallbackContractorId = '', fallbackClientId = null) {
+  return dedupeById(
+    photos
+      .map((photo) => normalizePortalPhoto(photo, fallbackProjectId, fallbackContractorId, fallbackClientId))
+      .filter((photo) => Boolean(photo.previewUrl || photo.url)),
+    ['filePath', 'url', 'label']
+  )
+}
+
+function logPortalPhotoLoadError(error, meta = {}) {
+  if (!import.meta.env.DEV) return
+
+  // eslint-disable-next-line no-console
+  console.error('[dev] CustomerPortalPage failed to load project photos.', {
+    error,
+    ...meta,
+  })
+}
 
 function CustomerPortalNotFound({ onBack, t }) {
   return (
@@ -39,11 +95,98 @@ export function CustomerPortalPage({ projects = [], clients = [], onBack, t, lan
     upcomingEvents,
     isLoading,
     notFound,
+    contractorId,
   } = usePortalProjectData({
     portalId: resolvedPortalId,
     projects,
     clients,
   })
+  const [projectPhotos, setProjectPhotos] = useState([])
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false)
+  const [photosLoadFailed, setPhotosLoadFailed] = useState(false)
+
+  const resolvedProjectId = useMemo(
+    () => resolveLinkedProjectId(project, resolvedPortalId),
+    [project, resolvedPortalId]
+  )
+  const resolvedContractorId = useMemo(
+    () => project?.contractorId || project?.contractor_id || contractorId || '',
+    [contractorId, project]
+  )
+  const resolvedClientId = useMemo(
+    () => client?.id || project?.clientId || project?.client_id || null,
+    [client, project]
+  )
+  const fallbackProjectPhotos = useMemo(() => dedupePortalPhotos([
+    ...(Array.isArray(project?.photos) ? project.photos : []),
+    ...(Array.isArray(project?.portal?.photos) ? project.portal.photos : []),
+  ], resolvedProjectId, resolvedContractorId, resolvedClientId), [project?.photos, project?.portal?.photos, resolvedClientId, resolvedContractorId, resolvedProjectId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    async function loadProjectPhotos() {
+      if (!resolvedProjectId || !resolvedContractorId) {
+        setProjectPhotos(fallbackProjectPhotos)
+        setPhotosLoadFailed(false)
+        setIsLoadingPhotos(false)
+        return
+      }
+
+      setIsLoadingPhotos(true)
+      setPhotosLoadFailed(false)
+
+      try {
+        const response = await dataProvider.photos.listProjectPhotos({
+          contractorId: resolvedContractorId,
+          projectId: resolvedProjectId,
+        })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setProjectPhotos(fallbackProjectPhotos)
+          setPhotosLoadFailed(true)
+          logPortalPhotoLoadError(response.error, {
+            contractorId: resolvedContractorId,
+            projectId: resolvedProjectId,
+            clientId: resolvedClientId,
+          })
+          return
+        }
+
+        const persistedPhotos = Array.isArray(response?.data) ? response.data : []
+        const nextPhotos = response?.skipped ? [...persistedPhotos, ...fallbackProjectPhotos] : persistedPhotos
+
+        setProjectPhotos(dedupePortalPhotos(
+          nextPhotos,
+          resolvedProjectId,
+          resolvedContractorId,
+          resolvedClientId
+        ))
+      } catch (error) {
+        if (!isCancelled) {
+          setProjectPhotos(fallbackProjectPhotos)
+          setPhotosLoadFailed(true)
+          logPortalPhotoLoadError(error, {
+            contractorId: resolvedContractorId,
+            projectId: resolvedProjectId,
+            clientId: resolvedClientId,
+          })
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingPhotos(false)
+        }
+      }
+    }
+
+    loadProjectPhotos()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [fallbackProjectPhotos, resolvedClientId, resolvedContractorId, resolvedProjectId])
 
   if (isLoading) {
     return <CustomerPortalLoading t={t} />
@@ -145,6 +288,9 @@ export function CustomerPortalPage({ projects = [], clients = [], onBack, t, lan
         contract={contract}
         paymentSummary={paymentSummary}
         upcomingEvents={upcomingEvents}
+        projectPhotos={projectPhotos}
+        isLoadingPhotos={isLoadingPhotos}
+        photosLoadFailed={photosLoadFailed}
         company={companySettings?.company}
         t={t}
       />

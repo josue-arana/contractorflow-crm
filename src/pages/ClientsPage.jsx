@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Archive, DollarSign, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
+import { Archive, DollarSign, MoreVertical, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
-import { archiveListButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { ActionMenu } from '../components/common/ActionMenu'
 import dataProvider from '../services/dataProvider'
 import clientsHeroBackground from '../assets/page-heroes/clients-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
@@ -78,31 +79,101 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     setConfirmAction(null)
   }
 
+  function openClientProfile(clientId) {
+    onOpenClient(clientId)
+  }
+
+  function handleClientCardKeyDown(event, clientId) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openClientProfile(clientId)
+    }
+  }
+
+  async function restoreClient(clientId) {
+    try {
+      const response = await dataProvider.clients.restore(clientId)
+      onRestoreClient(clientId, response?.data)
+    } catch (err) {
+      // local mode: ignore errors
+    }
+  }
+
   function renderClientActions(client, compact = false) {
     const archived = isClientArchived(client, archivedClientIds)
+    const moreMenuItems = archived
+      ? [
+          {
+            id: 'restore-client',
+            label: t('restore'),
+            icon: <Undo2 className="mr-2 h-4 w-4" />,
+            onClick: () => restoreClient(client.id),
+          },
+          {
+            id: 'delete-client',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            onClick: () => confirmDelete(client),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]
+      : [
+          {
+            id: 'archive-client',
+            label: t('archive'),
+            icon: <Archive className="mr-2 h-4 w-4" />,
+            onClick: () => confirmArchive(client),
+            className: archiveMenuItemClasses,
+          },
+        ]
+
+    const actionLayoutClasses = compact ? 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2' : 'flex items-center justify-end gap-2'
+
+    const moreButtonClasses = compact
+      ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+
     if (archived) {
       return (
-        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
+        <div className={actionLayoutClasses}>
           <button
-            onClick={async (event) => {
+            onClick={(event) => {
               event.stopPropagation()
-              try {
-                const response = await dataProvider.clients.restore(client.id)
-                onRestoreClient(client.id, response?.data)
-              } catch (err) {
-                // local mode: ignore errors
-              }
+              openClientProfile(client.id)
             }}
-            className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
-          ><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
-          <button onClick={(event) => { event.stopPropagation(); confirmDelete(client) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+          >
+            {t('viewClient')}
+          </button>
+          <ActionMenu
+            label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+            ariaLabel={t('more')}
+            showChevron={!compact}
+            buttonClassName={moreButtonClasses}
+            items={moreMenuItems}
+          />
         </div>
       )
     }
+
     return (
-      <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onOpenClient(client.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewClient')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(client) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      <div className={actionLayoutClasses}>
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            openClientProfile(client.id)
+          }}
+          className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+        >
+          {t('viewClient')}
+        </button>
+        <ActionMenu
+          label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+          ariaLabel={t('more')}
+          showChevron={!compact}
+          buttonClassName={moreButtonClasses}
+          items={moreMenuItems}
+        />
       </div>
     )
   }
@@ -163,7 +234,13 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredClients.map((client) => (
-                <tr key={client.id} onClick={() => !isClientArchived(client, archivedClientIds) && onOpenClient(client.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr
+                  key={client.id}
+                  onClick={() => openClientProfile(client.id)}
+                  onKeyDown={(event) => handleClientCardKeyDown(event, client.id)}
+                  tabIndex={0}
+                  className="cursor-pointer bg-white transition hover:bg-blue-50/40 focus-visible:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                >
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{client.name}</p><p className="text-xs text-slate-500">{client.address}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{client.phone}</td>
                   <td className="px-4 py-4 text-slate-600">{client.email || t('notAdded')}</td>
@@ -180,7 +257,14 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
         <div className="space-y-3 md:hidden">
           {filteredClients.map((client) => (
-            <article key={client.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <article
+              key={client.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => openClientProfile(client.id)}
+              onKeyDown={(event) => handleClientCardKeyDown(event, client.id)}
+              className="cursor-pointer rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-blue-200 hover:bg-blue-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            >
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{client.name}</h3><p className="text-sm text-slate-500">{client.phone}</p></div>
                 <StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} />

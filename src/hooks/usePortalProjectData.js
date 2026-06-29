@@ -552,6 +552,7 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
     contract,
     paymentSummary,
     upcomingEvents,
+    contractorId: hydratedProject?.contractorId || project?.contractorId || project?.contractor_id || projectsContractorId || '',
     isLoading,
     notFound: hasLoaded && !hydratedProject,
   }

@@ -33,7 +33,10 @@ export function ActionMenu({ label, items = [], align = 'right', ariaLabel, butt
     <div ref={menuRef} className="relative">
       <button
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={(event) => {
+          event.stopPropagation()
+          setIsOpen((current) => !current)
+        }}
         aria-label={ariaLabel}
         className={buttonClassName || baseButtonClasses}
       >
@@ -47,8 +50,9 @@ export function ActionMenu({ label, items = [], align = 'right', ariaLabel, butt
             <button
               key={item.id}
               type="button"
-              onClick={() => {
-                item.onClick?.()
+              onClick={(event) => {
+                event.stopPropagation()
+                item.onClick?.(event)
                 setIsOpen(false)
               }}
               className={item.className || baseMenuItemClasses}

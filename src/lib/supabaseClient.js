@@ -180,6 +180,51 @@ function createSupabaseRestClient() {
     }, { retryOnSessionError: !skipSessionRecovery && Boolean(headers.Authorization) })
   }
 
+  async function requestStorage(path, { method = 'GET', body, headers = {}, responseType = 'json', skipSessionRecovery = false } = {}) {
+    if (!isSupabaseDataEnabled()) {
+      warnDisabledRequest()
+      return null
+    }
+
+    const { supabaseUrl, supabaseAnonKey } = getSupabaseEnvironmentConfig()
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw getSupabaseConfigError()
+    }
+
+    const url = `${supabaseUrl.replace(/\/$/, '')}/storage/v1${path}`
+
+    return executeSupabaseRequest(async () => {
+      const accessToken = sessionHandlers.getAccessToken?.()
+      const response = await fetch(url, {
+        method,
+        headers: {
+          apikey: supabaseAnonKey,
+          Authorization: `Bearer ${accessToken || supabaseAnonKey}`,
+          ...headers,
+        },
+        body,
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        const data = parseJsonSafely(text)
+        throw createSupabaseHttpError(data, `Supabase storage request failed with status ${response.status}`, response.status)
+      }
+
+      if (responseType === 'blob') {
+        return response.blob()
+      }
+
+      if (responseType === 'text') {
+        return response.text()
+      }
+
+      const text = await response.text()
+      return parseJsonSafely(text)
+    }, { retryOnSessionError: !skipSessionRecovery })
+  }
+
   return {
     async request(tableName, { method = 'GET', query, body, prefer = 'return=representation' } = {}) {
       if (!isSupabaseDataEnabled()) {
@@ -217,6 +262,37 @@ function createSupabaseRestClient() {
 
         return data
       })
+    },
+    requestStorage,
+    storage: {
+      async upload(bucketName, path, fileBody, { cacheControl = '3600', contentType = '', upsert = false } = {}) {
+        const body = new FormData()
+        body.append('cacheControl', cacheControl)
+        body.append('', fileBody)
+
+        return requestStorage(`/object/${bucketName}/${path}`, {
+          method: 'POST',
+          body,
+          headers: {
+            'x-upsert': String(upsert),
+          },
+        })
+      },
+      async download(bucketName, path) {
+        return requestStorage(`/object/${bucketName}/${path}`, {
+          method: 'GET',
+          responseType: 'blob',
+        })
+      },
+      async delete(bucketName, paths = []) {
+        return requestStorage(`/object/${bucketName}`, {
+          method: 'DELETE',
+          body: JSON.stringify({ prefixes: paths }),
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        })
+      },
     },
     requestAuth,
   }
