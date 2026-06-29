@@ -1856,7 +1856,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     })
   }
 
-  function uploadProjectPhotos(leadId, photos) {
+  function uploadProjectPhotos(leadId, photos, { notify = true } = {}) {
     const sourceLead = findLeadByProjectLookup(leads, leadId)
     const resolvedLeadId = sourceLead?.id || leadId
 
@@ -1870,7 +1870,9 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         },
       }
     }))
-    showToast(t('photosUploaded'))
+    if (notify) {
+      showToast(t(photos.length > 1 ? 'photosUploaded' : 'photoUploaded'))
+    }
   }
 
   async function saveEstimate(leadId, estimate) {
@@ -2991,7 +2993,7 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onRecordPayment={(payment) => onRecordPayment?.(leadRecordId, payment)}
       onUpdatePayment={(payment) => onUpdatePayment?.(leadRecordId, payment)}
       onDeletePayment={(payment) => onDeletePayment?.(leadRecordId, payment)}
-      onUploadPhotos={(photos) => onUploadPhotos?.(leadRecordId, photos)}
+      onUploadPhotos={(photos, options) => onUploadPhotos?.(leadRecordId, photos, options)}
       scheduleEvents={scheduleEvents}
       archivedScheduleEventIds={archivedScheduleEventIds}
       onScheduleEvent={() => onScheduleEvent?.({ leadId: leadRecordId, context: 'job' })}
