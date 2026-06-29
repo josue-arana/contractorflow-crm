@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Archive, ArrowLeft, BriefcaseBusiness, ClipboardList, DollarSign, Edit3, FileSignature, MessageSquare, Phone, Plus, Trash2, Undo2, WalletCards } from 'lucide-react'
+import { Archive, ArrowLeft, BriefcaseBusiness, CarFront, ClipboardList, DollarSign, Edit3, FileSignature, MessageSquare, MoreVertical, Phone, Plus, Trash2, Undo2, WalletCards } from 'lucide-react'
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { buildClientProfiles } from '../utils/clients'
-import { archivePanelButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { getContractDisplayNumber } from '../utils/contractNumber'
 import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
@@ -16,6 +16,7 @@ import { useSimpleMode } from '../contexts/SimpleModeContext'
 import { hasEstimateData } from '../utils/estimateLinks'
 import { hasContractData } from '../utils/contractLinks'
 import { dedupeById, getContractForProject, getEstimateForProject, getProjectsForClient } from '../utils/projectIdentity'
+import { ActionMenu } from '../components/common/ActionMenu'
 
 function isClientArchived(client, archivedClientIds = []) {
   return Boolean(
@@ -24,6 +25,18 @@ function isClientArchived(client, archivedClientIds = []) {
       || client?.archived_at
       || archivedClientIds.includes(client?.id)
   )
+}
+
+function normalizePhoneLink(phone = '') {
+  const value = String(phone || '').trim()
+  if (!value) return ''
+  return value.replace(/[^\d+]/g, '')
+}
+
+function buildMapsHref(address = '') {
+  const value = String(address || '').trim()
+  if (!value) return ''
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`
 }
 
 export function ClientProfilePage({ leads, customClients = [], archivedClientIds = [], onBack, onOpenProject, onOpenLead, onOpenEstimate, onOpenContract, onCreateJob, onUpdateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
@@ -45,6 +58,10 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   }
 
   const isArchived = isClientArchived(client, archivedClientIds)
+  const phoneHref = normalizePhoneLink(client.phone)
+  const smsHref = phoneHref ? `sms:${phoneHref}` : ''
+  const mapsHref = buildMapsHref(client.address)
+  const emailHref = client.email ? `mailto:${client.email}` : ''
   const clientProjects = useMemo(
     () => getProjectsForClient(client, client.projects),
     [client]
@@ -90,6 +107,50 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
     { type: t('depositPaid'), project: project.projectTitle || project.projectType, amount: project.portal?.depositRequired || 0, status: project.portal?.paymentStatus || project.projectStatus },
     ...(project.portal?.amountPaid > (project.portal?.depositRequired || 0) ? [{ type: t('progressPayment'), project: project.projectTitle || project.projectType, amount: project.portal.amountPaid - (project.portal.depositRequired || 0), status: project.portal.paymentStatus }] : []),
   ]).filter((payment) => payment.amount > 0)
+  const moreMenuItems = isArchived
+    ? [
+        {
+          id: 'restore-client',
+          label: t('restore'),
+          icon: <Undo2 className="mr-2 h-4 w-4" />,
+          onClick: async () => {
+            try {
+              const response = await dataProvider.clients.restore(client.id)
+              onRestoreClient(client.id, response?.data)
+            } catch (err) {
+              // local mode: ignore errors
+            }
+          },
+        },
+        {
+          id: 'delete-client',
+          label: t('deletePermanently'),
+          icon: <Trash2 className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'delete' }),
+          className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+        },
+      ]
+    : [
+        {
+          id: 'create-project',
+          label: t('createNewProject'),
+          icon: <Plus className="mr-2 h-4 w-4" />,
+          onClick: () => onCreateJob?.(client),
+        },
+        {
+          id: 'edit-client',
+          label: t('editClient'),
+          icon: <Edit3 className="mr-2 h-4 w-4" />,
+          onClick: () => setIsEditOpen(true),
+        },
+        {
+          id: 'archive-client',
+          label: t('archive'),
+          icon: <Archive className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'archive' }),
+          className: archiveMenuItemClasses,
+        },
+      ]
 
   return (
     <div className="space-y-6">
@@ -103,38 +164,81 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{client.name}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{client.address}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <a href={`tel:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50"><Phone className="h-4 w-4" /> {t('callClient')}</a>
-            {!isSimpleMode && <a href={`sms:${client.phone}`} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><MessageSquare className="h-4 w-4" /> {t('textClient')}</a>}
-            <button onClick={() => onCreateJob?.(client)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Plus className="h-4 w-4" /> {t('createNewProject')}</button>
-            <button onClick={() => setIsEditOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/20"><Edit3 className="h-4 w-4" /> {t('editClient')}</button>
-            {isArchived ? (
-              <>
-                <button
-                  onClick={async () => {
-                    try {
-                      const response = await dataProvider.clients.restore(client.id)
-                      onRestoreClient(client.id, response?.data)
-                    } catch (err) {
-                      // local mode: ignore errors
-                    }
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"
-                ><Undo2 className="h-4 w-4" /> {t('restore')}</button>
-                <button onClick={() => setConfirmAction({ mode: 'delete' })} className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="h-4 w-4" /> {t('deletePermanently')}</button>
-              </>
-            ) : (
-              <button onClick={() => setConfirmAction({ mode: 'archive' })} className={`inline-flex items-center justify-center gap-2 ${archivePanelButtonClasses}`}><Archive className="h-4 w-4" /> {t('archive')}</button>
-            )}
+          <div className="w-full max-w-md space-y-3">
+            <div className="grid grid-cols-3 gap-2">
+              {mapsHref ? (
+                <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white px-3 py-3 text-center text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50">
+                  <CarFront className="h-5 w-5" />
+                  {t('drive')}
+                </a>
+              ) : (
+                <button type="button" disabled className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white/10 px-3 py-3 text-center text-sm font-bold text-slate-300 opacity-70">
+                  <CarFront className="h-5 w-5" />
+                  {t('drive')}
+                </button>
+              )}
+              {phoneHref ? (
+                <a href={`tel:${phoneHref}`} className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white px-3 py-3 text-center text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50">
+                  <Phone className="h-5 w-5" />
+                  {t('call')}
+                </a>
+              ) : (
+                <button type="button" disabled className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white/10 px-3 py-3 text-center text-sm font-bold text-slate-300 opacity-70">
+                  <Phone className="h-5 w-5" />
+                  {t('call')}
+                </button>
+              )}
+              {smsHref ? (
+                <a href={smsHref} className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white px-3 py-3 text-center text-sm font-bold text-slate-950 shadow-sm hover:bg-blue-50">
+                  <MessageSquare className="h-5 w-5" />
+                  {t('text')}
+                </a>
+              ) : (
+                <button type="button" disabled className="inline-flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-3xl bg-white/10 px-3 py-3 text-center text-sm font-bold text-slate-300 opacity-70">
+                  <MessageSquare className="h-5 w-5" />
+                  {t('text')}
+                </button>
+              )}
+            </div>
+            <div className="flex justify-end">
+              <ActionMenu
+                label={<MoreVertical className="h-4 w-4" />}
+                ariaLabel={t('more')}
+                showChevron={false}
+                buttonClassName="inline-flex min-h-[44px] items-center justify-center rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/20"
+                items={moreMenuItems}
+              />
+            </div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
         <InfoCard title={t('contactInformation')} icon={Phone}>
-          <DetailRow label={t('phone')} value={client.phone} />
-          <DetailRow label={t('email')} value={client.email || t('notAdded')} />
-          <DetailRow label={t('address')} value={client.address} />
+          <DetailRow
+            label={t('phone')}
+            value={phoneHref ? (
+              <a href={`tel:${phoneHref}`} className="inline-block break-words text-right text-sm font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-slate-700">
+                {client.phone}
+              </a>
+            ) : client.phone || t('notAdded')}
+          />
+          <DetailRow
+            label={t('email')}
+            value={emailHref ? (
+              <a href={emailHref} className="inline-block break-all text-right text-sm font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-slate-700">
+                {client.email}
+              </a>
+            ) : client.email || t('notAdded')}
+          />
+          <DetailRow
+            label={t('address')}
+            value={mapsHref ? (
+              <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-block break-words text-right text-sm font-bold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:text-slate-700">
+                {client.address}
+              </a>
+            ) : client.address || t('notAdded')}
+          />
         </InfoCard>
 
         <InfoCard title={t('clientSummary')} icon={BriefcaseBusiness}>
