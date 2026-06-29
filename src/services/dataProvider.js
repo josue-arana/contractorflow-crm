@@ -244,9 +244,8 @@ const localImpl = {
   invoices: invoicesLocalService,
   payments: paymentsLocalService,
   events: eventsLocalService,
-  // Local implementation uses a small local settings service. It intentionally
-  // returns skipped responses so the App's in-memory state remains the
-  // source-of-truth while the UI continues to function exactly as before.
+  // Local implementation uses a small local settings service and persists to
+  // local storage so Settings behavior matches refresh expectations.
   photos: photosService,
 }
 

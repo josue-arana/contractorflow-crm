@@ -92,6 +92,13 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
     updateSection('portal', field, value)
   }
 
+  function updateRootField(field, value) {
+    setDraft((current) => ({
+      ...(current || {}),
+      [field]: value,
+    }))
+  }
+
   function handleLogoUpload(event) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -241,6 +248,16 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
               <LanguageSelect label={t('customerPortalDefaultLanguage')} value={portalLanguage} onChange={setPortalLanguage} t={t} />
             </div>
           </InfoCard>
+
+          <InfoCard title={t('simpleMode')} icon={Globe2}>
+            <ToggleRow
+              label={t('simpleMode')}
+              description={t('simpleModeDescription')}
+              checked={Boolean(draft?.simpleMode)}
+              onChange={(checked) => updateRootField('simpleMode', checked)}
+              t={t}
+            />
+          </InfoCard>
         </div>
 
         <aside className="space-y-5 lg:sticky lg:top-24 lg:self-start">
@@ -299,11 +316,14 @@ function LanguageSelect({ label, value, onChange, t }) {
   )
 }
 
-function ToggleRow({ label, checked, onChange, t }) {
+function ToggleRow({ label, description = '', checked, onChange, t }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-bold text-slate-700">{label}</span>
+        <div className="min-w-0">
+          <span className="text-sm font-bold text-slate-700">{label}</span>
+          {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+        </div>
         <button onClick={() => onChange(!checked)} className={`rounded-full px-4 py-2 text-xs font-bold ${checked ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'}`} type="button">
           {checked ? t('yes') : t('no')}
         </button>

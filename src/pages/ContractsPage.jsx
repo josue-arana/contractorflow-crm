@@ -68,7 +68,7 @@ function buildContractEditorState({ lead, portal, savedContract, estimate, t }) 
   }
 }
 
-export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned }) {
+export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned, onMarkUnsigned }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
@@ -110,6 +110,13 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     total: contractTotal,
     t,
   }), [companySettings?.company, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope, t])
+  const isSigned = Boolean(
+    savedContract?.status === 'Signed'
+      || savedContract?.signed
+      || savedContract?.signedDate
+      || savedContract?.signedAt
+      || savedContract?.signed_at
+  )
 
   function resetEditorState() {
     const nextState = buildContractEditorState({
@@ -268,6 +275,45 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     }
   }
 
+  async function markUnsigned() {
+    const payload = getContractPayload({
+      status: 'Draft',
+      signed: false,
+      signedDate: '',
+      signedAt: null,
+      signed_at: null,
+      signedBy: '',
+      signed_by: '',
+    })
+
+    try {
+      const existing = savedContract || {}
+
+      const response = existing && existing.id
+        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
+        : await dataProvider.contracts.create(payload, { contractorId })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractUpdateFailed'), 'error')
+        return
+      }
+
+      onMarkUnsigned?.({
+        ...payload,
+        ...(response?.data || {}),
+        status: 'Draft',
+        signed: false,
+        signedDate: '',
+        signedAt: null,
+        signedBy: '',
+      })
+      setIsEditing(false)
+    } catch (err) {
+      console.warn('Mark unsigned via dataProvider failed', err)
+      showToast(err?.message || t('contractUpdateFailed'), 'error')
+    }
+  }
+
   function cancelEditing() {
     resetEditorState()
     setIsEditing(false)
@@ -289,6 +335,14 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       label: t('downloadPdf'),
       onClick: handleDownloadPdf,
     },
+    isSigned
+      ? {
+          id: 'mark-contract-unsigned',
+          label: t('markAsUnsigned'),
+          onClick: markUnsigned,
+          className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+        }
+      : null,
   ]
 
   return (
@@ -297,10 +351,10 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('contractPreview')}</p>
         <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
-        <p className="mt-2 text-slate-300">{lead.client} · {lead.address || lead.location}</p>
+        <p className="mt-2 break-words text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-        <div className="mb-6 grid gap-3 sm:grid-cols-6">
+        <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {isEditing ? (
             <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
           ) : (
@@ -308,7 +362,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
           )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
           <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
-          <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button>
+          {!isSigned ? <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button> : <div className="hidden xl:block" />}
           <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
           <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} />
         </div>
@@ -372,13 +426,13 @@ function ContractDocument({ isEditing, lead, company, contractDate, contractNumb
       {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} total={contractTotal} t={t} /> : null}
       {isEditing ? (
         <>
-          <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-6">
+          <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
             <DocumentCompanyHeader company={company} t={t} />
-            <div className="text-right">
+            <div className="min-w-0 sm:text-right">
               <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-500">{t('contract')}</p>
-              <p className="mt-1 text-sm font-bold text-slate-900">{contractNumber}</p>
+              <p className="mt-1 break-words text-sm font-bold text-slate-900">{contractNumber}</p>
               <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-400">{t('date')}</p>
-              <p className="mt-1 text-sm text-slate-600">{contractDate}</p>
+              <p className="mt-1 break-words text-sm text-slate-600">{contractDate}</p>
             </div>
           </div>
           <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} highlighted />
@@ -396,17 +450,17 @@ function ContractDocument({ isEditing, lead, company, contractDate, contractNumb
 
 function DocumentCompanyHeader({ company, t }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       {company?.logo ? (
         <img src={company.logo} alt="" className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200" />
       ) : (
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white">{t('brandInitials')}</div>
       )}
-      <div>
-        <p className="font-bold text-slate-950">{company?.name || t('brandName')}</p>
-        <p className="text-sm text-slate-600">{company?.phone || ''}</p>
-        <p className="text-sm text-slate-600">{company?.email || ''}</p>
-        <p className="text-sm text-slate-600">{company?.address || ''}</p>
+      <div className="min-w-0">
+        <p className="break-words font-bold text-slate-950">{company?.name || t('brandName')}</p>
+        <p className="break-words text-sm text-slate-600">{company?.phone || ''}</p>
+        <p className="break-words text-sm text-slate-600">{company?.email || ''}</p>
+        <p className="break-words text-sm text-slate-600">{company?.address || ''}</p>
       </div>
     </div>
   )
@@ -425,7 +479,7 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
   )
 }
 
-export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, t }) {
+export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -517,6 +571,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
       onBack={() => navigate(`/projects/${projectId}`)}
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
       onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
+      onMarkUnsigned={(contract) => onMarkContractUnsigned?.(lead.id, contract)}
     />
   )
 }

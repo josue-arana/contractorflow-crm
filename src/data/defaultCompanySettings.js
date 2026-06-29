@@ -1,5 +1,6 @@
 const baseCompanySettings = {
   appLanguage: 'en',
+  simpleMode: false,
   company: {
     name: 'ContractorFlow Remodeling LLC',
     ownerName: 'Josue Arana',

@@ -57,6 +57,7 @@ export function buildClientProfiles(leads = [], customClients = []) {
 
     const projectRecord = {
       ...lead,
+      isProjectRecord: Boolean(lead.projectId || lead.project_id),
       projectValue: contractAmount,
       amountPaid: paid,
       outstandingBalance: balance,

@@ -16,6 +16,7 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
 import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { useSimpleMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
@@ -311,6 +312,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
+  const { isSimpleMode } = useSimpleMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const routeProjectId = id || leadId || ''
   const fallbackLinkedProjectId = lead?.projectId || lead?.project_id || ''
@@ -910,6 +912,28 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   async function saveProjectPayment(payment) {
     try {
       const persistedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead)
+      const parsedAmount = Number(payment?.amount)
+
+      if (!payment?.amount && payment?.amount !== 0) {
+        showToast(t('enterPaymentAmount'), 'error')
+        return
+      }
+
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        showToast(t('paymentAmountMustBeGreaterThanZero'), 'error')
+        return
+      }
+
+      if (!persistedProjectId) {
+        showToast(t('projectRequiredBeforePayment'), 'error')
+        return
+      }
+
+      if (!contractorId && USE_SUPABASE_PAYMENTS) {
+        showToast(t('paymentSaveFailed'), 'error')
+        return
+      }
+
       const paymentEntry = normalizePaymentRecord({
         ...(editingPayment || {}),
         ...payment,
@@ -1060,12 +1084,14 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             </button>
           )}
         </InfoCard>
-        <InfoCard title={recordDetailsTitle}>
-          <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
-          <DetailRow label={t('priority')} value={currentLead.priority} />
-          <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
-          <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
-        </InfoCard>
+        {!isSimpleMode && (
+          <InfoCard title={recordDetailsTitle}>
+            <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
+            <DetailRow label={t('priority')} value={currentLead.priority} />
+            <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
+            <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
+          </InfoCard>
+        )}
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('clientPortalCardHelp')}</p>
           <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">{portal.shareUrl}</div>
@@ -1349,6 +1375,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       <RecordPaymentModal
         isOpen={showPaymentModal}
         remainingBalance={portal.outstandingBalance}
+        projectValue={paymentSummary.projectValue}
         initialPayment={editingPayment}
         onClose={closePaymentModal}
         onSave={saveProjectPayment}

@@ -383,6 +383,7 @@ create table company_settings (
   default_invoice_due_days integer not null default 14,
   default_materials_included boolean not null default true,
   contractor_app_language text not null default 'en' check (contractor_app_language in ('en', 'es')),
+  simple_mode boolean not null default false,
   customer_portal_language text not null default 'en' check (customer_portal_language in ('en', 'es')),
   show_payments_in_portal boolean not null default true,
   show_photos_in_portal boolean not null default true,
