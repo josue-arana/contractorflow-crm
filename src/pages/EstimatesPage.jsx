@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
-import { Archive, CheckCircle2, ClipboardList, DollarSign, FileText, Trash2, Undo2 } from 'lucide-react'
+import { Archive, CheckCircle2, ClipboardList, DollarSign, FileText, MoreVertical, Trash2, Undo2 } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import { currency } from '../utils/formatters'
-import { archiveListButtonClasses } from '../utils/buttonStyles'
+import { currency, formatDisplayDate } from '../utils/formatters'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import ActionMenu from '../components/common/ActionMenu'
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import estimatesHeroBackground from '../assets/page-heroes/estimates-bg.png'
@@ -38,7 +39,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     status: getEstimateStatus(lead),
     dateCreated: lead.portal?.estimate?.dateCreated || lead.portal?.estimate?.createdAt || lead.portal?.contract?.signedDate || 'June 2026',
     hasLinkedContract: Boolean(lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber),
-    nextAction: (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) ? t('viewEditContract') : t('convertToContract'),
+    nextAction: (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) ? t('viewContract') : t('convertToContract'),
     isArchived: archivedIds.includes(lead.id),
   })), [archivedIds, leads, t])
 
@@ -65,7 +66,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
       status: estimate.status || 'Draft',
       dateCreated: estimate.dateCreated || estimate.createdAt || estimate.created_at || 'June 2026',
       hasLinkedContract: Boolean(linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber),
-      nextAction: (linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber) ? t('viewEditContract') : t('convertToContract'),
+      nextAction: (linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber) ? t('viewContract') : t('convertToContract'),
       isArchived,
     }
   }), [contracts, estimates, leads, t])
@@ -119,20 +120,65 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
 
   function renderEstimateActions(estimate, compact = false) {
     const isArchived = estimate.isArchived
+    const moreMenuItems = isArchived
+      ? [
+          {
+            id: 'restore-estimate',
+            label: t('restore'),
+            icon: <Undo2 className="mr-2 h-4 w-4" />,
+            onClick: () => onRestoreEstimate(estimate.sourceLeadId, estimate),
+          },
+          {
+            id: 'delete-estimate',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            onClick: () => confirmDelete(estimate),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]
+      : [
+          {
+            id: 'archive-estimate',
+            label: t('archive'),
+            icon: <Archive className="mr-2 h-4 w-4" />,
+            onClick: () => confirmArchive(estimate),
+            className: archiveMenuItemClasses,
+          },
+        ]
+
+    const actionLayoutClasses = compact
+      ? `grid ${isArchived ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'} items-center gap-2`
+      : 'flex items-center justify-end gap-2'
+
+    const moreButtonClasses = compact
+      ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+
     if (isArchived) {
       return (
-        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreEstimate(estimate.sourceLeadId, estimate) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
-          <button onClick={(event) => { event.stopPropagation(); confirmDelete(estimate) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        <div className={actionLayoutClasses}>
+          <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+          <ActionMenu
+            label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+            ariaLabel={t('more')}
+            showChevron={!compact}
+            buttonClassName={moreButtonClasses}
+            items={moreMenuItems}
+          />
         </div>
       )
     }
     return (
-      <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('editEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(estimate) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      <div className={actionLayoutClasses}>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewContract') : t('convertToContract')}</button>
+        <ActionMenu
+          label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+          ariaLabel={t('more')}
+          showChevron={!compact}
+          buttonClassName={moreButtonClasses}
+          items={moreMenuItems}
+        />
       </div>
     )
   }
@@ -191,7 +237,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{estimate.client}</p><p className="text-sm text-slate-500">{estimate.projectTitle}</p></td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(estimate.amount)}</td>
                   <td className="px-4 py-4"><StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} /></td>
-                  <td className="px-4 py-4 font-medium text-slate-700">{estimate.dateCreated}</td>
+                  <td className="px-4 py-4 font-medium text-slate-700">{formatDisplayDate(estimate.dateCreated, estimate.dateCreated)}</td>
                   <td className="px-4 py-4 text-slate-600">{estimate.nextAction}</td>
                   <td className="px-4 py-4 text-right">{renderEstimateActions(estimate)}</td>
                 </tr>

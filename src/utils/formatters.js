@@ -3,3 +3,19 @@ export const currency = new Intl.NumberFormat('en-US', {
   currency: 'USD',
   maximumFractionDigits: 0,
 })
+
+export function formatDisplayDate(value, fallback = '') {
+  if (!value) return fallback
+
+  const parsedDate = value instanceof Date ? value : new Date(value)
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return typeof value === 'string' ? value : fallback
+  }
+
+  return parsedDate.toLocaleDateString(undefined, {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}

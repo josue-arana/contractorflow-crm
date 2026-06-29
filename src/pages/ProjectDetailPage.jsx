@@ -1,12 +1,12 @@
 import { Component, useEffect, useMemo, useState } from 'react'
-import { Archive, ArrowLeft, CalendarDays, Camera, Clock, Download, Edit3, ExternalLink, Eye, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2, X } from 'lucide-react'
+import { Archive, ArrowLeft, CalendarDays, Camera, ChevronLeft, ChevronRight, Clock, Download, Edit3, ExternalLink, FileText, MapPin, MoreVertical, Share2, DollarSign, Trash2, Undo2, X } from 'lucide-react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { ModalShell } from '../components/common/ModalShell'
 import { InfoCard } from '../components/ui/InfoCard'
 import { DetailRow } from '../components/ui/DetailRow'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import { currency } from '../utils/formatters'
+import { currency, formatDisplayDate } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { tStatus } from '../translations'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
@@ -275,7 +275,7 @@ function normalizeProjectWorkspacePhoto(photo = {}, fallbackProjectId = '') {
   const previewUrl = photo.previewUrl || photo.url || ''
   const filePath = photo.filePath || photo.file_path || ''
   const fileName = photo.fileName || photo.file_name || filePath.split('/').pop() || ''
-  const label = photo.label || fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim() || photo.caption || photo.description || 'Project Photo'
+  const label = photo.caption || photo.description || ''
 
   return {
     ...photo,
@@ -318,6 +318,13 @@ function formatProjectPhotoFileSize(bytes = 0) {
   if (!numericBytes) return ''
   if (numericBytes >= 1024 * 1024) return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`
   return `${Math.max(1, Math.round(numericBytes / 1024))} KB`
+}
+
+function getProjectPhotoDisplayTitle(photo = {}, index = 0, t = (key) => key) {
+  const caption = typeof photo?.caption === 'string' ? photo.caption.trim() : ''
+  if (caption) return caption
+  if (index <= 0) return t('projectPhoto')
+  return t('projectPhotoNumber', { number: index + 1 })
 }
 
 function ProjectDetailFallbackState({ onBack, t }) {
@@ -387,7 +394,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false)
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false)
   const [deletingPhotoId, setDeletingPhotoId] = useState('')
-  const [selectedPhoto, setSelectedPhoto] = useState(null)
+  const [selectedPhotoId, setSelectedPhotoId] = useState('')
+  const [photoConfirmAction, setPhotoConfirmAction] = useState(null)
+  const [failedPhotoIds, setFailedPhotoIds] = useState([])
   const [hiddenFallbackPhotoIds, setHiddenFallbackPhotoIds] = useState([])
   const [showPortalLinkModal, setShowPortalLinkModal] = useState(false)
   const [openScheduleMenuId, setOpenScheduleMenuId] = useState(null)
@@ -525,6 +534,16 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       ...(Array.isArray(lead?.portal?.photos) ? lead.portal.photos : []),
     ], scopedProjectId).filter((photo) => !hiddenIds.has(photo.id))
   }, [baseProject?.photos, baseProject?.portal?.photos, currentLead, hiddenFallbackPhotoIds, lead?.photos, lead?.portal?.photos, linkedProjectId, projectId])
+  const galleryPhotos = useMemo(() => (
+    projectPhotos.map((photo, index) => ({
+      ...photo,
+      displayTitle: getProjectPhotoDisplayTitle(photo, index, t),
+    }))
+  ), [projectPhotos, t])
+  const selectedPhotoIndex = useMemo(() => (
+    galleryPhotos.findIndex((photo) => photo.id === selectedPhotoId)
+  ), [galleryPhotos, selectedPhotoId])
+  const selectedPhoto = selectedPhotoIndex >= 0 ? galleryPhotos[selectedPhotoIndex] : null
   const projectIsArchived = Boolean(currentLead?.isArchived || currentLead?.archivedAt || isArchived)
   const recordDetailsTitle = t(getRecordDetailsTitleKey(currentLead, { isProjectWorkspace: true }))
   const hasEstimate = hasProjectEstimate(currentLead)
@@ -932,8 +951,34 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
   useEffect(() => {
     setHiddenFallbackPhotoIds([])
-    setSelectedPhoto(null)
+    setSelectedPhotoId('')
+    setPhotoConfirmAction(null)
+    setFailedPhotoIds([])
   }, [linkedProjectId, projectId])
+
+  useEffect(() => {
+    if (!selectedPhoto) return undefined
+
+    function handlePhotoPreviewKeydown(event) {
+      if (event.key === 'Escape') {
+        setSelectedPhotoId('')
+      }
+
+      if (event.key === 'ArrowLeft' && selectedPhotoIndex > 0) {
+        setSelectedPhotoId(galleryPhotos[selectedPhotoIndex - 1]?.id || '')
+      }
+
+      if (event.key === 'ArrowRight' && selectedPhotoIndex < galleryPhotos.length - 1) {
+        setSelectedPhotoId(galleryPhotos[selectedPhotoIndex + 1]?.id || '')
+      }
+    }
+
+    window.addEventListener('keydown', handlePhotoPreviewKeydown)
+
+    return () => {
+      window.removeEventListener('keydown', handlePhotoPreviewKeydown)
+    }
+  }, [galleryPhotos, selectedPhoto, selectedPhotoIndex])
 
   const activeScheduleEvents = useMemo(() => (
     projectEventRecords.filter((event) => !archivedScheduleEventIds.includes(event.id) && !event.archivedAt)
@@ -1197,7 +1242,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         showToast(t(uploadedPhotos.length > 1 ? 'photosUploaded' : 'photoUploaded'))
       }
 
-      onUploadPhotos?.(uploadedPhotos)
+      onUploadPhotos?.(uploadedPhotos, { notify: false })
       return true
     } catch (error) {
       showToast(
@@ -1229,9 +1274,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     if (photo.source === 'seed') {
       setHiddenFallbackPhotoIds((current) => [...new Set([...current, photo.id])])
       setProjectPhotos((current) => current.filter((entry) => entry.id !== photo.id))
-      if (selectedPhoto?.id === photo.id) {
-        setSelectedPhoto(null)
+      if (selectedPhotoId === photo.id) {
+        setSelectedPhotoId('')
       }
+      setPhotoConfirmAction(null)
       showToast(t('photoDeleted'))
       return
     }
@@ -1257,9 +1303,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       revokeProjectPhotoPreviewUrl(photo.previewUrl || photo.url || '')
       setHiddenFallbackPhotoIds((current) => [...new Set([...current, photo.id])])
       setProjectPhotos((current) => current.filter((entry) => entry.id !== photo.id))
-      if (selectedPhoto?.id === photo.id) {
-        setSelectedPhoto(null)
+      if (selectedPhotoId === photo.id) {
+        setSelectedPhotoId('')
       }
+      setPhotoConfirmAction(null)
       showToast(t('photoDeleted'))
     } catch (error) {
       showToast(error?.message || t('photoDeleteFailed'), 'error')
@@ -1271,6 +1318,25 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     } finally {
       setDeletingPhotoId('')
     }
+  }
+
+  function openPhotoPreview(photoId) {
+    setSelectedPhotoId(photoId || '')
+  }
+
+  function showPreviousPhoto() {
+    if (selectedPhotoIndex <= 0) return
+    setSelectedPhotoId(galleryPhotos[selectedPhotoIndex - 1]?.id || '')
+  }
+
+  function showNextPhoto() {
+    if (selectedPhotoIndex >= galleryPhotos.length - 1) return
+    setSelectedPhotoId(galleryPhotos[selectedPhotoIndex + 1]?.id || '')
+  }
+
+  function markPhotoLoadFailed(photoId) {
+    if (!photoId) return
+    setFailedPhotoIds((current) => (current.includes(photoId) ? current : [...current, photoId]))
   }
 
   return (
@@ -1532,54 +1598,47 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">
             {t('loading')}
           </div>
-        ) : projectPhotos.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {projectPhotos.map((photo) => (
-              <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
-                {photo.previewUrl ? (
+        ) : galleryPhotos.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+            {galleryPhotos.map((photo) => {
+              const photoLoadFailed = failedPhotoIds.includes(photo.id)
+
+              return (
+                <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
                   <button
                     type="button"
-                    onClick={() => setSelectedPhoto(photo)}
-                    className="block h-52 w-full overflow-hidden bg-slate-200"
+                    onClick={() => openPhotoPreview(photo.id)}
+                    className="block w-full text-left"
                     aria-label={t('previewPhoto')}
                   >
-                    <img src={photo.previewUrl} alt={photo.label} className="h-full w-full object-cover" />
-                  </button>
-                ) : (
-                  <div className="flex h-52 items-center justify-center bg-slate-200 px-6 text-center text-sm font-semibold text-slate-500">
-                    {photo.label}
-                  </div>
-                )}
-                <div className="space-y-3 p-4">
-                  <div>
-                    <p className="truncate font-bold text-slate-950">{photo.label}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                      {photo.createdAt && <span>{formatProjectDetailDate(photo.createdAt, photo.createdAt)}</span>}
-                      {photo.fileSize > 0 && <span>{formatProjectPhotoFileSize(photo.fileSize)}</span>}
+                    {photo.previewUrl && !photoLoadFailed ? (
+                      <div className="aspect-square overflow-hidden bg-slate-100">
+                        <img
+                          src={photo.previewUrl}
+                          alt={photo.displayTitle}
+                          className="h-full w-full object-cover"
+                          onError={() => markPhotoLoadFailed(photo.id)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex aspect-square items-center justify-center bg-slate-100 px-4 text-center">
+                        <div>
+                          <Camera className="mx-auto h-6 w-6 text-slate-400" />
+                          <p className="mt-2 text-xs font-semibold text-slate-500">{photo.displayTitle}</p>
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-1 p-3">
+                      <p className="truncate text-sm font-bold text-slate-950">{photo.displayTitle}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                        {photo.createdAt && <span>{formatDisplayDate(photo.createdAt, photo.createdAt)}</span>}
+                        {photo.fileSize > 0 && <span>{formatProjectPhotoFileSize(photo.fileSize)}</span>}
+                      </div>
                     </div>
-                    {photo.caption && <p className="mt-2 text-sm text-slate-600">{photo.caption}</p>}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedPhoto(photo)}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-100"
-                    >
-                      <Eye className="h-4 w-4" /> {t('previewPhoto')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deleteProjectPhoto(photo)}
-                      disabled={deletingPhotoId === photo.id}
-                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {deletingPhotoId === photo.id ? t('loading') : t('deletePhoto')}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
+                  </button>
+                </article>
+              )
+            })}
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center">
@@ -1723,33 +1782,79 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         onSave={uploadProjectPhotos}
         t={t}
       />
-      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={() => setSelectedPhoto(null)} panelClassName="sm:max-w-4xl">
+      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={() => setSelectedPhotoId('')} panelClassName="sm:max-w-5xl">
         {selectedPhoto && (
-          <div>
-            <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-950">{t('previewPhoto')}</h2>
-                <p className="mt-1 text-sm text-slate-500">{selectedPhoto.label}</p>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">{t('projectPhotos')}</p>
+                <h2 className="mt-1 text-xl font-bold text-slate-950">{selectedPhoto.displayTitle}</h2>
+                {selectedPhoto.createdAt ? (
+                  <p className="mt-1 text-sm text-slate-500">{formatDisplayDate(selectedPhoto.createdAt, selectedPhoto.createdAt)}</p>
+                ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedPhoto(null)}
-                className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                aria-label={t('close')}
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPhotoConfirmAction({ photo: selectedPhoto })}
+                  disabled={deletingPhotoId === selectedPhoto.id}
+                  className="rounded-2xl border border-red-200 bg-white p-2 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label={t('deletePhoto')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPhotoId('')}
+                  className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
+                  aria-label={t('close')}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
-            {selectedPhoto.previewUrl ? (
-              <img src={selectedPhoto.previewUrl} alt={selectedPhoto.label} className="max-h-[70vh] w-full rounded-3xl bg-slate-100 object-contain" />
+            {selectedPhoto.previewUrl && !failedPhotoIds.includes(selectedPhoto.id) ? (
+              <div className="overflow-hidden rounded-3xl bg-slate-100">
+                <img
+                  src={selectedPhoto.previewUrl}
+                  alt={selectedPhoto.displayTitle}
+                  className="max-h-[70vh] w-full object-contain"
+                  onError={() => markPhotoLoadFailed(selectedPhoto.id)}
+                />
+              </div>
             ) : (
               <div className="flex min-h-80 items-center justify-center rounded-3xl bg-slate-100 p-6 text-center text-sm font-semibold text-slate-500">
-                {selectedPhoto.label}
+                <div>
+                  <Camera className="mx-auto h-8 w-8 text-slate-400" />
+                  <p className="mt-3">{selectedPhoto.displayTitle}</p>
+                </div>
               </div>
             )}
             {selectedPhoto.caption && (
               <p className="mt-4 text-sm text-slate-600">{selectedPhoto.caption}</p>
             )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={showPreviousPhoto}
+                disabled={selectedPhotoIndex <= 0}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t('previousPhoto')}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                {t('previousPhoto')}
+              </button>
+              <button
+                type="button"
+                onClick={showNextPhoto}
+                disabled={selectedPhotoIndex >= galleryPhotos.length - 1}
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t('nextPhoto')}
+              >
+                {t('nextPhoto')}
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </ModalShell>
@@ -1797,6 +1902,23 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         confirmLabel={t('deletePayment')}
         onCancel={() => setPaymentConfirmAction(null)}
         onConfirm={archiveProjectPayment}
+        t={t}
+      />
+      <ConfirmRecordModal
+        isOpen={Boolean(photoConfirmAction)}
+        mode="delete"
+        title={t('deleteThisPhoto')}
+        message={t('cannotUndoThisAction')}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        onCancel={() => setPhotoConfirmAction(null)}
+        onConfirm={() => {
+          const targetPhoto = photoConfirmAction?.photo
+          setPhotoConfirmAction(null)
+          if (targetPhoto) {
+            deleteProjectPhoto(targetPhoto)
+          }
+        }}
         t={t}
       />
       <ConfirmRecordModal
