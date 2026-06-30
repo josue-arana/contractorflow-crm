@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
 import { ScrollToTop } from './components/layout/ScrollToTop'
@@ -512,6 +512,10 @@ function ContractorFlowApp() {
   )
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
   const isDeveloperRoute = [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
+  const isMobileClientProfileRoute = Boolean(matchPath(appRoutes.clientProfile, location.pathname))
+  const mainLayoutClassName = isMobileClientProfileRoute
+    ? 'px-0 py-0 lg:px-8 lg:py-6'
+    : 'px-4 py-6 sm:px-6 lg:px-8'
 
   function upsertPersistedEstimateRecord(estimateRecord) {
     if (!hasEstimateData(estimateRecord)) return
@@ -2894,30 +2898,32 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
 
         <div className="lg:pl-[280px]">
-          <Topbar
-            onMenuClick={() => setSidebarOpen(true)}
-            language={language}
-            setLanguage={setLanguage}
-            t={t}
-            notifications={notifications}
-            onMarkAllNotificationsRead={markAllNotificationsRead}
-            onClearNotifications={clearNotifications}
-            userProfile={userProfile}
-            onSaveUserProfile={(nextProfile) => {
-              setUserProfilesByUserId((current) => ({
-                ...current,
-                [activeUserProfileKey]: {
-                  ...(current[activeUserProfileKey] || {}),
-                  ...nextProfile,
-                },
-              }))
-            }}
-            onOpenSettings={() => navigate('/settings')}
-            onCreateLead={() => setIsDashboardLeadModalOpen(true)}
-            onCreateJob={() => openJobModal()}
-          />
+          <div className={isMobileClientProfileRoute ? 'hidden lg:block' : ''}>
+            <Topbar
+              onMenuClick={() => setSidebarOpen(true)}
+              language={language}
+              setLanguage={setLanguage}
+              t={t}
+              notifications={notifications}
+              onMarkAllNotificationsRead={markAllNotificationsRead}
+              onClearNotifications={clearNotifications}
+              userProfile={userProfile}
+              onSaveUserProfile={(nextProfile) => {
+                setUserProfilesByUserId((current) => ({
+                  ...current,
+                  [activeUserProfileKey]: {
+                    ...(current[activeUserProfileKey] || {}),
+                    ...nextProfile,
+                  },
+                }))
+              }}
+              onOpenSettings={() => navigate('/settings')}
+              onCreateLead={() => setIsDashboardLeadModalOpen(true)}
+              onCreateJob={() => openJobModal()}
+            />
+          </div>
 
-          <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
+          <main className={mainLayoutClassName}>{routeElements}</main>
         </div>
         <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
         <JobFormModal
