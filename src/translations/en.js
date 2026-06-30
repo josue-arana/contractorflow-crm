@@ -153,7 +153,7 @@ export const en = {
   "lastPayment": "Last Payment",
   "recentActivity": "Recent Activity",
   "recentNotes": "Recent Notes",
-  "viewAllProjects": "View all projects",
+  "viewAllProjects": "View all Projects",
   "viewAllActivity": "View all activity",
   "viewAllNotes": "View all notes",
   "noRecentActivity": "No recent activity yet.",
