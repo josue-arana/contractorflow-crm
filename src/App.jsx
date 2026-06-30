@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
 import { ScrollToTop } from './components/layout/ScrollToTop'
@@ -512,6 +512,10 @@ function ContractorFlowApp() {
   )
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
   const isDeveloperRoute = [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
+  const isMobileClientProfileRoute = Boolean(matchPath(appRoutes.clientProfile, location.pathname))
+  const mainLayoutClassName = isMobileClientProfileRoute
+    ? 'px-0 py-0 lg:px-8 lg:py-6'
+    : 'px-4 py-6 sm:px-6 lg:px-8'
 
   function upsertPersistedEstimateRecord(estimateRecord) {
     if (!hasEstimateData(estimateRecord)) return
@@ -2792,7 +2796,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
-      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
+      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={setLanguage} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
@@ -2894,30 +2898,32 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
 
         <div className="lg:pl-[280px]">
-          <Topbar
-            onMenuClick={() => setSidebarOpen(true)}
-            language={language}
-            setLanguage={setLanguage}
-            t={t}
-            notifications={notifications}
-            onMarkAllNotificationsRead={markAllNotificationsRead}
-            onClearNotifications={clearNotifications}
-            userProfile={userProfile}
-            onSaveUserProfile={(nextProfile) => {
-              setUserProfilesByUserId((current) => ({
-                ...current,
-                [activeUserProfileKey]: {
-                  ...(current[activeUserProfileKey] || {}),
-                  ...nextProfile,
-                },
-              }))
-            }}
-            onOpenSettings={() => navigate('/settings')}
-            onCreateLead={() => setIsDashboardLeadModalOpen(true)}
-            onCreateJob={() => openJobModal()}
-          />
+          <div className={isMobileClientProfileRoute ? 'hidden lg:block' : ''}>
+            <Topbar
+              onMenuClick={() => setSidebarOpen(true)}
+              language={language}
+              setLanguage={setLanguage}
+              t={t}
+              notifications={notifications}
+              onMarkAllNotificationsRead={markAllNotificationsRead}
+              onClearNotifications={clearNotifications}
+              userProfile={userProfile}
+              onSaveUserProfile={(nextProfile) => {
+                setUserProfilesByUserId((current) => ({
+                  ...current,
+                  [activeUserProfileKey]: {
+                    ...(current[activeUserProfileKey] || {}),
+                    ...nextProfile,
+                  },
+                }))
+              }}
+              onOpenSettings={() => navigate('/settings')}
+              onCreateLead={() => setIsDashboardLeadModalOpen(true)}
+              onCreateJob={() => openJobModal()}
+            />
+          </div>
 
-          <main className="px-4 py-6 sm:px-6 lg:px-8">{routeElements}</main>
+          <main className={mainLayoutClassName}>{routeElements}</main>
         </div>
         <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
         <JobFormModal
