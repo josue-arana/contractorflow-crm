@@ -69,6 +69,24 @@ function TemplateSection({ title, content, marginTop = '12px' }) {
   )
 }
 
+function splitLineItemDescription(value, fallbackTitle) {
+  const description = String(value || '').trim()
+
+  if (!description) {
+    return {
+      title: fallbackTitle,
+      details: '',
+    }
+  }
+
+  const [firstLine, ...remainingLines] = description.split('\n')
+
+  return {
+    title: firstLine.trim() || fallbackTitle,
+    details: remainingLines.join('\n').trim(),
+  }
+}
+
 function DescriptionSection({ projectTitle, total, t }) {
   return (
     <section style={{ marginTop: '12px', borderRadius: '18px', border: `1px solid ${colors.slate200}`, overflow: 'hidden' }}>
@@ -124,22 +142,39 @@ export function EstimatePdfTemplate({ company, lead, estimateNumber, estimateDat
 
       <DescriptionSection projectTitle={lead?.projectTitle || lead?.projectType || t('projectTitle')} total={total} t={t} />
 
-      <TemplateSection title={t('scopeOfWork')} content={scope} />
+      <div style={{ marginTop: '12px', borderRadius: '18px', border: `1px solid ${colors.slate200}`, backgroundColor: colors.slate50, padding: '12px 14px' }}>
+        <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: colors.slate400 }}>{t('scopeOfWork')}</p>
+        {String(scope || '').trim() ? (
+          <div style={{ marginTop: '8px', whiteSpace: 'pre-line', fontSize: '12px', lineHeight: 1.5, color: colors.slate700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{scope}</div>
+        ) : null}
+        {lineItems.length > 0 ? (
+          <div style={{ marginTop: String(scope || '').trim() ? '12px' : '8px', borderTop: String(scope || '').trim() ? `1px solid ${colors.slate200}` : 'none', paddingTop: String(scope || '').trim() ? '12px' : '0' }}>
+            <p style={{ margin: 0, fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: colors.slate500 }}>{t('workBreakdown')}</p>
+            <div style={{ marginTop: '10px', display: 'grid', gap: '10px' }}>
+              {lineItems.map((item, index) => {
+                const parts = splitLineItemDescription(item?.name, t('item'))
 
-      {lineItems.length > 0 ? (
-        <div style={{ marginTop: '12px', overflow: 'hidden', borderRadius: '18px', border: `1px solid ${colors.slate200}` }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', backgroundColor: colors.slate50, padding: '10px 14px', fontSize: '10px', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: colors.slate500 }}>
-            <span>{t('item')}</span>
-            <span>{t('amount')}</span>
-          </div>
-          {lineItems.map((item, index) => (
-            <div key={`${item?.name || 'item'}-${index}`} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '16px', borderTop: `1px solid ${colors.slate100}`, padding: '12px 14px', fontSize: '12px' }}>
-              <span style={{ color: colors.slate700 }}>{item?.name || t('item')}</span>
-              <span style={{ fontWeight: 700, color: colors.slate900 }}>{currency.format(Number(item?.amount || 0))}</span>
+                return (
+                  <div key={`${item?.name || 'item'}-${index}`} style={{ borderRadius: '14px', border: `1px solid ${colors.slate200}`, backgroundColor: colors.white, padding: '12px 14px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 108px', gap: '16px', alignItems: 'start' }}>
+                      <div style={{ minWidth: 0, fontSize: '12px', lineHeight: 1.5, color: colors.slate900, fontWeight: 700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                        <span style={{ marginRight: '8px', color: colors.slate500 }}>{index + 1}.</span>
+                        {parts.title}
+                      </div>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: colors.slate900, textAlign: 'right' }}>{currency.format(Number(item?.amount || 0))}</div>
+                    </div>
+                    {parts.details ? (
+                      <div style={{ marginTop: '6px', paddingLeft: '20px', whiteSpace: 'pre-line', fontSize: '12px', lineHeight: 1.5, color: colors.slate700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                        {parts.details}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
-          ))}
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <TemplateSection title={t('paymentTerms')} content={paymentTerms} />
     </article>

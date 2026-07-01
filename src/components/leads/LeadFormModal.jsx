@@ -68,6 +68,8 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       setForm({
         ...emptyLead,
         ...lead,
+        projectTitle: lead.projectTitle || lead.title || '',
+        projectType: lead.projectType || '',
         value: lead.value || '',
         notes: lead.notes || '',
       })
@@ -148,6 +150,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     const normalized = {
       ...form,
       client: trimmedName || t('newClientFallback'),
+      title: projectTitle,
       clientMode,
       ...(safeClientId ? { clientId: safeClientId } : {}),
       projectTitle,

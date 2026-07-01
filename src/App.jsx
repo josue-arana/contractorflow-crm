@@ -213,6 +213,18 @@ function buildProjectFromLead(lead, projectId = '', linkedEstimate = null) {
   }
 }
 
+function normalizeLeadTitleFields(lead = {}) {
+  const projectTitle = lead?.projectTitle || lead?.title || lead?.projectType || ''
+  const projectType = lead?.projectType || projectTitle
+
+  return {
+    ...lead,
+    title: lead?.title || projectTitle,
+    projectTitle,
+    projectType,
+  }
+}
+
 function resolvePersistedProjectLink(...records) {
   for (const record of records) {
     const projectId = record?.projectId || record?.project_id || null
@@ -1042,19 +1054,20 @@ function ContractorFlowApp() {
   function upsertLeadState(leadRecord) {
     if (!leadRecord) return null
 
-    const id = leadRecord.id || `lead-${Date.now()}`
-    const linkedEstimate = hasEstimateData(leadRecord?.portal?.estimate)
-      ? leadRecord.portal.estimate
-      : readLinkedEstimateDraft(leadRecord, id)
-    const resolvedValue = resolveEstimateTotal(leadRecord, linkedEstimate)
+    const normalizedLeadRecord = normalizeLeadTitleFields(leadRecord)
+    const id = normalizedLeadRecord.id || `lead-${Date.now()}`
+    const linkedEstimate = hasEstimateData(normalizedLeadRecord?.portal?.estimate)
+      ? normalizedLeadRecord.portal.estimate
+      : readLinkedEstimateDraft(normalizedLeadRecord, id)
+    const resolvedValue = resolveEstimateTotal(normalizedLeadRecord, linkedEstimate)
     const nextLead = withLeadPipelineStage({
       id,
-      ...leadRecord,
+      ...normalizedLeadRecord,
       value: resolvedValue,
-      estimatedValue: resolveEstimateTotal({ estimatedValue: leadRecord.estimatedValue }, linkedEstimate, resolvedValue),
-      projectStatus: leadRecord.projectStatus || (leadRecord.status === 'Won' ? 'Signed' : 'Lead'),
+      estimatedValue: resolveEstimateTotal({ estimatedValue: normalizedLeadRecord.estimatedValue }, linkedEstimate, resolvedValue),
+      projectStatus: normalizedLeadRecord.projectStatus || (normalizedLeadRecord.status === 'Won' ? 'Signed' : 'Lead'),
       portal: {
-        ...(leadRecord.portal || {}),
+        ...(normalizedLeadRecord.portal || {}),
         ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
       },
     })
@@ -1279,28 +1292,32 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
   function updateLead(leadId, updates) {
     const existingLead = leads.find((lead) => lead.id === leadId)
+    const normalizedUpdates = normalizeLeadTitleFields({
+      ...(existingLead || {}),
+      ...(updates || {}),
+    })
     const linkedEstimate = hasEstimateData(updates?.portal?.estimate)
       ? updates.portal.estimate
       : hasEstimateData(existingLead?.portal?.estimate)
         ? existingLead.portal.estimate
         : readLinkedEstimateDraft(existingLead || leadId, leadId)
-    const resolvedValue = updates.value !== undefined
-      ? toSafeNumber(updates.value)
+    const resolvedValue = normalizedUpdates.value !== undefined
+      ? toSafeNumber(normalizedUpdates.value)
       : resolveEstimateTotal({
         ...(existingLead || {}),
-        ...updates,
+        ...normalizedUpdates,
       }, linkedEstimate, toSafeNumber(existingLead?.value))
     const nextLead = withLeadPipelineStage({
       ...(existingLead || {}),
-      ...updates,
+      ...normalizedUpdates,
       id: leadId,
       value: resolvedValue,
-      estimatedValue: updates.estimatedValue !== undefined
-        ? toSafeNumber(updates.estimatedValue)
+      estimatedValue: normalizedUpdates.estimatedValue !== undefined
+        ? toSafeNumber(normalizedUpdates.estimatedValue)
         : resolveEstimateTotal({ estimatedValue: existingLead?.estimatedValue }, linkedEstimate, resolvedValue),
       portal: {
         ...(existingLead?.portal || {}),
-        ...(updates.portal || {}),
+        ...(normalizedUpdates.portal || {}),
         ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
       },
     })

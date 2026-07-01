@@ -42,7 +42,8 @@ function createSafeLead(lead, fallbackId = '') {
   if (!lead) return null
 
   const clientName = lead.client || lead.clientName || lead.customerName || lead.name || ''
-  const projectType = lead.projectType || lead.projectTitle || lead.title || ''
+  const projectTitle = lead.projectTitle || lead.title || lead.projectType || ''
+  const projectType = lead.projectType || projectTitle
   const linkedEstimate = getEstimateForLead(lead, [lead?.portal?.estimate, readLinkedEstimateDraft(lead, fallbackId)])
   const estimateDrivenValue = getEstimatedValueForLead(lead, [linkedEstimate])
 
@@ -56,8 +57,8 @@ function createSafeLead(lead, fallbackId = '') {
     email: lead.email || '',
     address: lead.address || lead.location || '',
     location: lead.location || lead.address || '',
-    title: lead.title || projectType,
-    projectTitle: lead.projectTitle || lead.title || projectType,
+    title: lead.title || projectTitle,
+    projectTitle,
     projectType,
     value: estimateDrivenValue,
     estimatedValue: estimateDrivenValue,
