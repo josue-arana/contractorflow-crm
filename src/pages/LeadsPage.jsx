@@ -179,9 +179,11 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">

@@ -48,7 +48,20 @@ function createErrorResult(message, details = null, code = null) {
   }
 }
 
+function createAnalyticsModeSetupError(error) {
+  return {
+    message: 'Analytics Mode is not set up in Supabase. Run the company_settings analytics_mode migration.',
+    details: error?.details || error?.raw?.details || error?.raw || null,
+    code: 'ANALYTICS_MODE_COLUMN_MISSING',
+    status: error?.status || null,
+  }
+}
+
 function normalizeError(error, fallbackMessage) {
+  if (extractMissingColumnName(error) === 'analytics_mode') {
+    return createAnalyticsModeSetupError(error)
+  }
+
   if (error?.status === 403) {
     return {
       message: 'Company settings access is blocked for this contractor profile. Check contractor membership and Supabase RLS policies.',
@@ -72,6 +85,30 @@ function readSingleRow(data) {
 
 function normalizeSettings(settings = {}) {
   return createDefaultCompanySettings(settings)
+}
+
+function extractMissingColumnName(error) {
+  const message = [
+    error?.message,
+    error?.details,
+    error?.raw?.message,
+    error?.raw?.details,
+    error?.raw?.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const quotedColumnMatch = message.match(/'([^']+)' column/)
+  if (quotedColumnMatch?.[1]) {
+    return quotedColumnMatch[1]
+  }
+
+  const alternateColumnMatch = message.match(/column ['"]?([^'" ]+)['"]?/)
+  if (alternateColumnMatch?.[1]) {
+    return alternateColumnMatch[1]
+  }
+
+  return null
 }
 
 function setSettingsRuntimeStatus(operation, status, error = null) {
@@ -141,12 +178,22 @@ function toSupabasePayload(contractorId, settings = {}) {
     default_invoice_due_days: Number(normalized.defaults.invoiceDueDays ?? 14),
     default_materials_included: Boolean(normalized.defaults.materialsIncluded),
     contractor_app_language: normalized.appLanguage || 'en',
-    simple_mode: !Boolean(normalized.analyticsMode),
+    analytics_mode: Boolean(normalized.analyticsMode),
     customer_portal_language: normalized.portal.defaultLanguage || 'en',
     show_payments_in_portal: Boolean(normalized.portal.showPayments),
     show_photos_in_portal: Boolean(normalized.portal.showPhotos),
     show_documents_in_portal: Boolean(normalized.portal.showDocuments),
   }
+}
+
+async function requestSettingsMutation(method, contractorId, settings = {}, query) {
+  const payload = toSupabasePayload(contractorId, settings)
+
+  return supabaseClient.request(TABLE_NAME, {
+    method,
+    query,
+    body: payload,
+  })
 }
 
 async function findSettingsRow(contractorId) {
@@ -163,11 +210,7 @@ async function findSettingsRow(contractorId) {
 }
 
 async function createDefaultSettingsRecord(contractorId, seedSettings = {}) {
-  const payload = toSupabasePayload(contractorId, seedSettings)
-  const data = await supabaseClient.request(TABLE_NAME, {
-    method: 'POST',
-    body: payload,
-  })
+  const data = await requestSettingsMutation('POST', contractorId, seedSettings)
 
   return readSingleRow(data)
 }
@@ -257,12 +300,8 @@ export async function updateSettings(contractorId, settings) {
       }
     }
 
-    const data = await supabaseClient.request(TABLE_NAME, {
-      method: 'PATCH',
-      query: {
-        contractor_id: `eq.${contractorId}`,
-      },
-      body: toSupabasePayload(contractorId, settings),
+    const data = await requestSettingsMutation('PATCH', contractorId, settings, {
+      contractor_id: `eq.${contractorId}`,
     })
 
     setSettingsRuntimeStatus('save', 'success', null)

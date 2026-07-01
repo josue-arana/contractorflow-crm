@@ -8,6 +8,7 @@ import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { ActionMenu } from '../components/common/ActionMenu'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import clientsHeroBackground from '../assets/page-heroes/clients-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
@@ -28,6 +29,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { isAnalyticsMode } = useAnalyticsMode()
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const activeClientsList = useMemo(() => clients.filter((client) => !isClientArchived(client, archivedClientIds)), [clients, archivedClientIds])
 
@@ -194,9 +196,11 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">

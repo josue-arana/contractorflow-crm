@@ -2789,12 +2789,16 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     <DashboardPage
       leads={activeLeads}
       metrics={metrics}
+      scheduleEvents={activeScheduleEvents}
+      invoices={invoices.filter((invoice) => !archives.deletedInvoiceIds.includes(invoice.id) && !archives.invoiceIds.includes(invoice.id))}
       draggedLeadId={draggedLeadId}
       setDraggedLeadId={setDraggedLeadId}
       selectedMobileStage={selectedMobileStage}
       setSelectedMobileStage={setSelectedMobileStage}
       moveLead={moveLead}
       onLeadClick={openLead}
+      onOpenProject={openProject}
+      onOpenInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)}
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
       successMessage={dashboardSuccessMessage}
       t={t}

@@ -8,6 +8,7 @@ import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
@@ -22,6 +23,7 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [sendInvoice, setSendInvoice] = useState(null)
+  const { isAnalyticsMode } = useAnalyticsMode()
 
   const invoices = useMemo(() => invoiceRecords.filter((invoice) => !deletedIds.includes(invoice.id)).map((invoice) => {
     const lead = leads.find((item) => item.id === invoice.leadId)
@@ -108,9 +110,11 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">

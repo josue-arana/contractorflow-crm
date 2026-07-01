@@ -3,6 +3,7 @@ import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, Download, MapPin, Pa
 import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { getEventsContractorId } from '../services/system/eventsRuntimeService'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
@@ -61,6 +62,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
   const [completedEventIds, setCompletedEventIds] = useState([])
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
   const { contractor, company, session } = useAuth()
+  const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getEventsContractorId({ contractor, company, session })
 
   const events = useMemo(() => scheduleEvents.map((event) => {
@@ -114,9 +116,11 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
