@@ -149,7 +149,8 @@ function hasOwnField(object, fieldName) {
 export function mapLeadRowToUiLead(row) {
   const archivedAt = row?.archived_at || null
   const clientName = row?.name || 'Unknown Client'
-  const projectType = row?.service_type || ''
+  const projectTitle = row?.title || row?.project_title || row?.service_type || ''
+  const projectType = row?.project_type || row?.job_type || row?.service_type || projectTitle
   const estimatedValue = toNumber(row?.estimated_value)
   const storedPipelineStage = row?.lead_pipeline_stage || readLeadPipelineStage(row?.id)
   const nextLead = {
@@ -165,8 +166,8 @@ export function mapLeadRowToUiLead(row) {
     email: row?.email || '',
     address: row?.address || '',
     location: row?.address || '',
-    title: projectType,
-    projectTitle: projectType,
+    title: projectTitle,
+    projectTitle,
     projectType,
     jobType: projectType,
     value: estimatedValue,
@@ -192,6 +193,8 @@ export function mapLeadRowToUiLead(row) {
 }
 
 export function mapUiLeadToLeadRow(contractorId, lead = {}) {
+  const projectTitle = lead.projectTitle || lead.title || lead.projectType || null
+
   return {
     contractor_id: contractorId,
     client_id: normalizeOptionalUuid(lead.clientId || lead.client_id, 'client_id'),
@@ -200,7 +203,7 @@ export function mapUiLeadToLeadRow(contractorId, lead = {}) {
     phone: lead.phone || null,
     email: lead.email || null,
     address: lead.address || lead.location || null,
-    service_type: lead.projectType || lead.projectTitle || null,
+    service_type: projectTitle,
     source: lead.source || null,
     estimated_value: toNumber(lead.value ?? lead.estimated_value),
     status: mapStatusToDb(lead.status),
@@ -241,8 +244,19 @@ function mapUiLeadUpdatesToLeadRow(updates = {}) {
     payload.address = updates.address || updates.location || null
   }
 
-  if (hasOwnField(updates, 'projectType') || hasOwnField(updates, 'projectTitle') || hasOwnField(updates, 'service_type')) {
-    payload.service_type = updates.projectType || updates.projectTitle || updates.service_type || null
+  if (
+    hasOwnField(updates, 'projectType')
+    || hasOwnField(updates, 'projectTitle')
+    || hasOwnField(updates, 'title')
+    || hasOwnField(updates, 'project_title')
+    || hasOwnField(updates, 'service_type')
+  ) {
+    payload.service_type = updates.projectTitle
+      || updates.title
+      || updates.project_title
+      || updates.projectType
+      || updates.service_type
+      || null
   }
 
   if (hasOwnField(updates, 'source')) {

@@ -1599,12 +1599,12 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             {t('loading')}
           </div>
         ) : galleryPhotos.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {galleryPhotos.map((photo) => {
               const photoLoadFailed = failedPhotoIds.includes(photo.id)
 
               return (
-                <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <article key={photo.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <button
                     type="button"
                     onClick={() => openPhotoPreview(photo.id)}
@@ -1612,13 +1612,18 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
                     aria-label={t('previewPhoto')}
                   >
                     {photo.previewUrl && !photoLoadFailed ? (
-                      <div className="aspect-square overflow-hidden bg-slate-100">
+                      <div className="relative aspect-square overflow-hidden bg-slate-100">
                         <img
                           src={photo.previewUrl}
                           alt={photo.displayTitle}
-                          className="h-full w-full object-cover"
+                          className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
                           onError={() => markPhotoLoadFailed(photo.id)}
                         />
+                        {photo.caption ? (
+                          <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] truncate rounded-full bg-slate-950/70 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+                            {photo.caption}
+                          </span>
+                        ) : null}
                       </div>
                     ) : (
                       <div className="flex aspect-square items-center justify-center bg-slate-100 px-4 text-center">
@@ -1628,7 +1633,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
                         </div>
                       </div>
                     )}
-                    <div className="space-y-1 p-3">
+                    <div className="space-y-1 p-2.5">
                       <p className="truncate text-sm font-bold text-slate-950">{photo.displayTitle}</p>
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
                         {photo.createdAt && <span>{formatDisplayDate(photo.createdAt, photo.createdAt)}</span>}
@@ -1814,13 +1819,31 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
               </div>
             </div>
             {selectedPhoto.previewUrl && !failedPhotoIds.includes(selectedPhoto.id) ? (
-              <div className="overflow-hidden rounded-3xl bg-slate-100">
+              <div className="relative overflow-hidden rounded-3xl bg-slate-100">
                 <img
                   src={selectedPhoto.previewUrl}
                   alt={selectedPhoto.displayTitle}
                   className="max-h-[70vh] w-full object-contain"
                   onError={() => markPhotoLoadFailed(selectedPhoto.id)}
                 />
+                <button
+                  type="button"
+                  onClick={showPreviousPhoto}
+                  disabled={selectedPhotoIndex <= 0}
+                  aria-label={t('previousPhoto')}
+                  className={`absolute left-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-slate-950/55 text-white backdrop-blur-sm transition ${selectedPhotoIndex > 0 ? 'hover:bg-slate-950/75' : 'cursor-not-allowed opacity-35'}`}
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={showNextPhoto}
+                  disabled={selectedPhotoIndex >= galleryPhotos.length - 1}
+                  aria-label={t('nextPhoto')}
+                  className={`absolute right-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-slate-950/55 text-white backdrop-blur-sm transition ${selectedPhotoIndex < galleryPhotos.length - 1 ? 'hover:bg-slate-950/75' : 'cursor-not-allowed opacity-35'}`}
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
               </div>
             ) : (
               <div className="flex min-h-80 items-center justify-center rounded-3xl bg-slate-100 p-6 text-center text-sm font-semibold text-slate-500">
@@ -1833,28 +1856,6 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             {selectedPhoto.caption && (
               <p className="mt-4 text-sm text-slate-600">{selectedPhoto.caption}</p>
             )}
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-              <button
-                type="button"
-                onClick={showPreviousPhoto}
-                disabled={selectedPhotoIndex <= 0}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t('previousPhoto')}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {t('previousPhoto')}
-              </button>
-              <button
-                type="button"
-                onClick={showNextPhoto}
-                disabled={selectedPhotoIndex >= galleryPhotos.length - 1}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={t('nextPhoto')}
-              >
-                {t('nextPhoto')}
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
           </div>
         )}
       </ModalShell>

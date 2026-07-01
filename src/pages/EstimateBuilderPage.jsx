@@ -38,12 +38,69 @@ function formatEstimateDate(value) {
   return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
+function createEmptyLineItem() {
+  return { name: '', amount: 0 }
+}
+
+function normalizeLineItems(items = []) {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  return items.map((item) => ({
+    name: typeof item?.name === 'string' ? item.name : String(item?.name || ''),
+    amount: Number(item?.amount || 0),
+  }))
+}
+
+function formatAmountInputValue(value) {
+  if (!Number.isFinite(Number(value)) || Number(value) === 0) {
+    return ''
+  }
+
+  return String(Number(value))
+}
+
+function sanitizeAmountInput(value) {
+  const digitsAndDots = String(value || '').replace(/[^\d.]/g, '')
+  const firstDotIndex = digitsAndDots.indexOf('.')
+
+  if (firstDotIndex === -1) {
+    const normalizedWhole = digitsAndDots.replace(/^0+(?=\d)/, '')
+    return normalizedWhole
+  }
+
+  const wholePart = digitsAndDots.slice(0, firstDotIndex).replace(/^0+(?=\d)/, '') || '0'
+  const decimalPart = digitsAndDots.slice(firstDotIndex + 1).replace(/\./g, '')
+
+  return `${wholePart}.${decimalPart}`
+}
+
+function splitLineItemDescription(value, fallbackTitle) {
+  const description = String(value || '').trim()
+
+  if (!description) {
+    return {
+      title: fallbackTitle,
+      details: '',
+    }
+  }
+
+  const [firstLine, ...remainingLines] = description.split('\n')
+
+  return {
+    title: firstLine.trim() || fallbackTitle,
+    details: remainingLines.join('\n').trim(),
+  }
+}
+
 export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
+  const lineItemTextareaRefs = useRef([])
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
-  const savedLineItems = Array.isArray(savedEstimate.lineItems) ? savedEstimate.lineItems : []
+  const savedLineItems = normalizeLineItems(savedEstimate.lineItems)
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
   const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
@@ -56,6 +113,13 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
   const [isMobilePreview, setIsMobilePreview] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 640 : false))
+  const [activeLineItemIndex, setActiveLineItemIndex] = useState(null)
+  const [lineItemAmountInputs, setLineItemAmountInputs] = useState(() => (
+    (hasSavedLineItems ? savedLineItems : [
+      { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
+      { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
+    ]).map((item) => formatAmountInputValue(item.amount))
+  ))
   const [lineItems, setLineItems] = useState(hasSavedLineItems ? savedLineItems : [
     { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
     { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
@@ -63,7 +127,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
 
   useEffect(() => {
     const nextSavedEstimate = lead.portal?.estimate || {}
-    const nextSavedLineItems = Array.isArray(nextSavedEstimate.lineItems) ? nextSavedEstimate.lineItems : []
+    const nextSavedLineItems = normalizeLineItems(nextSavedEstimate.lineItems)
     const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
     setScope(nextSavedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
@@ -72,12 +136,15 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
     if (nextHasSavedLineItems) {
       setLineItems(nextSavedLineItems)
+      setLineItemAmountInputs(nextSavedLineItems.map((item) => formatAmountInputValue(item.amount)))
       setPricingMode(detailedPricingMode)
     } else {
-      setLineItems([
+      const defaultLineItems = [
         { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
         { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
-      ])
+      ]
+      setLineItems(defaultLineItems)
+      setLineItemAmountInputs(defaultLineItems.map((item) => formatAmountInputValue(item.amount)))
       setPricingMode(simplePricingMode)
     }
   }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, t])
@@ -166,14 +233,85 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function addLineItem() {
-    setLineItems((items) => [...items, { name: '', amount: 0 }])
+    setLineItems((items) => [...items, createEmptyLineItem()])
+    setLineItemAmountInputs((items) => [...items, ''])
     setPricingMode(detailedPricingMode)
   }
 
   function removeLineItem(index) {
     setLineItems((items) => {
-      if (items.length === 1) return [{ name: '', amount: 0 }]
+      if (items.length === 1) return [createEmptyLineItem()]
       return items.filter((_, itemIndex) => itemIndex !== index)
+    })
+    setLineItemAmountInputs((items) => {
+      if (items.length === 1) return ['']
+      return items.filter((_, itemIndex) => itemIndex !== index)
+    })
+  }
+
+  function autosizeLineItemTextarea(element) {
+    if (!element) {
+      return
+    }
+
+    element.style.height = '0px'
+    element.style.height = `${element.scrollHeight}px`
+  }
+
+  function handleLineItemTextareaInput(index, value, element) {
+    updateLineItem(index, 'name', value)
+    autosizeLineItemTextarea(element)
+  }
+
+  function handleLineItemAmountInput(index, rawValue) {
+    const sanitizedValue = sanitizeAmountInput(rawValue)
+
+    setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? sanitizedValue : item))
+    updateLineItem(index, 'amount', sanitizedValue === '' ? 0 : Number(sanitizedValue))
+  }
+
+  function handleLineItemAmountBlur(index) {
+    const currentDraftValue = lineItemAmountInputs[index] ?? ''
+    const normalizedValue = sanitizeAmountInput(currentDraftValue)
+
+    if (normalizedValue === '' || normalizedValue === '0' || normalizedValue === '0.') {
+      updateLineItem(index, 'amount', 0)
+      setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? '' : item))
+      return
+    }
+
+    const numericValue = Number(normalizedValue)
+    updateLineItem(index, 'amount', Number.isFinite(numericValue) ? numericValue : 0)
+    setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? formatAmountInputValue(numericValue) : item))
+  }
+
+  function insertBulletIntoActiveLineItem() {
+    if (activeLineItemIndex === null || !lineItems[activeLineItemIndex]) {
+      return
+    }
+
+    const textarea = lineItemTextareaRefs.current[activeLineItemIndex]
+
+    if (!textarea) {
+      return
+    }
+
+    const selectionStart = textarea.selectionStart ?? textarea.value.length
+    const selectionEnd = textarea.selectionEnd ?? selectionStart
+    const currentValue = lineItems[activeLineItemIndex]?.name || ''
+    const prefix = currentValue.slice(0, selectionStart)
+    const suffix = currentValue.slice(selectionEnd)
+    const needsLeadingBreak = prefix.length > 0 && !prefix.endsWith('\n')
+    const bulletText = `${needsLeadingBreak ? '\n' : ''}- `
+    const nextValue = `${prefix}${bulletText}${suffix}`
+    const nextCaretPosition = prefix.length + bulletText.length
+
+    updateLineItem(activeLineItemIndex, 'name', nextValue)
+
+    requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(nextCaretPosition, nextCaretPosition)
+      autosizeLineItemTextarea(textarea)
     })
   }
 
@@ -265,25 +403,69 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                 <>
                   <div className="space-y-3">
                     {lineItems.map((item, index) => (
-                      <div key={index} className="grid gap-3 rounded-2xl border border-slate-200 p-3 sm:grid-cols-[1fr_140px_auto]">
+                      <div key={index} className="rounded-2xl border border-slate-200 p-3">
                         {isEditing ? (
-                          <>
-                            <input value={item.name} onChange={(event) => updateLineItem(index, 'name', event.target.value)} placeholder={t('item')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none" />
-                            <input type="number" value={item.amount} onChange={(event) => updateLineItem(index, 'amount', Number(event.target.value))} placeholder={t('amount')} className="rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none sm:text-right" />
-                            <button onClick={() => removeLineItem(index)} className="rounded-xl border border-slate-200 px-3 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50">
-                              {t('remove')}
-                            </button>
-                          </>
+                          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_168px] sm:items-start">
+                            <div className="space-y-2">
+                              <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                                {t('lineItemDetails')}
+                              </label>
+                              <textarea
+                                ref={(element) => {
+                                  lineItemTextareaRefs.current[index] = element
+                                  if (element) {
+                                    autosizeLineItemTextarea(element)
+                                  }
+                                }}
+                                value={item.name}
+                                onChange={(event) => handleLineItemTextareaInput(index, event.target.value, event.target)}
+                                onFocus={() => setActiveLineItemIndex(index)}
+                                onClick={() => setActiveLineItemIndex(index)}
+                                placeholder={t('enterScopeDetails')}
+                                rows={3}
+                                className="min-h-[104px] w-full resize-none rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-2 sm:pt-6">
+                              <div className="space-y-1">
+                                <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                                  {t('lineItemAmount')}
+                                </label>
+                                <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-white pl-3 pr-2 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
+                                  <span className="mr-2 text-sm font-semibold text-slate-400">$</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={lineItemAmountInputs[index] ?? ''}
+                                    onChange={(event) => handleLineItemAmountInput(index, event.target.value)}
+                                    onBlur={() => handleLineItemAmountBlur(index)}
+                                    placeholder={t('amount')}
+                                    aria-label={t('lineItemAmount')}
+                                    className="h-full w-full bg-transparent text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-300 sm:text-right"
+                                  />
+                                </div>
+                              </div>
+                              <button onClick={() => removeLineItem(index)} className="h-10 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                                {t('remove')}
+                              </button>
+                            </div>
+                          </div>
                         ) : (
-                          <>
-                            <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm text-slate-700">{item.name || t('item')}</div>
+                          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_168px] sm:items-start">
+                            <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700 whitespace-pre-line break-words">{item.name || t('item')}</div>
                             <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
-                            <div />
-                          </>
+                          </div>
                         )}
                       </div>
                     ))}
-                    {isEditing && <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>}
+                    {isEditing ? (
+                      <div className="flex flex-col gap-3 sm:flex-row">
+                        <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>
+                        <button onClick={insertBulletIntoActiveLineItem} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                          {t('addBullet')}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="rounded-2xl bg-blue-50 px-4 py-4 text-blue-700">
                     <p className="text-xs font-bold uppercase tracking-wide">{t('calculatedTotal')}</p>
@@ -413,19 +595,50 @@ function EstimatePreviewBody({ company, lead, estimateDate, scope, materialsIncl
         </div>
       </div>
       <EstimateCompactSummary title={lead.projectTitle || lead.projectType || t('projectTitle')} total={total} t={t} className="mt-4" />
-      <EstimatePreviewSection title={t('scopeOfWork')} content={scope} className="mt-4" />
-      {lineItems.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-slate-200">
-          {lineItems.map((item, index) => (
-            <div key={index} className="flex justify-between gap-4 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0">
-              <span className="text-slate-600">{item.name || t('item')}</span>
-              <span className="font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <EstimatePreviewScopeSection scope={scope} lineItems={lineItems} t={t} className="mt-4" />
       <EstimatePreviewSection title={t('paymentTerms')} content={paymentTerms} className="mt-4" />
     </>
+  )
+}
+
+function EstimatePreviewScopeSection({ scope, lineItems = [], t, className = '' }) {
+  const hasScope = Boolean(String(scope || '').trim())
+  const hasLineItems = lineItems.length > 0
+
+  return (
+    <div className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 ${className}`.trim()}>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('scopeOfWork')}</p>
+      {hasScope ? (
+        <div className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{scope}</div>
+      ) : null}
+      {hasLineItems ? (
+        <div className={hasScope ? 'mt-4 border-t border-slate-200 pt-4' : 'mt-2'}>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{t('workBreakdown')}</p>
+          <div className="mt-3 space-y-3">
+            {lineItems.map((item, index) => {
+              const parts = splitLineItemDescription(item.name, t('item'))
+
+              return (
+                <div key={index} className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4">
+                    <p className="text-sm font-semibold leading-6 text-slate-900 break-words">
+                      <span className="mr-2 text-slate-500">{index + 1}.</span>
+                      {parts.title}
+                    </p>
+                    <span className="text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</span>
+                  </div>
+                  {parts.details ? (
+                    <div className="mt-2 whitespace-pre-line pl-6 text-sm leading-6 text-slate-600">
+                      {parts.details}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import { CalendarDays, CircleAlert, FileText, Images, Wallet, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { CalendarDays, ChevronLeft, ChevronRight, CircleAlert, FileText, Images, Wallet, X } from 'lucide-react'
 import { DetailRow } from '../ui/DetailRow'
 import { InfoCard } from '../ui/InfoCard'
 import { ModalShell } from '../common/ModalShell'
@@ -243,12 +243,15 @@ export function PortalSummary({
   const estimatePreviewRef = useRef(null)
   const contractPreviewRef = useRef(null)
   const [openDocument, setOpenDocument] = useState(null)
-  const [selectedPhoto, setSelectedPhoto] = useState(null)
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(-1)
   const hasEstimate = Boolean(estimate)
   const hasContract = Boolean(contract)
   const hasPayments = Boolean(paymentSummary?.payments?.length)
   const hasUpcomingEvents = upcomingEvents.length > 0
   const hasProjectPhotos = projectPhotos.length > 0
+  const selectedPhoto = selectedPhotoIndex >= 0 ? projectPhotos[selectedPhotoIndex] || null : null
+  const hasPreviousPhoto = selectedPhotoIndex > 0
+  const hasNextPhoto = selectedPhotoIndex >= 0 && selectedPhotoIndex < projectPhotos.length - 1
   const previewLead = useMemo(() => buildPreviewLead(project, client), [client, project])
   const estimateNumber = estimate ? getEstimateDisplayNumber(estimate, project) : ''
   const contractNumber = contract ? getContractDisplayNumber(contract, project) : ''
@@ -328,6 +331,48 @@ export function PortalSummary({
       showToast(error?.message || t('contractPdfGenerateFailed'), 'error')
     }
   }
+
+  function closePhotoPreview() {
+    setSelectedPhotoIndex(-1)
+  }
+
+  function openPhotoPreview(index) {
+    setSelectedPhotoIndex(index)
+  }
+
+  function showPreviousPhoto() {
+    setSelectedPhotoIndex((current) => (current > 0 ? current - 1 : current))
+  }
+
+  function showNextPhoto() {
+    setSelectedPhotoIndex((current) => (current >= 0 && current < projectPhotos.length - 1 ? current + 1 : current))
+  }
+
+  useEffect(() => {
+    if (!selectedPhoto) {
+      return undefined
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        closePhotoPreview()
+      }
+
+      if (event.key === 'ArrowLeft' && hasPreviousPhoto) {
+        showPreviousPhoto()
+      }
+
+      if (event.key === 'ArrowRight' && hasNextPhoto) {
+        showNextPhoto()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [hasNextPhoto, hasPreviousPhoto, selectedPhoto])
 
   return (
     <>
@@ -426,34 +471,26 @@ export function PortalSummary({
             ) : photosLoadFailed ? (
               <CalloutEmptyState icon={CircleAlert} message={t('unableToLoadProjectPhotos')} />
             ) : hasProjectPhotos ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {projectPhotos.map((photo) => (
-                  <article key={photo.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-50">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {projectPhotos.map((photo, index) => (
+                  <article key={photo.id} className="group overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                     <button
                       type="button"
-                      onClick={() => setSelectedPhoto(photo)}
-                      className="block h-48 w-full overflow-hidden bg-slate-200"
+                      onClick={() => openPhotoPreview(index)}
+                      className="relative block aspect-square w-full overflow-hidden bg-slate-200"
                       aria-label={t('viewPhoto')}
                     >
-                      <img src={photo.previewUrl || photo.url} alt={getPortalPhotoDisplayTitle(photo, t)} className="h-full w-full object-cover" />
+                      <img
+                        src={photo.previewUrl || photo.url}
+                        alt={getPortalPhotoDisplayTitle(photo, t)}
+                        className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
+                      />
+                      {photo.caption ? (
+                        <span className="absolute bottom-2 left-2 inline-flex max-w-[calc(100%-1rem)] truncate rounded-full bg-slate-950/70 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+                          {photo.caption}
+                        </span>
+                      ) : null}
                     </button>
-                    <div className="space-y-3 p-4">
-                      <div className="min-w-0">
-                        {photo.createdAt ? (
-                          <p className="mt-1 text-xs text-slate-500">{formatDisplayDate(photo.createdAt)}</p>
-                        ) : null}
-                        {photo.caption ? (
-                          <p className="mt-2 text-sm leading-6 text-slate-600">{photo.caption}</p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPhoto(photo)}
-                        className="inline-flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-100"
-                      >
-                        {t('viewPhoto')}
-                      </button>
-                    </div>
                   </article>
                 ))}
               </div>
@@ -510,7 +547,7 @@ export function PortalSummary({
         </DocumentPreviewModal>
       ) : null}
 
-      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={() => setSelectedPhoto(null)} panelClassName="sm:max-w-4xl sm:p-8">
+      <ModalShell isOpen={Boolean(selectedPhoto)} onBackdropClick={closePhotoPreview} panelClassName="sm:max-w-5xl sm:p-8">
         {selectedPhoto ? (
           <div className="space-y-5">
             <div className="flex items-start justify-between gap-4">
@@ -523,28 +560,41 @@ export function PortalSummary({
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedPhoto(null)}
+                onClick={closePhotoPreview}
                 className="rounded-2xl border border-slate-200 p-3 text-slate-600 hover:bg-slate-50"
                 aria-label={t('closePhotoPreview')}
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <img
-              src={selectedPhoto.previewUrl || selectedPhoto.url}
-              alt={getPortalPhotoDisplayTitle(selectedPhoto, t)}
-              className="max-h-[70vh] w-full rounded-3xl bg-slate-100 object-contain"
-            />
+            <div className="relative overflow-hidden rounded-3xl bg-slate-100">
+              <img
+                src={selectedPhoto.previewUrl || selectedPhoto.url}
+                alt={getPortalPhotoDisplayTitle(selectedPhoto, t)}
+                className="max-h-[72vh] w-full rounded-3xl object-contain"
+              />
+              <button
+                type="button"
+                onClick={showPreviousPhoto}
+                disabled={!hasPreviousPhoto}
+                aria-label={t('previousPhoto')}
+                className={`absolute left-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-slate-950/55 text-white backdrop-blur-sm transition ${hasPreviousPhoto ? 'hover:bg-slate-950/75' : 'cursor-not-allowed opacity-35'}`}
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={showNextPhoto}
+                disabled={!hasNextPhoto}
+                aria-label={t('nextPhoto')}
+                className={`absolute right-3 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/40 bg-slate-950/55 text-white backdrop-blur-sm transition ${hasNextPhoto ? 'hover:bg-slate-950/75' : 'cursor-not-allowed opacity-35'}`}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </button>
+            </div>
             {selectedPhoto.caption ? (
               <p className="text-sm leading-6 text-slate-600">{selectedPhoto.caption}</p>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setSelectedPhoto(null)}
-              className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 sm:w-auto"
-            >
-              {t('closePhotoPreview')}
-            </button>
           </div>
         ) : null}
       </ModalShell>
