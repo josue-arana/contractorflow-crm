@@ -42,7 +42,7 @@ import { buildClientProfiles, getClientSlug } from './utils/clients'
 import { appRoutes } from './config/appRoutes'
 import { AuthProvider } from './contexts/AuthContext'
 import { useAuth } from './contexts/AuthContext'
-import { SimpleModeProvider } from './contexts/SimpleModeContext'
+import { AnalyticsModeProvider } from './contexts/SimpleModeContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
@@ -2832,9 +2832,9 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
   if (isAuthPage) {
     return (
-      <SimpleModeProvider settings={companySettings}>
+      <AnalyticsModeProvider settings={companySettings}>
         {routeElements}
-      </SimpleModeProvider>
+      </AnalyticsModeProvider>
     )
   }
 
@@ -2910,7 +2910,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   return (
-    <SimpleModeProvider settings={companySettings}>
+    <AnalyticsModeProvider settings={companySettings}>
       <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} t={t} companySettings={companySettings} todaySummary={mobileTodaySummary} />
 
@@ -2992,7 +2992,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
           t={t}
         />
       </div>
-    </SimpleModeProvider>
+    </AnalyticsModeProvider>
   )
 }
 

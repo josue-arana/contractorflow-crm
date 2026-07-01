@@ -7,7 +7,7 @@ import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
-import { useSimpleMode } from '../contexts/SimpleModeContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { currency } from '../utils/formatters'
 import { archiveListButtonClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
@@ -27,7 +27,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
   const [confirmAction, setConfirmAction] = useState(null)
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
-  const { isSimpleMode } = useSimpleMode()
+  const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getLeadsContractorId({ contractor, company, session })
 
   const leadsWithEstimatedValues = useMemo(() => leads.map((lead) => {
@@ -214,10 +214,10 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
               <tr>
                 <th className="px-4 py-3">{t('customerProject')}</th>
                 <th className="px-4 py-3">{t('phone')}</th>
-                {!isSimpleMode && <th className="px-4 py-3 text-right">{t('estimatedValue')}</th>}
+                {isAnalyticsMode && <th className="px-4 py-3 text-right">{t('estimatedValue')}</th>}
                 <th className="px-4 py-3">{t('status')}</th>
-                {!isSimpleMode && <th className="px-4 py-3">{t('priority')}</th>}
-                {!isSimpleMode && <th className="px-4 py-3">{t('source')}</th>}
+                {isAnalyticsMode && <th className="px-4 py-3">{t('priority')}</th>}
+                {isAnalyticsMode && <th className="px-4 py-3">{t('source')}</th>}
                 <th className="px-4 py-3 text-right">{t('action')}</th>
               </tr>
             </thead>
@@ -235,10 +235,10 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                 >
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{lead.client}</p><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
-                  {!isSimpleMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>}
+                  {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>}
                   <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} /></td>
-                  {!isSimpleMode && <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>}
-                  {!isSimpleMode && <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>}
+                  {isAnalyticsMode && <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>}
+                  {isAnalyticsMode && <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>}
                   <td className="px-4 py-4 text-right">{renderLeadActions(lead)}</td>
                 </tr>
               ))}
@@ -262,7 +262,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                 <div><h3 className="font-bold text-slate-950">{lead.client}</h3><p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectTitle || lead.projectType, t)}</p></div>
                 <StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} />
               </div>
-              {isSimpleMode ? (
+              {!isAnalyticsMode ? (
                 <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('phone')}</p>

@@ -249,12 +249,12 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
             </div>
           </InfoCard>
 
-          <InfoCard title={t('simpleMode')} icon={Globe2}>
+          <InfoCard title={t('analyticsMode')} icon={Globe2}>
             <ToggleRow
-              label={t('simpleMode')}
-              description={t('simpleModeDescription')}
-              checked={Boolean(draft?.simpleMode)}
-              onChange={(checked) => updateRootField('simpleMode', checked)}
+              label={t('analyticsMode')}
+              description={t('analyticsModeDescription')}
+              checked={draft?.analyticsMode !== false}
+              onChange={(checked) => updateRootField('analyticsMode', checked)}
               t={t}
             />
           </InfoCard>

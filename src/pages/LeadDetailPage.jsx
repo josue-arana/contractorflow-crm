@@ -10,7 +10,7 @@ import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { USE_SUPABASE_LEADS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
-import { useSimpleMode } from '../contexts/SimpleModeContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft } from '../utils/estimateLinks'
@@ -107,7 +107,7 @@ export function LeadDetailPage({
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
-  const { isSimpleMode } = useSimpleMode()
+  const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getLeadsContractorId({ contractor, company, session })
   const leadId = id || lead?.id || ''
   const [record, setRecord] = useState(USE_SUPABASE_LEADS ? null : lead)
@@ -594,7 +594,7 @@ export function LeadDetailPage({
           <DetailRow label={t('email')} value={currentLead.email || t('notAdded')} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location || t('unknownAddress')} />
         </InfoCard>
-        {!isSimpleMode && (
+        {isAnalyticsMode && (
           <InfoCard title={recordDetailsTitle}>
             <DetailRow label={t('status')} value={<StatusBadge status={isArchived ? 'Archived' : currentLead.status} t={t} />} />
             <DetailRow label={t('priority')} value={currentLead.priority} />

@@ -1,5 +1,6 @@
 const baseCompanySettings = {
   appLanguage: 'en',
+  analyticsMode: true,
   simpleMode: false,
   company: {
     name: 'ContractorFlow Remodeling LLC',
@@ -25,12 +26,27 @@ const baseCompanySettings = {
   },
 }
 
+export function resolveAnalyticsModeSetting(settings = {}, fallback = baseCompanySettings.analyticsMode) {
+  if (typeof settings?.analyticsMode === 'boolean') {
+    return settings.analyticsMode
+  }
+
+  if (typeof settings?.simpleMode === 'boolean') {
+    return !settings.simpleMode
+  }
+
+  return fallback
+}
+
 export function createDefaultCompanySettings(overrides = {}) {
   const safeOverrides = overrides && typeof overrides === 'object' ? overrides : {}
+  const analyticsMode = resolveAnalyticsModeSetting(safeOverrides)
 
   return {
     ...baseCompanySettings,
     ...safeOverrides,
+    analyticsMode,
+    simpleMode: !analyticsMode,
     company: {
       ...baseCompanySettings.company,
       ...(safeOverrides.company || {}),

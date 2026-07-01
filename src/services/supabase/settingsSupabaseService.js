@@ -88,12 +88,16 @@ function setSettingsRuntimeStatus(operation, status, error = null) {
 
 function toAppSettings(row) {
   const defaults = createDefaultCompanySettings()
+  const analyticsMode = typeof row?.analytics_mode === 'boolean'
+    ? row.analytics_mode
+    : (typeof row?.simple_mode === 'boolean' ? !row.simple_mode : defaults.analyticsMode)
 
   return normalizeSettings({
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     appLanguage: row?.contractor_app_language || defaults.appLanguage,
-    simpleMode: row?.simple_mode ?? defaults.simpleMode,
+    analyticsMode,
+    simpleMode: !analyticsMode,
     company: {
       name: row?.company_name || defaults.company.name,
       ownerName: row?.owner_name || defaults.company.ownerName,
@@ -137,7 +141,7 @@ function toSupabasePayload(contractorId, settings = {}) {
     default_invoice_due_days: Number(normalized.defaults.invoiceDueDays ?? 14),
     default_materials_included: Boolean(normalized.defaults.materialsIncluded),
     contractor_app_language: normalized.appLanguage || 'en',
-    simple_mode: Boolean(normalized.simpleMode),
+    simple_mode: !Boolean(normalized.analyticsMode),
     customer_portal_language: normalized.portal.defaultLanguage || 'en',
     show_payments_in_portal: Boolean(normalized.portal.showPayments),
     show_photos_in_portal: Boolean(normalized.portal.showPhotos),
