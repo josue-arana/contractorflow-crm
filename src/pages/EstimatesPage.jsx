@@ -9,6 +9,7 @@ import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import ActionMenu from '../components/common/ActionMenu'
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import estimatesHeroBackground from '../assets/page-heroes/estimates-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
@@ -28,6 +29,7 @@ function getEstimateStatus(lead) {
 export function EstimatesPage({ leads, estimates = [], contracts = [], archivedIds = [], onOpenEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
+  const { isAnalyticsMode } = useAnalyticsMode()
 
   const leadBackedEstimates = useMemo(() => leads.map((lead) => ({
     id: lead.id,
@@ -196,9 +198,11 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {summaryCards.map((card) => <MetricCard key={card.label} {...card} />)}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">

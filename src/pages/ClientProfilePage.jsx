@@ -14,7 +14,7 @@ import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
-import { useSimpleMode } from '../contexts/SimpleModeContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { hasEstimateData } from '../utils/estimateLinks'
 import { hasContractData } from '../utils/contractLinks'
 import { calculateProjectPaymentSummary, dedupePayments } from '../utils/projectPayments'
@@ -114,7 +114,9 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
-  const { isSimpleMode } = useSimpleMode()
+  const { isAnalyticsMode } = useAnalyticsMode()
+  const showAnalyticsSections = isAnalyticsMode
+  const showDocumentInsightSections = isAnalyticsMode
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const client = clients.find((item) => item.id === clientId)
   const isArchived = isClientArchived(client, archivedClientIds)
@@ -503,7 +505,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   }
 
   function renderMobileAccountSummary() {
-    if (isSimpleMode) return null
+    if (!showAnalyticsSections) return null
 
     return (
       <InfoCard
@@ -550,7 +552,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   }
 
   function renderMobileActivity() {
-    if (isSimpleMode) return null
+    if (!showAnalyticsSections) return null
 
     return recentActivities.length ? recentActivities.map((activity) => {
       const Icon = activity.icon
@@ -653,69 +655,73 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             {renderMobileProjectsList(projectCards)}
           </InfoCard>
 
-          <InfoCard
-            title={
-              <span className="inline-flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700"><WalletCards className="h-5 w-5" /></span>
-                {t('estimates')}
-              </span>
-            }
-            bodyClassName="space-y-3"
-          >
-            {mobileEstimateCards.length ? mobileEstimateCards.map((item) => (
-              <article key={item.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-base font-bold text-slate-950">{item.title}</h3>
-                      {item.status ? <StatusBadge status={item.status} t={t} /> : null}
+          {showDocumentInsightSections ? (
+            <InfoCard
+              title={
+                <span className="inline-flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-700"><WalletCards className="h-5 w-5" /></span>
+                  {t('estimates')}
+                </span>
+              }
+              bodyClassName="space-y-3"
+            >
+              {mobileEstimateCards.length ? mobileEstimateCards.map((item) => (
+                <article key={item.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate text-base font-bold text-slate-950">{item.title}</h3>
+                        {item.status ? <StatusBadge status={item.status} t={t} /> : null}
+                      </div>
+                      <p className="mt-1 break-words text-sm text-slate-500">{item.projectTitle}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
+                        <span className="font-semibold text-slate-900">{item.amount}</span>
+                        {item.dateLabel ? <span>{item.dateLabel}</span> : null}
+                      </div>
                     </div>
-                    <p className="mt-1 break-words text-sm text-slate-500">{item.projectTitle}</p>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
-                      <span className="font-semibold text-slate-900">{item.amount}</span>
-                      {item.dateLabel ? <span>{item.dateLabel}</span> : null}
-                    </div>
+                    <button type="button" onClick={() => onOpenEstimate?.(item.project.id)} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-slate-50">
+                      {t('view')}
+                    </button>
                   </div>
-                  <button type="button" onClick={() => onOpenEstimate?.(item.project.id)} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-slate-50">
-                    {t('view')}
-                  </button>
-                </div>
-              </article>
-            )) : <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">{t('noEstimates')}</div>}
-          </InfoCard>
+                </article>
+              )) : <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">{t('noEstimates')}</div>}
+            </InfoCard>
+          ) : null}
 
-          <InfoCard
-            title={
-              <span className="inline-flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700"><FileSignature className="h-5 w-5" /></span>
-                {t('contracts')}
-              </span>
-            }
-            bodyClassName="space-y-3"
-          >
-            {mobileContractCards.length ? mobileContractCards.map((item) => (
-              <article key={item.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate text-base font-bold text-slate-950">{item.title}</h3>
-                      {item.status ? <StatusBadge status={item.status} t={t} /> : null}
+          {showDocumentInsightSections ? (
+            <InfoCard
+              title={
+                <span className="inline-flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700"><FileSignature className="h-5 w-5" /></span>
+                  {t('contracts')}
+                </span>
+              }
+              bodyClassName="space-y-3"
+            >
+              {mobileContractCards.length ? mobileContractCards.map((item) => (
+                <article key={item.key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate text-base font-bold text-slate-950">{item.title}</h3>
+                        {item.status ? <StatusBadge status={item.status} t={t} /> : null}
+                      </div>
+                      <p className="mt-1 break-words text-sm text-slate-500">{item.projectTitle}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
+                        <span className="font-semibold text-slate-900">{item.amount}</span>
+                        {item.dateLabel ? <span>{item.dateLabel}</span> : null}
+                      </div>
                     </div>
-                    <p className="mt-1 break-words text-sm text-slate-500">{item.projectTitle}</p>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
-                      <span className="font-semibold text-slate-900">{item.amount}</span>
-                      {item.dateLabel ? <span>{item.dateLabel}</span> : null}
-                    </div>
+                    <button type="button" onClick={() => onOpenContract?.(item.project.id)} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-slate-50">
+                      {t('view')}
+                    </button>
                   </div>
-                  <button type="button" onClick={() => onOpenContract?.(item.project.id)} className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-teal-700 transition hover:bg-slate-50">
-                    {t('view')}
-                  </button>
-                </div>
-              </article>
-            )) : <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">{t('noContracts')}</div>}
-          </InfoCard>
+                </article>
+              )) : <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">{t('noContracts')}</div>}
+            </InfoCard>
+          ) : null}
 
-          {!isSimpleMode ? (
+          {showAnalyticsSections ? (
             <InfoCard
               title={
                 <span className="inline-flex items-center gap-3">
@@ -845,7 +851,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           </div>
         </section>
 
-        <section className={`grid gap-5 ${isSimpleMode ? 'xl:grid-cols-1' : 'xl:grid-cols-[1.2fr_1fr_1fr]'}`}>
+        <section className={`grid gap-5 ${showAnalyticsSections ? 'xl:grid-cols-[1.2fr_1fr_1fr]' : 'xl:grid-cols-1'}`}>
           <InfoCard
               title={
                 <span className="inline-flex items-center gap-3">
@@ -875,7 +881,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             <DetailRow label={t('preferredContact')} value={preferredContact || t('notAdded')} />
           </InfoCard>
 
-          {!isSimpleMode ? (
+          {showAnalyticsSections ? (
             <InfoCard
               title={
                 <span className="inline-flex items-center gap-3">
@@ -893,7 +899,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             </InfoCard>
           ) : null}
 
-          {!isSimpleMode ? (
+          {showAnalyticsSections ? (
             <InfoCard
               title={
                 <span className="inline-flex items-center gap-3">

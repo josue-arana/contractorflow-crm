@@ -7,6 +7,7 @@ import { MobileJobStat } from '../components/ui/MobileJobStat'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
@@ -59,6 +60,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
   const [projects, setProjects] = useState([])
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const { contractor, company, session } = useAuth()
+  const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
   const isArchivedJob = (job) => Boolean(job?.isArchived || job?.archivedAt || archivedIds.includes(job?.id))
@@ -278,11 +280,13 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {summaryCards.map((card) => (
-          <MetricCard key={card.label} {...card} />
-        ))}
-      </section>
+      {isAnalyticsMode && (
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {summaryCards.map((card) => (
+            <MetricCard key={card.label} {...card} />
+          ))}
+        </section>
+      )}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">

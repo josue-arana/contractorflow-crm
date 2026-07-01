@@ -9,6 +9,14 @@ import { getSettingsContractorId } from '../services/system/settingsRuntimeServi
 import settingsHeroBackground from '../assets/page-heroes/settings-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
+function getSettingsUiErrorMessage(error, t) {
+  if (error?.code === 'ANALYTICS_MODE_COLUMN_MISSING') {
+    return t('analyticsModeSetupRequired')
+  }
+
+  return error?.message || t('settingsSaveFailed')
+}
+
 export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const { contractor, company: authCompany, contractorAccess, session } = useAuth()
   const { showToast } = useToast()
@@ -45,7 +53,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         if (!mounted) return
 
         if (res?.error) {
-          setSettingsLoadError(res.error.message || t('settingsLoadFailed'))
+          setSettingsLoadError(getSettingsUiErrorMessage(res.error, t))
           return
         }
 
@@ -135,8 +143,9 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         }
 
         setSuccessMessage('')
-        setSettingsLoadError(res.error.message || t('settingsSaveFailed'))
-        showToast(res.error.message || t('settingsSaveFailed'), 'error')
+        const errorMessage = getSettingsUiErrorMessage(res.error, t)
+        setSettingsLoadError(errorMessage)
+        showToast(errorMessage, 'error')
         return
       }
 
@@ -249,12 +258,12 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
             </div>
           </InfoCard>
 
-          <InfoCard title={t('simpleMode')} icon={Globe2}>
+          <InfoCard title={t('analyticsMode')} icon={Globe2}>
             <ToggleRow
-              label={t('simpleMode')}
-              description={t('simpleModeDescription')}
-              checked={Boolean(draft?.simpleMode)}
-              onChange={(checked) => updateRootField('simpleMode', checked)}
+              label={t('analyticsMode')}
+              description={t('analyticsModeDescription')}
+              checked={draft?.analyticsMode !== false}
+              onChange={(checked) => updateRootField('analyticsMode', checked)}
               t={t}
             />
           </InfoCard>

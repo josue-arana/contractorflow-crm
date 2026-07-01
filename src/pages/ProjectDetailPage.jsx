@@ -17,7 +17,6 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
 import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
-import { useSimpleMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
@@ -370,7 +369,6 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
-  const { isSimpleMode } = useSimpleMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const routeProjectId = id || leadId || ''
   const fallbackLinkedProjectId = lead?.projectId || lead?.project_id || ''
