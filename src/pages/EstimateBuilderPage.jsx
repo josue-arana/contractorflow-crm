@@ -24,7 +24,7 @@ import { findLeadByProjectLookup } from '../utils/projectIdentity'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
-const estimatePreviewPageWidth = 816
+const estimatePreviewPageWidth = 780
 
 function resolveMaterialsIncludedDefault(...values) {
   const firstBoolean = values.find((value) => typeof value === 'boolean')
@@ -335,17 +335,17 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl max-w-full space-y-6 overflow-x-hidden">
       <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {backLabel}</button>
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('estimateBuilder')}</p>
-        <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
+        <h1 className="mt-2 break-words text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
         <p className="mt-2 text-sm text-slate-300">{t('estimateBuilderHelp')}</p>
         {isArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
       </section>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
-        <section className="space-y-5">
+        <section className="min-w-0 space-y-5">
           <InfoCard title={t('estimateLanguage')}>
             <div className="space-y-3">
               <p className="text-sm leading-6 text-slate-500">{t('estimateLanguageHelp')}</p>
@@ -527,7 +527,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           </InfoCard>
         </section>
 
-        <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+        <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:self-start">
           <EstimatePreviewCard {...estimatePreviewProps} />
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
@@ -575,7 +575,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         <div
           ref={pdfTemplateRef}
           data-estimate-pdf-root="true"
-          style={{ width: '816px', backgroundColor: '#fc4949', color: '#14e90c', padding: '18px', boxSizing: 'border-box' }}
+          style={{ width: `${estimatePreviewPageWidth}px`, backgroundColor: '#ffffff', color: '#0f172a', padding: '18px', boxSizing: 'border-box' }}
         >
           <EstimatePdfTemplate {...estimatePreviewProps} />
         </div>
@@ -586,7 +586,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
 
 function EstimatePreviewCard(props) {
   return (
-    <InfoCard title={props.t('previewEstimate')} bodyClassName="min-w-0">
+    <InfoCard title={props.t('previewEstimate')} bodyClassName="min-w-0 overflow-hidden">
       <div className="rounded-[28px] bg-slate-50 p-2 sm:p-3">
         <ScaledEstimatePreview>
           <EstimatePdfTemplate {...props} />
@@ -633,13 +633,14 @@ function ScaledEstimatePreview({ children }) {
   }, [children])
 
   return (
-    <div ref={containerRef} className="w-full overflow-hidden">
+    <div ref={containerRef} className="w-full max-w-full overflow-hidden">
       <div style={{ height: contentHeight ? `${contentHeight * scale}px` : 'auto' }}>
-        <div className="flex justify-center">
+        <div className="flex w-full justify-center overflow-hidden">
           <div
             ref={contentRef}
             style={{
               width: `${estimatePreviewPageWidth}px`,
+              maxWidth: 'none',
               transform: `scale(${scale})`,
               transformOrigin: 'top center',
             }}
