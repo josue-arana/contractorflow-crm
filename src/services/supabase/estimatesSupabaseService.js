@@ -146,7 +146,11 @@ function toAppEstimate(row) {
     id: row?.id || undefined,
     contractorId: row?.contractor_id || undefined,
     clientId: row?.client_id || null,
+    client_id: row?.client_id || null,
+    leadId: row?.lead_id || null,
+    lead_id: row?.lead_id || null,
     projectId: row?.project_id || null,
+    project_id: row?.project_id || null,
     number: row?.estimate_number || '',
     estimateNumber: row?.estimate_number || '',
     title: row?.title || 'Estimate',
@@ -195,6 +199,10 @@ function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {
 
   if (isCreate || readField(estimate, ['clientId', 'client_id']) !== undefined) {
     payload.client_id = readField(estimate, ['clientId', 'client_id']) || null
+  }
+
+  if (isCreate || readField(estimate, ['leadId', 'lead_id']) !== undefined) {
+    payload.lead_id = readField(estimate, ['leadId', 'lead_id']) || null
   }
 
   if (isCreate || readField(estimate, ['projectId', 'project_id']) !== undefined) {
@@ -287,7 +295,7 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for estimate operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
+export async function list({ contractorId, includeArchived = false, status, clientId, leadId, projectId } = {}) {
   if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
     return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', [])
   }
@@ -312,6 +320,10 @@ export async function list({ contractorId, includeArchived = false, status, clie
 
     if (clientId) {
       query.client_id = `eq.${clientId}`
+    }
+
+    if (leadId) {
+      query.lead_id = `eq.${leadId}`
     }
 
     if (projectId) {

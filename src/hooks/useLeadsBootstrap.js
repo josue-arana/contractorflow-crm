@@ -29,7 +29,7 @@ export function useLeadsBootstrap(setLeads) {
     }
 
     async function loadLeads() {
-      const response = await dataProvider.leads.list({ contractorId })
+      const response = await dataProvider.leads.list({ contractorId, includeArchived: true })
 
       if (isCancelled) return
 

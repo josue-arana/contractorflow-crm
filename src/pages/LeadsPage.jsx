@@ -20,6 +20,15 @@ import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
 const leadFilters = ['All', 'New Lead', 'Contacted', 'Estimate Sent', 'Won', 'Archived']
 
+function isLeadArchived(lead, archivedIds = []) {
+  return Boolean(
+    lead?.isArchived
+      || lead?.archivedAt
+      || lead?.archived_at
+      || archivedIds.includes(lead?.id)
+  )
+}
+
 export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('All')
@@ -40,12 +49,12 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     }
   }), [leads, t])
 
-  const activeLeads = useMemo(() => leadsWithEstimatedValues.filter((lead) => !archivedIds.includes(lead.id)), [leadsWithEstimatedValues, archivedIds])
+  const activeLeads = useMemo(() => leadsWithEstimatedValues.filter((lead) => !isLeadArchived(lead, archivedIds)), [leadsWithEstimatedValues, archivedIds])
 
   const filteredLeads = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return leadsWithEstimatedValues.filter((lead) => {
-      const isArchived = archivedIds.includes(lead.id)
+      const isArchived = isLeadArchived(lead, archivedIds)
       const matchesStatus = selectedFilter === 'All'
         ? !isArchived
         : selectedFilter === 'Archived'
@@ -145,7 +154,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
   }
 
   function renderLeadActions(lead, compact = false) {
-    const isArchived = archivedIds.includes(lead.id)
+    const isArchived = isLeadArchived(lead, archivedIds)
     if (isArchived) {
       return (
         <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
@@ -238,7 +247,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
                   <td className="px-4 py-4"><p className="font-bold text-slate-950">{lead.client}</p><p className="text-sm text-slate-500">{lead.projectTitle || lead.projectType}</p></td>
                   <td className="px-4 py-4 font-medium text-slate-700">{lead.phone || t('notAdded')}</td>
                   {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{lead.leadEstimatedValueDisplay}</td>}
-                  <td className="px-4 py-4"><StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} /></td>
+                  <td className="px-4 py-4"><StatusBadge status={isLeadArchived(lead, archivedIds) ? 'Archived' : lead.status} t={t} /></td>
                   {isAnalyticsMode && <td className="px-4 py-4"><StatusBadge status={getPriorityLabel(lead.priority, t)} t={t} /></td>}
                   {isAnalyticsMode && <td className="px-4 py-4 text-slate-600">{getLeadDisplayValue(lead.source, t) || t('notAdded')}</td>}
                   <td className="px-4 py-4 text-right">{renderLeadActions(lead)}</td>
@@ -262,7 +271,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
             >
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div><h3 className="font-bold text-slate-950">{lead.client}</h3><p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectTitle || lead.projectType, t)}</p></div>
-                <StatusBadge status={archivedIds.includes(lead.id) ? 'Archived' : lead.status} t={t} />
+                <StatusBadge status={isLeadArchived(lead, archivedIds) ? 'Archived' : lead.status} t={t} />
               </div>
               {!isAnalyticsMode ? (
                 <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">

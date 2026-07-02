@@ -237,6 +237,15 @@ function resolvePersistedProjectLink(...records) {
   return null
 }
 
+function isLeadArchivedRecord(lead = {}, archivedLeadIds = []) {
+  return Boolean(
+    lead?.isArchived
+      || lead?.archivedAt
+      || lead?.archived_at
+      || archivedLeadIds.includes(lead?.id)
+  )
+}
+
 function getLinkedContract(lead) {
   if (hasContractData(lead?.portal?.contract)) {
     return lead.portal.contract
@@ -780,7 +789,7 @@ function ContractorFlowApp() {
   const visibleLeads = useMemo(() => leads
     .filter((lead) => !archives.deletedLeadIds.includes(lead.id))
     .map((lead) => mergePersistedDocumentsIntoLead(lead, persistedEstimates, persistedContracts)), [archives.deletedLeadIds, leads, persistedContracts, persistedEstimates])
-  const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
+  const activeLeads = useMemo(() => visibleLeads.filter((lead) => !isLeadArchivedRecord(lead, archives.leadIds)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => sortScheduleEventRecords(scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id))), [scheduleEvents, archives.deletedScheduleEventIds])
   const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id) && !event.archivedAt), [visibleScheduleEvents, archives.scheduleEventIds])
@@ -1928,9 +1937,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       id: nextEstimateId,
       contractorId: estimate?.contractorId || estimate?.contractor_id || existingEstimate.contractorId || projectsContractorId || undefined,
       leadId: sourceLead?.id || leadId,
+      lead_id: sourceLead?.id || leadId,
       projectId: relatedProjectId,
       project_id: relatedProjectId,
-      clientId: estimate?.clientId || existingEstimate.clientId || sourceLead?.clientId || null,
+      clientId: estimate?.clientId || estimate?.client_id || existingEstimate.clientId || existingEstimate.client_id || sourceLead?.clientId || sourceLead?.client_id || null,
+      client_id: estimate?.clientId || estimate?.client_id || existingEstimate.clientId || existingEstimate.client_id || sourceLead?.clientId || sourceLead?.client_id || null,
       projectTitle: estimate?.projectTitle || existingEstimate.projectTitle || sourceLead?.projectTitle || sourceLead?.projectType || 'Estimate',
       number: estimateNumber,
       total: resolveEstimateTotal(sourceLead, estimate, toSafeNumber(existingEstimate.total)),
@@ -1942,10 +1953,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     try {
       let estimateId = estimate?.id || existingEstimate.id || null
 
-      if (!estimate?.id && !existingEstimate.id && relatedProjectId && (USE_SUPABASE || USE_SUPABASE_ESTIMATES)) {
+      if (!estimate?.id && !existingEstimate.id && (USE_SUPABASE || USE_SUPABASE_ESTIMATES)) {
         const existingEstimateResponse = await dataProvider.estimates.list({
           contractorId: projectsContractorId,
-          projectId: relatedProjectId,
+          ...(relatedProjectId ? { projectId: relatedProjectId } : { leadId: sourceLead?.id || leadId }),
           includeArchived: true,
         })
 
@@ -2741,11 +2752,12 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
   function openEstimateForLead(leadId) {
     const matchingLead = findLeadByProjectLookup(visibleLeads, leadId)
-    const routeId = resolveLinkedProjectId(matchingLead, leadId)
+    const hasProject = Boolean(matchingLead?.projectId || matchingLead?.project_id)
+    const routeId = hasProject ? resolveLinkedProjectId(matchingLead, leadId) : (matchingLead?.id || leadId)
 
     navigate(`/projects/${routeId}/estimate`, {
       state: {
-        source: 'project',
+        source: hasProject ? 'project' : 'lead',
         projectId: routeId,
         leadId: matchingLead?.id || leadId,
       },

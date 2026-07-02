@@ -24,25 +24,18 @@ import { findLeadByProjectLookup } from '../utils/projectIdentity'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
+const estimatePreviewPageWidth = 816
 
-function formatEstimateDate(value) {
-  if (!value) {
-    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
-  }
-
-  const parsedDate = new Date(value)
-  if (Number.isNaN(parsedDate.getTime())) {
-    return String(value)
-  }
-
-  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+function resolveMaterialsIncludedDefault(...values) {
+  const firstBoolean = values.find((value) => typeof value === 'boolean')
+  return typeof firstBoolean === 'boolean' ? firstBoolean : false
 }
 
-function createEmptyLineItem() {
-  return { name: '', amount: 0 }
+function createEmptyLineItem(materialsIncluded = false) {
+  return { name: '', amount: 0, materialsIncluded }
 }
 
-function normalizeLineItems(items = []) {
+function normalizeLineItems(items = [], fallbackMaterialsIncluded = false) {
   if (!Array.isArray(items)) {
     return []
   }
@@ -50,6 +43,7 @@ function normalizeLineItems(items = []) {
   return items.map((item) => ({
     name: typeof item?.name === 'string' ? item.name : String(item?.name || ''),
     amount: Number(item?.amount || 0),
+    materialsIncluded: item?.materialsIncluded ?? fallbackMaterialsIncluded,
   }))
 }
 
@@ -76,35 +70,23 @@ function sanitizeAmountInput(value) {
   return `${wholePart}.${decimalPart}`
 }
 
-function splitLineItemDescription(value, fallbackTitle) {
-  const description = String(value || '').trim()
-
-  if (!description) {
-    return {
-      title: fallbackTitle,
-      details: '',
-    }
-  }
-
-  const [firstLine, ...remainingLines] = description.split('\n')
-
-  return {
-    title: firstLine.trim() || fallbackTitle,
-    details: remainingLines.join('\n').trim(),
-  }
-}
-
 export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
+  const scopeTextareaRef = useRef(null)
   const lineItemTextareaRefs = useRef([])
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
-  const savedLineItems = normalizeLineItems(savedEstimate.lineItems)
+  const defaultMaterialsIncluded = resolveMaterialsIncludedDefault(
+    savedEstimate.materialsIncluded,
+    companySettings?.defaults?.materialsIncluded,
+    false
+  )
+  const savedLineItems = normalizeLineItems(savedEstimate.lineItems, defaultMaterialsIncluded)
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-  const [scope, setScope] = useState(savedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
+  const [scope, setScope] = useState(savedEstimate.summary || '')
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
-  const [materialsIncluded, setMaterialsIncluded] = useState(savedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
+  const [materialsIncluded, setMaterialsIncluded] = useState(defaultMaterialsIncluded)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
   const [estimateLanguage, setEstimateLanguage] = useState(savedEstimate.estimateLanguage || 'match')
   const [pricingMode, setPricingMode] = useState(hasSavedLineItems ? detailedPricingMode : simplePricingMode)
@@ -112,26 +94,29 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
-  const [isMobilePreview, setIsMobilePreview] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 640 : false))
-  const [activeLineItemIndex, setActiveLineItemIndex] = useState(null)
   const [lineItemAmountInputs, setLineItemAmountInputs] = useState(() => (
     (hasSavedLineItems ? savedLineItems : [
-      { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
-      { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
+      { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
+      { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: defaultMaterialsIncluded },
     ]).map((item) => formatAmountInputValue(item.amount))
   ))
   const [lineItems, setLineItems] = useState(hasSavedLineItems ? savedLineItems : [
-    { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
-    { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
+    { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
+    { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: defaultMaterialsIncluded },
   ])
 
   useEffect(() => {
     const nextSavedEstimate = lead.portal?.estimate || {}
-    const nextSavedLineItems = normalizeLineItems(nextSavedEstimate.lineItems)
+    const nextDefaultMaterialsIncluded = resolveMaterialsIncludedDefault(
+      nextSavedEstimate.materialsIncluded,
+      companySettings?.defaults?.materialsIncluded,
+      false
+    )
+    const nextSavedLineItems = normalizeLineItems(nextSavedEstimate.lineItems, nextDefaultMaterialsIncluded)
     const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-    setScope(nextSavedEstimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)} - ${lead.client}.`)
+    setScope(nextSavedEstimate.summary || '')
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
-    setMaterialsIncluded(nextSavedEstimate.materialsIncluded ?? companySettings?.defaults?.materialsIncluded ?? true)
+    setMaterialsIncluded(nextDefaultMaterialsIncluded)
     setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
     setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
     if (nextHasSavedLineItems) {
@@ -140,28 +125,14 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       setPricingMode(detailedPricingMode)
     } else {
       const defaultLineItems = [
-        { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35) },
-        { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65) },
+        { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: nextDefaultMaterialsIncluded },
+        { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: nextDefaultMaterialsIncluded },
       ]
       setLineItems(defaultLineItems)
       setLineItemAmountInputs(defaultLineItems.map((item) => formatAmountInputValue(item.amount)))
       setPricingMode(simplePricingMode)
     }
   }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, t])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-
-    const mediaQuery = window.matchMedia('(max-width: 639px)')
-    const syncViewport = () => setIsMobilePreview(mediaQuery.matches)
-
-    syncViewport()
-    mediaQuery.addEventListener?.('change', syncViewport)
-
-    return () => {
-      mediaQuery.removeEventListener?.('change', syncViewport)
-    }
-  }, [])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
@@ -233,14 +204,14 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function addLineItem() {
-    setLineItems((items) => [...items, createEmptyLineItem()])
+    setLineItems((items) => [...items, createEmptyLineItem(materialsIncluded)])
     setLineItemAmountInputs((items) => [...items, ''])
     setPricingMode(detailedPricingMode)
   }
 
   function removeLineItem(index) {
     setLineItems((items) => {
-      if (items.length === 1) return [createEmptyLineItem()]
+      if (items.length === 1) return [createEmptyLineItem(materialsIncluded)]
       return items.filter((_, itemIndex) => itemIndex !== index)
     })
     setLineItemAmountInputs((items) => {
@@ -285,20 +256,13 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? formatAmountInputValue(numericValue) : item))
   }
 
-  function insertBulletIntoActiveLineItem() {
-    if (activeLineItemIndex === null || !lineItems[activeLineItemIndex]) {
-      return
-    }
-
-    const textarea = lineItemTextareaRefs.current[activeLineItemIndex]
-
+  function insertBulletIntoTextarea(textarea, currentValue, onUpdate) {
     if (!textarea) {
       return
     }
 
     const selectionStart = textarea.selectionStart ?? textarea.value.length
     const selectionEnd = textarea.selectionEnd ?? selectionStart
-    const currentValue = lineItems[activeLineItemIndex]?.name || ''
     const prefix = currentValue.slice(0, selectionStart)
     const suffix = currentValue.slice(selectionEnd)
     const needsLeadingBreak = prefix.length > 0 && !prefix.endsWith('\n')
@@ -306,7 +270,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     const nextValue = `${prefix}${bulletText}${suffix}`
     const nextCaretPosition = prefix.length + bulletText.length
 
-    updateLineItem(activeLineItemIndex, 'name', nextValue)
+    onUpdate(nextValue)
 
     requestAnimationFrame(() => {
       textarea.focus()
@@ -315,7 +279,21 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     })
   }
 
+  function insertBulletIntoScope() {
+    insertBulletIntoTextarea(scopeTextareaRef.current, scope, setScope)
+  }
+
+  function insertBulletIntoLineItem(index) {
+    const textarea = lineItemTextareaRefs.current[index]
+    const currentValue = lineItems[index]?.name || ''
+    insertBulletIntoTextarea(textarea, currentValue, (nextValue) => updateLineItem(index, 'name', nextValue))
+  }
+
   function useDetailedPricing() {
+    setLineItems((items) => items.map((item) => ({
+      ...item,
+      materialsIncluded: item?.materialsIncluded ?? materialsIncluded,
+    })))
     setPricingMode(detailedPricingMode)
   }
 
@@ -380,10 +358,23 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           </InfoCard>
           <InfoCard title={t('scopeOfWork')}>
             {isEditing ? (
-              <textarea value={scope} onChange={(event) => setScope(event.target.value)} rows={8} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
-            ) : (
+              <div className="space-y-3">
+                <textarea
+                  ref={scopeTextareaRef}
+                  value={scope}
+                  onChange={(event) => setScope(event.target.value)}
+                  rows={8}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                />
+                <div className="flex justify-end">
+                  <button onClick={insertBulletIntoScope} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                    {t('addBullet')}
+                  </button>
+                </div>
+              </div>
+            ) : String(scope || '').trim() ? (
               <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{scope}</div>
-            )}
+            ) : null}
           </InfoCard>
 
           <InfoCard
@@ -407,9 +398,14 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                         {isEditing ? (
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_168px] sm:items-start">
                             <div className="space-y-2">
-                              <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
-                                {t('lineItemDetails')}
-                              </label>
+                              <div className="flex items-center justify-between gap-3">
+                                <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
+                                  {t('lineItemDetails')}
+                                </label>
+                                <button onClick={() => insertBulletIntoLineItem(index)} className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                  {t('addBullet')}
+                                </button>
+                              </div>
                               <textarea
                                 ref={(element) => {
                                   lineItemTextareaRefs.current[index] = element
@@ -419,8 +415,6 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                                 }}
                                 value={item.name}
                                 onChange={(event) => handleLineItemTextareaInput(index, event.target.value, event.target)}
-                                onFocus={() => setActiveLineItemIndex(index)}
-                                onClick={() => setActiveLineItemIndex(index)}
                                 placeholder={t('enterScopeDetails')}
                                 rows={3}
                                 className="min-h-[104px] w-full resize-none rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
@@ -445,6 +439,27 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                                   />
                                 </div>
                               </div>
+                              <div className="space-y-1">
+                                <span className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                                  {t('materialsIncluded')}
+                                </span>
+                                <div className="grid min-h-[40px] grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => updateLineItem(index, 'materialsIncluded', true)}
+                                    className={`rounded-lg px-3 py-2 text-xs font-bold transition ${item.materialsIncluded ? 'bg-emerald-50 text-emerald-700 shadow-sm ring-1 ring-emerald-100' : 'text-slate-600 hover:bg-white'}`}
+                                  >
+                                    {t('yes')}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => updateLineItem(index, 'materialsIncluded', false)}
+                                    className={`rounded-lg px-3 py-2 text-xs font-bold transition ${!item.materialsIncluded ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white'}`}
+                                  >
+                                    {t('no')}
+                                  </button>
+                                </div>
+                              </div>
                               <button onClick={() => removeLineItem(index)} className="h-10 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
                                 {t('remove')}
                               </button>
@@ -453,7 +468,12 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                         ) : (
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_168px] sm:items-start">
                             <div className="rounded-xl bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-700 whitespace-pre-line break-words">{item.name || t('item')}</div>
-                            <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
+                            <div className="space-y-2">
+                              <div className="rounded-xl bg-slate-50 px-3 py-3 text-right text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</div>
+                              <div className={`rounded-xl px-3 py-2 text-xs font-bold ${item.materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
+                                {item.materialsIncluded ? `${t('materialsIncluded')}: ${t('yes')}` : `${t('materialsIncluded')}: ${t('no')}`}
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -461,9 +481,6 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                     {isEditing ? (
                       <div className="flex flex-col gap-3 sm:flex-row">
                         <button onClick={addLineItem} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white">{t('addItem')}</button>
-                        <button onClick={insertBulletIntoActiveLineItem} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
-                          {t('addBullet')}
-                        </button>
                       </div>
                     ) : null}
                   </div>
@@ -487,6 +504,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             </div>
           </InfoCard>
 
+          {!isDetailedPricing ? (
           <InfoCard title={t('materialsIncluded')}>
             {isEditing ? (
               <button onClick={() => setMaterialsIncluded((current) => !current)} className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
@@ -498,6 +516,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
               </div>
             )}
           </InfoCard>
+          ) : null}
 
           <InfoCard title={t('paymentTerms')}>
             {isEditing ? (
@@ -509,7 +528,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         </section>
 
         <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-          <EstimatePreviewCard company={companySettings?.company} lead={lead} estimateDate={previewEstimateDate} scope={scope} materialsIncluded={materialsIncluded} paymentTerms={paymentTerms} total={estimateTotal} lineItems={isDetailedPricing ? lineItems : []} t={estimateT} />
+          <EstimatePreviewCard {...estimatePreviewProps} />
           {!isEditing && (
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
@@ -539,18 +558,13 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         })
         setShowSendModal(false)
       }} t={estimateT} />
-      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-3xl">
+      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">
-          {isMobilePreview ? (
-            <div className="p-6 sm:p-8">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">{estimateT('previewPdf')}</p>
-                <p className="mt-3 text-sm leading-6 text-slate-700">{estimateT('estimatePreviewDesktopOnly')}</p>
-              </div>
-            </div>
-          ) : (
-            <EstimatePdfTemplate {...estimatePreviewProps} />
-          )}
+          <div className="p-3 sm:p-4">
+            <ScaledEstimatePreview>
+              <EstimatePdfTemplate {...estimatePreviewProps} />
+            </ScaledEstimatePreview>
+          </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
             <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
@@ -561,7 +575,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         <div
           ref={pdfTemplateRef}
           data-estimate-pdf-root="true"
-          style={{ width: '816px', backgroundColor: '#ffffff', color: '#0f172a', padding: '24px', boxSizing: 'border-box' }}
+          style={{ width: '816px', backgroundColor: '#fc4949', color: '#14e90c', padding: '18px', boxSizing: 'border-box' }}
         >
           <EstimatePdfTemplate {...estimatePreviewProps} />
         </div>
@@ -571,124 +585,79 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
 }
 
 function EstimatePreviewCard(props) {
-  return <InfoCard title={props.t('previewEstimate')}><EstimatePreviewBody {...props} /></InfoCard>
-}
-
-function EstimatePreviewBody({ company, lead, estimateDate, scope, materialsIncluded, paymentTerms, total, lineItems = [], t }) {
   return (
-    <>
-      {company && <><DocumentCompanyHeader company={company} t={t} /><div className="my-4 border-t border-slate-200" /></>}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4">
-        <div className="grid gap-4 sm:grid-cols-3">
-          <PreviewInfoBlock label={t('client')}>
-            <div className="font-bold text-slate-900">{lead.client}</div>
-            <div>{lead.address || lead.location}</div>
-          </PreviewInfoBlock>
-          <PreviewInfoBlock label={t('date')}>
-            <div>{formatEstimateDate(estimateDate)}</div>
-          </PreviewInfoBlock>
-          <PreviewInfoBlock label={t('materialsIncluded')}>
-            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${materialsIncluded ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
-              {materialsIncluded ? t('yes') : t('no')}
-            </span>
-          </PreviewInfoBlock>
-        </div>
+    <InfoCard title={props.t('previewEstimate')} bodyClassName="min-w-0">
+      <div className="rounded-[28px] bg-slate-50 p-2 sm:p-3">
+        <ScaledEstimatePreview>
+          <EstimatePdfTemplate {...props} />
+        </ScaledEstimatePreview>
       </div>
-      <EstimateCompactSummary title={lead.projectTitle || lead.projectType || t('projectTitle')} total={total} t={t} className="mt-4" />
-      <EstimatePreviewScopeSection scope={scope} lineItems={lineItems} t={t} className="mt-4" />
-      <EstimatePreviewSection title={t('paymentTerms')} content={paymentTerms} className="mt-4" />
-    </>
+    </InfoCard>
   )
 }
 
-function EstimatePreviewScopeSection({ scope, lineItems = [], t, className = '' }) {
-  const hasScope = Boolean(String(scope || '').trim())
-  const hasLineItems = lineItems.length > 0
+function ScaledEstimatePreview({ children }) {
+  const containerRef = useRef(null)
+  const contentRef = useRef(null)
+  const [scale, setScale] = useState(1)
+  const [contentHeight, setContentHeight] = useState(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const containerNode = containerRef.current
+    const contentNode = contentRef.current
+    if (!containerNode || !contentNode) return undefined
+
+    const updateLayout = () => {
+      const nextWidth = containerNode.clientWidth || estimatePreviewPageWidth
+      const nextScale = Math.min(1, nextWidth / estimatePreviewPageWidth)
+      setScale(nextScale)
+      setContentHeight(contentNode.offsetHeight || 0)
+    }
+
+    updateLayout()
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateLayout()
+    })
+
+    resizeObserver.observe(containerNode)
+    resizeObserver.observe(contentNode)
+    window.addEventListener('resize', updateLayout)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateLayout)
+    }
+  }, [children])
 
   return (
-    <div className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 ${className}`.trim()}>
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{t('scopeOfWork')}</p>
-      {hasScope ? (
-        <div className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{scope}</div>
-      ) : null}
-      {hasLineItems ? (
-        <div className={hasScope ? 'mt-4 border-t border-slate-200 pt-4' : 'mt-2'}>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{t('workBreakdown')}</p>
-          <div className="mt-3 space-y-3">
-            {lineItems.map((item, index) => {
-              const parts = splitLineItemDescription(item.name, t('item'))
-
-              return (
-                <div key={index} className="rounded-xl border border-slate-200 bg-white/80 px-4 py-3">
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-4">
-                    <p className="text-sm font-semibold leading-6 text-slate-900 break-words">
-                      <span className="mr-2 text-slate-500">{index + 1}.</span>
-                      {parts.title}
-                    </p>
-                    <span className="text-sm font-bold text-slate-900">{currency.format(Number(item.amount || 0))}</span>
-                  </div>
-                  {parts.details ? (
-                    <div className="mt-2 whitespace-pre-line pl-6 text-sm leading-6 text-slate-600">
-                      {parts.details}
-                    </div>
-                  ) : null}
-                </div>
-              )
-            })}
+    <div ref={containerRef} className="w-full overflow-hidden">
+      <div style={{ height: contentHeight ? `${contentHeight * scale}px` : 'auto' }}>
+        <div className="flex justify-center">
+          <div
+            ref={contentRef}
+            style={{
+              width: `${estimatePreviewPageWidth}px`,
+              transform: `scale(${scale})`,
+              transformOrigin: 'top center',
+            }}
+          >
+            <div
+              data-estimate-pdf-root="true"
+              style={{
+                width: `${estimatePreviewPageWidth}px`,
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                padding: '18px',
+                boxSizing: 'border-box',
+              }}
+            >
+              {children}
+            </div>
           </div>
         </div>
-      ) : null}
-    </div>
-  )
-}
-
-function EstimatePreviewSection({ title, content, className = '' }) {
-  return (
-    <div className={`rounded-2xl border border-slate-200 bg-slate-50 p-4 ${className}`.trim()}>
-      <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">{title}</p>
-      <div className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{content}</div>
-    </div>
-  )
-}
-
-function PreviewInfoBlock({ label, children }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{label}</p>
-      <div className="mt-1 text-sm leading-5 text-slate-700">{children}</div>
-    </div>
-  )
-}
-
-function EstimateCompactSummary({ title, total, t, className = '' }) {
-  return (
-    <div className={`overflow-hidden rounded-2xl border border-slate-200 ${className}`.trim()}>
-      <div className="grid grid-cols-[1fr_170px] bg-slate-50">
-        <div className="border-r border-slate-200 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{t('description')}</p>
-          <p className="mt-1 text-sm font-bold text-slate-900">{title}</p>
-        </div>
-        <div className="px-4 py-3 text-right">
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">{t('estimate')} {t('totalAmount')}</p>
-          <p className="mt-1 text-lg font-bold text-slate-900">{currency.format(total)}</p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DocumentCompanyHeader({ company, t }) {
-  return (
-    <div className="flex items-center gap-3">
-      {company?.logo ? (
-        <img src={company.logo} alt="" className="h-12 w-12 rounded-2xl object-cover ring-1 ring-slate-200" />
-      ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-sm font-bold text-white">{t('brandInitials')}</div>
-      )}
-      <div>
-        <p className="text-sm font-bold text-slate-950">{company?.name || t('brandName')}</p>
-        <p className="text-xs text-slate-500">{company?.phone || ''}</p>
-        <p className="text-xs text-slate-500">{company?.email || ''}</p>
       </div>
     </div>
   )
@@ -737,6 +706,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
 
       const cachedEstimate = readLinkedEstimateDraft(lead || projectId, [projectId, lead.id])
       const relatedProjectId = lead.projectId || lead.project_id || projectId || null
+      const relatedLeadId = lead.id || sourceLeadId || null
       const knownEstimateId = lead.estimateId || lead.portal?.estimate?.id || cachedEstimate?.id || null
 
       try {
@@ -760,7 +730,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
           }
         }
 
-        if (!relatedProjectId) {
+        if (!relatedProjectId && !relatedLeadId) {
           if (!isCancelled) {
             setLoadedEstimate(cachedEstimate)
           }
@@ -769,7 +739,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
 
         const response = await dataProvider.estimates.list({
           contractorId,
-          projectId: relatedProjectId,
+          ...(relatedProjectId && relatedProjectId !== lead.id ? { projectId: relatedProjectId } : {}),
+          ...(relatedLeadId ? { leadId: relatedLeadId } : {}),
           includeArchived: true,
         })
 
@@ -801,7 +772,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     return () => {
       isCancelled = true
     }
-  }, [contractorId, lead?.id])
+  }, [contractorId, lead?.estimateId, lead?.id, lead?.portal?.estimate?.id, lead?.projectId, lead?.project_id, projectId, sourceLeadId])
 
   if (!lead) {
     return (

@@ -24,8 +24,18 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
           body { font-family: ui-sans-serif, system-ui, sans-serif; }
           img { max-width: 100%; }
           [data-print-root="true"] { width: 100%; box-sizing: border-box; }
+          [data-print-root="true"] article,
+          [data-print-root="true"] section,
+          [data-print-root="true"] div {
+            break-inside: auto;
+          }
+          [data-print-root="true"] [data-line-item-card="true"] {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
           @media print {
             html, body { background: #ffffff; }
+            body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           }
         </style>
       </head>

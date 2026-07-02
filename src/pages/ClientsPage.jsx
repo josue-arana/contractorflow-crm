@@ -2,14 +2,17 @@ import { useMemo, useState } from 'react'
 import { Archive, DollarSign, MoreVertical, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { useToast } from '../components/common/ToastProvider'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { ActionMenu } from '../components/common/ActionMenu'
+import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
+import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import clientsHeroBackground from '../assets/page-heroes/clients-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
@@ -29,7 +32,10 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
+  const contractorId = getClientsContractorId({ contractor, company, session })
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const activeClientsList = useMemo(() => clients.filter((client) => !isClientArchived(client, archivedClientIds)), [clients, archivedClientIds])
 
@@ -68,15 +74,23 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        const response = await dataProvider.clients.archive(confirmAction.client.id)
+        const response = await dataProvider.clients.archive(confirmAction.client.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('archiveFailed'), 'error')
+          return
+        }
         onArchiveClient(confirmAction.client.id, response?.data)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider.clients.deletePermanently(confirmAction.client.id)
+        const response = await dataProvider.clients.deletePermanently(confirmAction.client.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('deleteFailed'), 'error')
+          return
+        }
         onDeleteClient(confirmAction.client.id)
       }
     } catch (err) {
-      // local mode: ignore errors
+      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
     }
     setConfirmAction(null)
   }
@@ -94,10 +108,14 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
   async function restoreClient(clientId) {
     try {
-      const response = await dataProvider.clients.restore(clientId)
+      const response = await dataProvider.clients.restore(clientId, { contractorId })
+      if (response?.error) {
+        showToast(response.error.message || t('restoreFailed'), 'error')
+        return
+      }
       onRestoreClient(clientId, response?.data)
     } catch (err) {
-      // local mode: ignore errors
+      showToast(err?.message || t('restoreFailed'), 'error')
     }
   }
 
