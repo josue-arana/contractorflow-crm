@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, Trash2, Undo2, Zap } from 'lucide-react'
+import { Archive, BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, MoreVertical, Trash2, Undo2, Zap } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { MobileJobStat } from '../components/ui/MobileJobStat'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import ActionMenu from '../components/common/ActionMenu'
 import { USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
-import { archiveListButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import jobsHeroBackground from '../assets/page-heroes/jobs-bg.png'
@@ -233,31 +234,73 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
   function renderJobActions(job, compact = false) {
     const isArchived = isArchivedJob(job)
+    const moreMenuItems = isArchived
+      ? [
+          {
+            id: 'restore-job',
+            label: t('restore'),
+            icon: <Undo2 className="mr-2 h-4 w-4" />,
+            onClick: async (event) => {
+              event.stopPropagation()
+              try {
+                await dataProvider?.projects?.restore?.(job.id, { contractorId })
+                if (USE_SUPABASE_PROJECTS) {
+                  setProjects((current) => current.map((project) => (
+                    project.id === job.id
+                      ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
+                      : project
+                  )))
+                }
+              } catch (err) {}
+              onRestoreJob(job.id)
+            },
+          },
+          {
+            id: 'delete-job',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            onClick: () => confirmDelete(job),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]
+      : [
+          {
+            id: 'archive-job',
+            label: t('archive'),
+            icon: <Archive className="mr-2 h-4 w-4" />,
+            onClick: () => confirmArchive(job),
+            className: archiveMenuItemClasses,
+          },
+        ]
+    const actionLayoutClasses = compact ? 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2' : 'flex items-center justify-end gap-2'
+    const moreButtonClasses = compact
+      ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+
     if (isArchived) {
       return (
-        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={async (event) => {
-            event.stopPropagation()
-            try {
-              await dataProvider?.projects?.restore?.(job.id, { contractorId })
-              if (USE_SUPABASE_PROJECTS) {
-                setProjects((current) => current.map((project) => (
-                  project.id === job.id
-                    ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
-                    : project
-                )))
-              }
-            } catch (err) {}
-            onRestoreJob(job.id)
-          }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
-          <button onClick={(event) => { event.stopPropagation(); confirmDelete(job) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        <div className={actionLayoutClasses}>
+          <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
+          <ActionMenu
+            label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+            ariaLabel={t('more')}
+            showChevron={!compact}
+            buttonClassName={moreButtonClasses}
+            items={moreMenuItems}
+          />
         </div>
       )
     }
     return (
-      <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(job) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      <div className={actionLayoutClasses}>
+        <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
+        <ActionMenu
+          label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+          ariaLabel={t('more')}
+          showChevron={!compact}
+          buttonClassName={moreButtonClasses}
+          items={moreMenuItems}
+        />
       </div>
     )
   }

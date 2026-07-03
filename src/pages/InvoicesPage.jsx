@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
-import { Archive, CheckCircle2, Clock, DollarSign, FileText, Send, Trash2, Undo2, XCircle } from 'lucide-react'
+import { Archive, CheckCircle2, Clock, DollarSign, FileText, MoreVertical, Send, Trash2, Undo2, XCircle } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
-import { archiveListButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import ActionMenu from '../components/common/ActionMenu'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
@@ -79,20 +80,67 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
 
   function renderInvoiceActions(invoice, compact = false) {
     const isArchived = archivedIds.includes(invoice.id)
+    const moreMenuItems = isArchived
+      ? [
+          {
+            id: 'restore-invoice',
+            label: t('restore'),
+            icon: <Undo2 className="mr-2 h-4 w-4" />,
+            onClick: (event) => {
+              event.stopPropagation()
+              onRestoreInvoice(invoice.id)
+            },
+          },
+          {
+            id: 'delete-invoice',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            onClick: () => confirmDelete(invoice),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]
+      : [
+          {
+            id: 'archive-invoice',
+            label: t('archive'),
+            icon: <Archive className="mr-2 h-4 w-4" />,
+            onClick: () => confirmArchive(invoice),
+            className: archiveMenuItemClasses,
+          },
+        ]
+    const actionLayoutClasses = compact
+      ? `grid ${isArchived ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'} items-center gap-2`
+      : `ml-auto grid ${isArchived ? 'grid-cols-[8.75rem_5.25rem]' : 'grid-cols-[8.75rem_8.75rem_8.75rem_5.25rem]'} items-center justify-end gap-2`
+    const moreButtonClasses = compact
+      ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+
     if (isArchived) {
       return (
-        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => { event.stopPropagation(); onRestoreInvoice(invoice.id) }} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
-          <button onClick={(event) => { event.stopPropagation(); confirmDelete(invoice) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        <div className={actionLayoutClasses}>
+          <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
+          <ActionMenu
+            label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+            ariaLabel={t('more')}
+            showChevron={!compact}
+            buttonClassName={moreButtonClasses}
+            items={moreMenuItems}
+          />
         </div>
       )
     }
     return (
-      <div className={`flex gap-2 ${compact ? 'grid gap-2 sm:grid-cols-3' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
-        <button onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(invoice) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      <div className={actionLayoutClasses}>
+        <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
+        <button onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
+        <ActionMenu
+          label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+          ariaLabel={t('more')}
+          showChevron={!compact}
+          buttonClassName={moreButtonClasses}
+          items={moreMenuItems}
+        />
       </div>
     )
   }
