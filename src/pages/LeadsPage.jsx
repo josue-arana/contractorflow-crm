@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Archive, ClipboardList, Plus, Search, Trash2, Undo2, UserPlus, Users, WalletCards } from 'lucide-react'
+import { Archive, ClipboardList, MoreVertical, Plus, Search, Trash2, Undo2, UserPlus, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import ActionMenu from '../components/common/ActionMenu'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import { currency } from '../utils/formatters'
-import { archiveListButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
@@ -155,19 +156,61 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
   function renderLeadActions(lead, compact = false) {
     const isArchived = isLeadArchived(lead, archivedIds)
+    const moreMenuItems = isArchived
+      ? [
+          {
+            id: 'restore-lead',
+            label: t('restore'),
+            icon: <Undo2 className="mr-2 h-4 w-4" />,
+            onClick: (event) => handleRestoreLead(event, lead.id),
+          },
+          {
+            id: 'delete-lead',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            onClick: () => confirmDelete(lead),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
+        ]
+      : [
+          {
+            id: 'archive-lead',
+            label: t('archive'),
+            icon: <Archive className="mr-2 h-4 w-4" />,
+            onClick: () => confirmArchive(lead),
+            className: archiveMenuItemClasses,
+          },
+        ]
+    const actionLayoutClasses = compact ? 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2' : 'flex items-center justify-end gap-2'
+    const moreButtonClasses = compact
+      ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+
     if (isArchived) {
       return (
-        <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-          <button onClick={(event) => handleRestoreLead(event, lead.id)} className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-1 inline h-3 w-3" />{t('restore')}</button>
-          <button onClick={(event) => { event.stopPropagation(); confirmDelete(lead) }} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-1 inline h-3 w-3" />{t('deletePermanently')}</button>
+        <div className={actionLayoutClasses}>
+          <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
+          <ActionMenu
+            label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+            ariaLabel={t('more')}
+            showChevron={!compact}
+            buttonClassName={moreButtonClasses}
+            items={moreMenuItems}
+          />
         </div>
       )
     }
 
     return (
-      <div className={`flex gap-2 ${compact ? 'grid grid-cols-2' : 'justify-end'}`}>
-        <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
-        <button onClick={(event) => { event.stopPropagation(); confirmArchive(lead) }} className={archiveListButtonClasses}><Archive className="mr-1 inline h-3 w-3" />{t('archive')}</button>
+      <div className={actionLayoutClasses}>
+        <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
+        <ActionMenu
+          label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
+          ariaLabel={t('more')}
+          showChevron={!compact}
+          buttonClassName={moreButtonClasses}
+          items={moreMenuItems}
+        />
       </div>
     )
   }

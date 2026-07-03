@@ -28,7 +28,7 @@ function getEstimateStatus(lead) {
 }
 
 export function EstimatesPage({ leads, estimates = [], contracts = [], archivedIds = [], onOpenEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t }) {
-  const [selectedFilter, setSelectedFilter] = useState('All')
+  const [selectedFilter, setSelectedFilter] = useState('Draft')
   const [confirmAction, setConfirmAction] = useState(null)
   const { isAnalyticsMode } = useAnalyticsMode()
 
