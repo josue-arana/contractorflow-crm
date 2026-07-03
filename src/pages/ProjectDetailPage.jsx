@@ -17,6 +17,7 @@ import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
 import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
+import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getProjectsContractorId } from '../services/system/projectsRuntimeService'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
@@ -369,6 +370,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   const navigate = useNavigate()
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
+  const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const routeProjectId = id || leadId || ''
   const fallbackLinkedProjectId = lead?.projectId || lead?.project_id || ''
@@ -1351,10 +1353,12 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             <p className="mt-2 text-slate-300">{currentLead.client} · {currentLead.location}</p>
             {projectIsArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
           </div>
-          <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 lg:block">
-            <p className="text-xs text-slate-300">{t('projectValue')}</p>
-            <p className="text-2xl font-bold">{currency.format(currentLead.value)}</p>
-          </div>
+          {isAnalyticsMode && (
+            <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 lg:block">
+              <p className="text-xs text-slate-300">{t('projectValue')}</p>
+              <p className="text-2xl font-bold">{currency.format(currentLead.value)}</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1402,14 +1406,14 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             </button>
           )}
         </InfoCard>
-        {/* {!isSimpleMode && (
+        {isAnalyticsMode && (
           <InfoCard title={recordDetailsTitle}>
             <DetailRow label={t('status')} value={tStatus(t, currentLead.projectStatus || currentLead.status)} />
             <DetailRow label={t('priority')} value={currentLead.priority} />
             <DetailRow label={t('source')} value={currentLead.source || t('notAdded')} />
             <DetailRow label={t('projectType')} value={currentLead.projectType || currentLead.projectTitle || t('unknownProject')} />
           </InfoCard>
-        )} */}
+        )}
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('clientPortalCardHelp')}</p>
           <div className="mt-4 min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
@@ -1488,20 +1492,22 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
             <p className="text-sm text-slate-500">{t('paymentsRecorded')}</p>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-3">
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('projectValue')}</p>
-              <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.projectValue)}</p>
+          {isAnalyticsMode && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-2xl bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('projectValue')}</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.projectValue)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('totalPaid')}</p>
+                <p className="mt-1 text-lg font-bold text-emerald-700">{currency.format(paymentSummary.totalPaid)}</p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('remainingBalance')}</p>
+                <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.outstandingBalance)}</p>
+              </div>
             </div>
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('totalPaid')}</p>
-              <p className="mt-1 text-lg font-bold text-emerald-700">{currency.format(paymentSummary.totalPaid)}</p>
-            </div>
-            <div className="rounded-2xl bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t('remainingBalance')}</p>
-              <p className="mt-1 text-lg font-bold text-slate-950">{currency.format(paymentSummary.outstandingBalance)}</p>
-            </div>
-          </div>
+          )}
 
           <div className="mt-4 space-y-2.5">
             {paymentSummary.payments.length > 0 ? paymentSummary.payments.map((payment) => (

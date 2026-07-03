@@ -26,6 +26,10 @@ const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
 const estimatePreviewPageWidth = 780
 
+function readEstimateScopeText(estimate = {}) {
+  return estimate?.summary || estimate?.scopeOfWork || estimate?.scope_of_work || ''
+}
+
 function resolveMaterialsIncludedDefault(...values) {
   const firstBoolean = values.find((value) => typeof value === 'boolean')
   return typeof firstBoolean === 'boolean' ? firstBoolean : false
@@ -84,7 +88,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   )
   const savedLineItems = normalizeLineItems(savedEstimate.lineItems, defaultMaterialsIncluded)
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-  const [scope, setScope] = useState(savedEstimate.summary || '')
+  const [scope, setScope] = useState(readEstimateScopeText(savedEstimate))
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(defaultMaterialsIncluded)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
@@ -106,7 +110,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   ])
 
   useEffect(() => {
-    const nextSavedEstimate = lead.portal?.estimate || {}
+    const nextSavedEstimate = lead.portal?.estimate || portal.estimate || {}
     const nextDefaultMaterialsIncluded = resolveMaterialsIncludedDefault(
       nextSavedEstimate.materialsIncluded,
       companySettings?.defaults?.materialsIncluded,
@@ -114,7 +118,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     )
     const nextSavedLineItems = normalizeLineItems(nextSavedEstimate.lineItems, nextDefaultMaterialsIncluded)
     const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-    setScope(nextSavedEstimate.summary || '')
+    setScope(readEstimateScopeText(nextSavedEstimate))
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
     setMaterialsIncluded(nextDefaultMaterialsIncluded)
     setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
@@ -132,7 +136,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       setLineItemAmountInputs(defaultLineItems.map((item) => formatAmountInputValue(item.amount)))
       setPricingMode(simplePricingMode)
     }
-  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, t])
+  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, portal.estimate, t])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
@@ -394,15 +398,15 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                 <>
                   <div className="space-y-3">
                     {lineItems.map((item, index) => (
-                      <div key={index} className="rounded-2xl border border-slate-200 p-3">
+                      <div key={index} className="min-w-0 rounded-2xl border border-slate-200 p-3">
                         {isEditing ? (
                           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_168px] sm:items-start">
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 space-y-2">
+                              <div className="flex flex-wrap items-center justify-between gap-3">
                                 <label className="block text-xs font-bold uppercase tracking-[0.14em] text-slate-400">
                                   {t('lineItemDetails')}
                                 </label>
-                                <button onClick={() => insertBulletIntoLineItem(index)} className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
+                                <button type="button" onClick={() => insertBulletIntoLineItem(index)} className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50">
                                   {t('addBullet')}
                                 </button>
                               </div>
@@ -420,7 +424,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                                 className="min-h-[104px] w-full resize-none rounded-xl border border-slate-200 px-3 py-3 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                               />
                             </div>
-                            <div className="flex flex-col gap-2 sm:pt-6">
+                            <div className="min-w-0 flex flex-col gap-2 sm:pt-6">
                               <div className="space-y-1">
                                 <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
                                   {t('lineItemAmount')}
@@ -460,7 +464,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                                   </button>
                                 </div>
                               </div>
-                              <button onClick={() => removeLineItem(index)} className="h-10 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                              <button type="button" onClick={() => removeLineItem(index)} className="h-10 rounded-xl border border-slate-200 px-3 py-2 text-sm font-bold text-slate-600 hover:bg-slate-50">
                                 {t('remove')}
                               </button>
                             </div>

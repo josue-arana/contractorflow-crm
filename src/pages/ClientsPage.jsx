@@ -248,8 +248,8 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                 <th className="px-4 py-3">{t('phone')}</th>
                 <th className="px-4 py-3">{t('email')}</th>
                 <th className="px-4 py-3 text-right">{t('projects')}</th>
-                <th className="px-4 py-3 text-right">{t('totalProjectValue')}</th>
-                <th className="px-4 py-3 text-right">{t('outstandingBalance')}</th>
+                {isAnalyticsMode && <th className="px-4 py-3 text-right">{t('totalProjectValue')}</th>}
+                {isAnalyticsMode && <th className="px-4 py-3 text-right">{t('outstandingBalance')}</th>}
                 <th className="px-4 py-3">{t('latestStatus')}</th>
                 <th className="px-4 py-3 text-right">{t('action')}</th>
               </tr>
@@ -267,8 +267,8 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                   <td className="px-4 py-4 font-medium text-slate-700">{client.phone}</td>
                   <td className="px-4 py-4 text-slate-600">{client.email || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{client.projectCount}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>
+                  {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>}
+                  {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>}
                   <td className="px-4 py-4"><StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} /></td>
                   <td className="px-4 py-4 text-right">{renderClientActions(client)}</td>
                 </tr>
@@ -294,7 +294,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
               <div className="space-y-2 text-sm text-slate-600"><p>{client.email || t('notAdded')}</p><p>{client.address}</p></div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('projects')}</p><p className="font-bold text-slate-950">{client.projectCount}</p></div>
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('balance')}</p><p className="font-bold text-slate-950">{currency.format(client.outstandingBalance)}</p></div>
+                {isAnalyticsMode && <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('balance')}</p><p className="font-bold text-slate-950">{currency.format(client.outstandingBalance)}</p></div>}
               </div>
               <div className="mt-3">{renderClientActions(client, true)}</div>
             </article>

@@ -106,6 +106,22 @@ function estimateLineItemHeight(item) {
   return detailHeight + detailsHeight + 14
 }
 
+function resolveLineItemMaterialsIncluded(item, fallbackMaterialsIncluded) {
+  if (typeof item?.materialsIncluded === 'boolean') {
+    return item.materialsIncluded
+  }
+
+  if (typeof item?.materials_included === 'boolean') {
+    return item.materials_included
+  }
+
+  if (typeof fallbackMaterialsIncluded === 'boolean') {
+    return fallbackMaterialsIncluded
+  }
+
+  return false
+}
+
 function sanitizeCloneTree(root, clonedDoc) {
   if (!root) return
 
@@ -314,6 +330,8 @@ function buildFallbackPdf({
     cursorY += 42
 
     lineItems.forEach((item, index) => {
+      const itemMaterialsIncluded = resolveLineItemMaterialsIncluded(item, materialsIncluded)
+
       if (index > 0) {
         pdf.setDrawColor(safeColors.slate100)
         pdf.line(innerX + 14, cursorY - 10, cardX + cardWidth - 34, cursorY - 10)
@@ -323,9 +341,9 @@ function buildFallbackPdf({
       const startingY = cursorY
       drawWrappedLines(itemLines.length ? itemLines : [t('item')], innerX + 16, cardWidth - 180, { size: 11, color: safeColors.slate700, lineHeight: 14 })
       drawText(currency.format(Number(item?.amount || 0)), cardX + cardWidth - 36, startingY, { bold: true, size: 11, align: 'right' })
-      pdf.setFillColor(item?.materialsIncluded ? safeColors.blue50 : safeColors.slate100)
+      pdf.setFillColor(itemMaterialsIncluded ? safeColors.blue50 : safeColors.slate100)
       pdf.roundedRect(innerX + 16, cursorY + 2, 122, 18, 9, 9, 'F')
-      drawText(`${t('materialsIncluded')}: ${item?.materialsIncluded ? t('yes') : t('no')}`, innerX + 77, cursorY + 14, { bold: true, size: 8.5, color: item?.materialsIncluded ? safeColors.blue700 : safeColors.slate700, align: 'center' })
+      drawText(`${t('materialsIncluded')}: ${itemMaterialsIncluded ? t('yes') : t('no')}`, innerX + 77, cursorY + 14, { bold: true, size: 8.5, color: itemMaterialsIncluded ? safeColors.blue700 : safeColors.slate700, align: 'center' })
       cursorY += 28
     })
   }

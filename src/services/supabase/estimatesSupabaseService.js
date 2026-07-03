@@ -102,6 +102,9 @@ function normalizeLineItems(lineItems) {
     ...(item && typeof item === 'object' ? item : {}),
     name: typeof item?.name === 'string' ? item.name : '',
     amount: toNumber(item?.amount),
+    materialsIncluded: typeof item?.materialsIncluded === 'boolean'
+      ? item.materialsIncluded
+      : Boolean(item?.materials_included),
   }))
 }
 

@@ -427,7 +427,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         },
         {
           id: 'toggle-language',
-          label: language === 'en' ? `🇪🇸 ${t('spanish')}` : `🇺🇸 ${t('english')}`,
+          label: language === 'en' ? `🇪🇸 ${t('languageNameSpanish')}` : `🇺🇸 ${t('languageNameEnglish')}`,
           icon: <Languages className="mr-2 h-4 w-4" />,
           onClick: () => setLanguage?.(language === 'en' ? 'es' : 'en'),
         },
@@ -638,7 +638,7 @@ function renderMobileAccountSummary() {
                   <div className="mt-2 flex items-start gap-2.5">
                     <h1 className="text-[1.9rem] font-bold leading-[1.02] tracking-tight text-white">{client.name}</h1>
                   </div>
-                  {client.repeatClient || client.projectCount > 1 ? (
+                  {showAnalyticsSections && (client.repeatClient || client.projectCount > 1) ? (
                     <div className="mt-2.5">
                       <span className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/15">
                         <Sparkles className="h-3.5 w-3.5 text-teal-200" />
@@ -652,7 +652,7 @@ function renderMobileAccountSummary() {
                       <span className="font-medium leading-5">{client.address}</span>
                     </div>
                   ) : null}
-                  {lastActivity ? (
+                  {showAnalyticsSections && lastActivity ? (
                     <div className="mt-2 flex items-center gap-2.5 text-sm text-slate-100">
                       <CalendarDays className="h-4 w-4 shrink-0 text-blue-200" />
                       <span className="leading-5"><span className="font-medium text-white">{t('lastActivity')}:</span> {lastActivityLabel || formatDisplayDate(new Date(lastActivity.timestamp))}</span>
@@ -804,7 +804,7 @@ function renderMobileAccountSummary() {
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       <h1 className="text-5xl font-bold tracking-tight text-white">{client.name}</h1>
-                      {client.repeatClient || client.projectCount > 1 ? (
+                      {showAnalyticsSections && (client.repeatClient || client.projectCount > 1) ? (
                         <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
                           <Sparkles className="h-3.5 w-3.5 text-teal-200" />
                           {t('returningClient')}
@@ -817,7 +817,7 @@ function renderMobileAccountSummary() {
                         <span className="font-medium">{client.address}</span>
                       </div>
                     ) : null}
-                    {lastActivity ? (
+                    {showAnalyticsSections && lastActivity ? (
                       <div className="mt-4 inline-flex items-center gap-3 text-lg text-slate-200">
                         <CalendarDays className="h-5 w-5 shrink-0 text-blue-200" />
                         <span><span className="font-medium text-white">{t('lastActivity')}:</span> {lastActivityLabel || formatDisplayDate(new Date(lastActivity.timestamp))}</span>

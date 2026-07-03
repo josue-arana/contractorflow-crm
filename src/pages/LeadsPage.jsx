@@ -31,7 +31,7 @@ function isLeadArchived(lead, archivedIds = []) {
 
 export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
   const [searchTerm, setSearchTerm] = useState('')
-  const [selectedFilter, setSelectedFilter] = useState('All')
+  const [selectedFilter, setSelectedFilter] = useState('New Lead')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const { showToast } = useToast()
