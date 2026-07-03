@@ -6,11 +6,20 @@ import { createLocalRecordId } from '../../utils/projectIdentity'
 
 function normalizeEstimate(estimate = {}, opts = {}) {
   const now = new Date().toISOString()
+  const clientId = estimate.clientId || estimate.client_id || null
+  const leadId = estimate.leadId || estimate.lead_id || null
+  const projectId = estimate.projectId || estimate.project_id || null
 
   return {
     ...estimate,
     id: estimate.id || createLocalRecordId('estimate'),
     contractorId: estimate.contractorId || estimate.contractor_id || opts.contractorId || undefined,
+    clientId,
+    client_id: clientId,
+    leadId,
+    lead_id: leadId,
+    projectId,
+    project_id: projectId,
     updatedAt: estimate.updatedAt || estimate.updated_at || now,
     createdAt: estimate.createdAt || estimate.created_at || now,
     archivedAt: estimate.archivedAt || estimate.archived_at || null,

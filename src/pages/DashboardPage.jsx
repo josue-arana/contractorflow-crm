@@ -413,7 +413,7 @@ export function DashboardPage({
         </section>
       )}
 
-      <section className="mb-8 grid gap-6 xl:grid-cols-3 xl:items-stretch">
+      <section className={`mb-8 grid gap-6 ${isAnalyticsMode ? 'xl:grid-cols-3 xl:items-stretch' : 'xl:grid-cols-2 xl:items-stretch'}`}>
         <DashboardSection
           title={t('todaysSchedule')}
           icon={CalendarDays}
@@ -428,13 +428,15 @@ export function DashboardPage({
           items={needsAttentionItems}
           renderItem={(item) => <DashboardActionItem key={item.id} item={item} />}
         />
-        <DashboardSection
-          title={t('recentActivity')}
-          icon={Sparkles}
-          emptyText={t('noRecentActivity')}
-          items={recentActivityItems}
-          renderItem={(item) => <DashboardActionItem key={item.id} item={item} />}
-        />
+        {isAnalyticsMode && (
+          <DashboardSection
+            title={t('recentActivity')}
+            icon={Sparkles}
+            emptyText={t('noRecentActivity')}
+            items={recentActivityItems}
+            renderItem={(item) => <DashboardActionItem key={item.id} item={item} />}
+          />
+        )}
       </section>
 
       <PipelineBoard

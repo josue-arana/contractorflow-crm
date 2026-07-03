@@ -1,9 +1,11 @@
 import { currency } from '../../utils/formatters'
+import { useAnalyticsMode } from '../../contexts/SimpleModeContext'
 import { getLeadPipelineStageLabelKey } from '../../utils/leadPipeline'
 import { SelectField } from '../ui/SelectField'
 import { LeadCard } from './LeadCard'
 
 export function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead, onLeadClick, t = (key) => key }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const selectedTotal = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -28,7 +30,10 @@ export function MobilePipeline({ leads, statuses, selectedStage, setSelectedStag
       <div className="mb-4 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
         <div>
           <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(selectedStage))}</h3>
-          <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(selectedTotal)}</p>
+          <p className="text-xs text-slate-500">
+            {leads.length} {t('leads').toLowerCase()}
+            {isAnalyticsMode ? ` · ${currency.format(selectedTotal)}` : ''}
+          </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
       </div>

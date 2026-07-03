@@ -2,14 +2,17 @@ import { useMemo, useState } from 'react'
 import { Archive, DollarSign, MoreVertical, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { useToast } from '../components/common/ToastProvider'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { buildClientProfiles } from '../utils/clients'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { ActionMenu } from '../components/common/ActionMenu'
+import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
+import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import clientsHeroBackground from '../assets/page-heroes/clients-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
@@ -29,7 +32,10 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
+  const contractorId = getClientsContractorId({ contractor, company, session })
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const activeClientsList = useMemo(() => clients.filter((client) => !isClientArchived(client, archivedClientIds)), [clients, archivedClientIds])
 
@@ -68,15 +74,23 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        const response = await dataProvider.clients.archive(confirmAction.client.id)
+        const response = await dataProvider.clients.archive(confirmAction.client.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('archiveFailed'), 'error')
+          return
+        }
         onArchiveClient(confirmAction.client.id, response?.data)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider.clients.deletePermanently(confirmAction.client.id)
+        const response = await dataProvider.clients.deletePermanently(confirmAction.client.id, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('deleteFailed'), 'error')
+          return
+        }
         onDeleteClient(confirmAction.client.id)
       }
     } catch (err) {
-      // local mode: ignore errors
+      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
     }
     setConfirmAction(null)
   }
@@ -94,10 +108,14 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
 
   async function restoreClient(clientId) {
     try {
-      const response = await dataProvider.clients.restore(clientId)
+      const response = await dataProvider.clients.restore(clientId, { contractorId })
+      if (response?.error) {
+        showToast(response.error.message || t('restoreFailed'), 'error')
+        return
+      }
       onRestoreClient(clientId, response?.data)
     } catch (err) {
-      // local mode: ignore errors
+      showToast(err?.message || t('restoreFailed'), 'error')
     }
   }
 
@@ -230,8 +248,8 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                 <th className="px-4 py-3">{t('phone')}</th>
                 <th className="px-4 py-3">{t('email')}</th>
                 <th className="px-4 py-3 text-right">{t('projects')}</th>
-                <th className="px-4 py-3 text-right">{t('totalProjectValue')}</th>
-                <th className="px-4 py-3 text-right">{t('outstandingBalance')}</th>
+                {isAnalyticsMode && <th className="px-4 py-3 text-right">{t('totalProjectValue')}</th>}
+                {isAnalyticsMode && <th className="px-4 py-3 text-right">{t('outstandingBalance')}</th>}
                 <th className="px-4 py-3">{t('latestStatus')}</th>
                 <th className="px-4 py-3 text-right">{t('action')}</th>
               </tr>
@@ -249,8 +267,8 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
                   <td className="px-4 py-4 font-medium text-slate-700">{client.phone}</td>
                   <td className="px-4 py-4 text-slate-600">{client.email || t('notAdded')}</td>
                   <td className="px-4 py-4 text-right font-bold text-slate-900">{client.projectCount}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>
+                  {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.totalProjectValue)}</td>}
+                  {isAnalyticsMode && <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(client.outstandingBalance)}</td>}
                   <td className="px-4 py-4"><StatusBadge status={isClientArchived(client, archivedClientIds) ? 'Archived' : client.latestProjectStatus} t={t} /></td>
                   <td className="px-4 py-4 text-right">{renderClientActions(client)}</td>
                 </tr>
@@ -276,7 +294,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
               <div className="space-y-2 text-sm text-slate-600"><p>{client.email || t('notAdded')}</p><p>{client.address}</p></div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm">
                 <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('projects')}</p><p className="font-bold text-slate-950">{client.projectCount}</p></div>
-                <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('balance')}</p><p className="font-bold text-slate-950">{currency.format(client.outstandingBalance)}</p></div>
+                {isAnalyticsMode && <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('balance')}</p><p className="font-bold text-slate-950">{currency.format(client.outstandingBalance)}</p></div>}
               </div>
               <div className="mt-3">{renderClientActions(client, true)}</div>
             </article>

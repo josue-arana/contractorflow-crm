@@ -4,6 +4,7 @@ import { Archive, ArrowLeft, BarChart3, BriefcaseBusiness, CalendarDays, CarFron
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
+import { useToast } from '../components/common/ToastProvider'
 import { currency, formatDisplayDate } from '../utils/formatters'
 import clientWorkspaceHeroBackground from '../assets/page-heroes/client-workspace-hero-bg1.png'
 import clientMobileHeroBackground from '../assets/page-heroes/client-mobile.png'
@@ -14,7 +15,9 @@ import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { ClientFormModal } from '../components/clients/ClientFormModal'
 import dataProvider from '../services/dataProvider'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
+import { getClientsContractorId } from '../services/system/clientsRuntimeService'
 import { hasEstimateData } from '../utils/estimateLinks'
 import { hasContractData } from '../utils/contractLinks'
 import { calculateProjectPaymentSummary, dedupePayments } from '../utils/projectPayments'
@@ -114,7 +117,10 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
   const { clientId } = useParams()
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const { showToast } = useToast()
+  const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
+  const contractorRuntimeId = getClientsContractorId({ contractor, company, session })
   const showAnalyticsSections = isAnalyticsMode
   const showDocumentInsightSections = isAnalyticsMode
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
@@ -133,16 +139,24 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        const response = await dataProvider.clients.archive(client.id)
+        const response = await dataProvider.clients.archive(client.id, { contractorId: contractorRuntimeId })
+        if (response?.error) {
+          showToast(response.error.message || t('archiveFailed'), 'error')
+          return
+        }
         onArchiveClient(client.id, response?.data)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider.clients.deletePermanently(client.id)
+        const response = await dataProvider.clients.deletePermanently(client.id, { contractorId: contractorRuntimeId })
+        if (response?.error) {
+          showToast(response.error.message || t('deleteFailed'), 'error')
+          return
+        }
         onDeleteClient(client.id)
         onBack()
       }
     } catch (err) {
-      // ignore in local mode
+      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
     }
     setConfirmAction(null)
   }
@@ -379,10 +393,14 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           icon: <Undo2 className="mr-2 h-4 w-4" />,
           onClick: async () => {
             try {
-              const response = await dataProvider.clients.restore(client.id)
+              const response = await dataProvider.clients.restore(client.id, { contractorId: contractorRuntimeId })
+              if (response?.error) {
+                showToast(response.error.message || t('restoreFailed'), 'error')
+                return
+              }
               onRestoreClient(client.id, response?.data)
             } catch (err) {
-              // local mode: ignore errors
+              showToast(err?.message || t('restoreFailed'), 'error')
             }
           },
         },
@@ -409,7 +427,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         },
         {
           id: 'toggle-language',
-          label: language === 'en' ? `🇪🇸 ${t('spanish')}` : `🇺🇸 ${t('english')}`,
+          label: language === 'en' ? `🇪🇸 ${t('languageNameSpanish')}` : `🇺🇸 ${t('languageNameEnglish')}`,
           icon: <Languages className="mr-2 h-4 w-4" />,
           onClick: () => setLanguage?.(language === 'en' ? 'es' : 'en'),
         },
@@ -504,7 +522,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
     )
   }
 
-  function renderMobileAccountSummary() {
+function renderMobileAccountSummary() {
     if (!showAnalyticsSections) return null
 
     return (
@@ -523,6 +541,20 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
         <DetailRow label={t('outstandingBalance')} value={<span className="text-red-600">{currency.format(totalOutstandingBalance)}</span>} />
         <DetailRow label={t('lastPayment')} value={lastPayment ? `${currency.format(Number(lastPayment.amount) || 0)} · ${formatDisplayDate(lastPayment.paymentDate || lastPayment.createdAt, lastPayment.paymentDate || lastPayment.createdAt)}` : t('notAdded')} />
       </InfoCard>
+    )
+  }
+
+  function renderDesktopContactField({ label, value, actionIcon = null }) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+        <p className="text-[0.7rem] font-bold uppercase tracking-[0.16em] text-slate-400">{label}</p>
+        <div className="mt-2 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 text-sm font-semibold text-slate-900">
+            {value}
+          </div>
+          {actionIcon}
+        </div>
+      </div>
     )
   }
 
@@ -606,7 +638,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                   <div className="mt-2 flex items-start gap-2.5">
                     <h1 className="text-[1.9rem] font-bold leading-[1.02] tracking-tight text-white">{client.name}</h1>
                   </div>
-                  {client.repeatClient || client.projectCount > 1 ? (
+                  {showAnalyticsSections && (client.repeatClient || client.projectCount > 1) ? (
                     <div className="mt-2.5">
                       <span className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1.5 text-xs font-semibold text-white ring-1 ring-white/15">
                         <Sparkles className="h-3.5 w-3.5 text-teal-200" />
@@ -620,7 +652,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                       <span className="font-medium leading-5">{client.address}</span>
                     </div>
                   ) : null}
-                  {lastActivity ? (
+                  {showAnalyticsSections && lastActivity ? (
                     <div className="mt-2 flex items-center gap-2.5 text-sm text-slate-100">
                       <CalendarDays className="h-4 w-4 shrink-0 text-blue-200" />
                       <span className="leading-5"><span className="font-medium text-white">{t('lastActivity')}:</span> {lastActivityLabel || formatDisplayDate(new Date(lastActivity.timestamp))}</span>
@@ -772,7 +804,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       <h1 className="text-5xl font-bold tracking-tight text-white">{client.name}</h1>
-                      {client.repeatClient || client.projectCount > 1 ? (
+                      {showAnalyticsSections && (client.repeatClient || client.projectCount > 1) ? (
                         <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm">
                           <Sparkles className="h-3.5 w-3.5 text-teal-200" />
                           {t('returningClient')}
@@ -785,7 +817,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
                         <span className="font-medium">{client.address}</span>
                       </div>
                     ) : null}
-                    {lastActivity ? (
+                    {showAnalyticsSections && lastActivity ? (
                       <div className="mt-4 inline-flex items-center gap-3 text-lg text-slate-200">
                         <CalendarDays className="h-5 w-5 shrink-0 text-blue-200" />
                         <span><span className="font-medium text-white">{t('lastActivity')}:</span> {lastActivityLabel || formatDisplayDate(new Date(lastActivity.timestamp))}</span>
@@ -851,36 +883,7 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           </div>
         </section>
 
-        <section className={`grid gap-5 ${showAnalyticsSections ? 'xl:grid-cols-[1.2fr_1fr_1fr]' : 'xl:grid-cols-1'}`}>
-          <InfoCard
-              title={
-                <span className="inline-flex items-center gap-3">
-                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><UserRound className="h-5 w-5" /></span>
-                {t('contactInformation')}
-              </span>
-            }
-            headerAction={
-              <button onClick={() => setIsEditOpen(true)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-                {t('editClient')}
-              </button>
-            }
-            bodyClassName="space-y-0"
-          >
-            <DetailRow
-              label={t('phone')}
-              value={phoneHref ? <a href={`tel:${phoneHref}`} className="inline-flex items-center gap-2 break-words text-right text-sm font-bold text-slate-900 hover:text-slate-700"><span>{client.phone}</span><Phone className="h-4 w-4 text-slate-400" /></a> : client.phone || t('notAdded')}
-            />
-            <DetailRow
-              label={t('email')}
-              value={emailHref ? <a href={emailHref} className="inline-flex items-center gap-2 break-all text-right text-sm font-bold text-slate-900 hover:text-slate-700"><span>{client.email}</span><Mail className="h-4 w-4 text-slate-400" /></a> : client.email || t('notAdded')}
-            />
-            <DetailRow
-              label={t('address')}
-              value={mapsHref ? <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 break-words text-right text-sm font-bold text-slate-900 hover:text-slate-700"><span>{client.address}</span><MapPin className="h-4 w-4 text-slate-400" /></a> : client.address || t('notAdded')}
-            />
-            <DetailRow label={t('preferredContact')} value={preferredContact || t('notAdded')} />
-          </InfoCard>
-
+        <section className={`grid gap-5 ${showAnalyticsSections ? 'xl:grid-cols-[1fr_1fr]' : 'xl:grid-cols-1'}`}>
           {showAnalyticsSections ? (
             <InfoCard
               title={
@@ -928,7 +931,56 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
           ) : null}
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[1.55fr_1fr]">
+        <section className="grid gap-5 xl:grid-cols-[0.92fr_1.28fr]">
+          <InfoCard
+            title={
+              <span className="inline-flex items-center gap-3">
+                <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-50 text-teal-700"><UserRound className="h-5 w-5" /></span>
+                {t('contactInformation')}
+              </span>
+            }
+            headerAction={
+              <button onClick={() => setIsEditOpen(true)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+                {t('editClient')}
+              </button>
+            }
+            bodyClassName="space-y-3"
+          >
+            {renderDesktopContactField({
+              label: t('phone'),
+              value: phoneHref ? (
+                <a href={`tel:${phoneHref}`} className="inline-flex max-w-full items-start gap-2 break-words text-left text-sm font-bold text-slate-900 hover:text-slate-700">
+                  <span>{client.phone}</span>
+                </a>
+              ) : (
+                client.phone || t('notAdded')
+              ),
+              actionIcon: phoneHref ? <a href={`tel:${phoneHref}`} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-teal-700 shadow-sm transition hover:bg-slate-100"><Phone className="h-4 w-4" /></a> : null,
+            })}
+            {renderDesktopContactField({
+              label: t('email'),
+              value: emailHref ? (
+                <a href={emailHref} className="inline-flex max-w-full items-start gap-2 break-all text-left text-sm font-bold text-slate-900 hover:text-slate-700">
+                  <span>{client.email}</span>
+                </a>
+              ) : (
+                client.email || t('notAdded')
+              ),
+              actionIcon: emailHref ? <a href={emailHref} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-teal-700 shadow-sm transition hover:bg-slate-100"><Mail className="h-4 w-4" /></a> : null,
+            })}
+            {renderDesktopContactField({
+              label: t('address'),
+              value: mapsHref ? (
+                <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-start gap-2 break-words text-left text-sm font-bold text-slate-900 hover:text-slate-700">
+                  <span>{client.address}</span>
+                </a>
+              ) : (
+                client.address || t('notAdded')
+              ),
+              actionIcon: mapsHref ? <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-white text-teal-700 shadow-sm transition hover:bg-slate-100"><MapPin className="h-4 w-4" /></a> : null,
+            })}
+          </InfoCard>
+
           <InfoCard
             title={
               <span className="inline-flex items-center gap-3">
@@ -975,6 +1027,9 @@ export function ClientProfilePage({ leads, customClients = [], archivedClientIds
             )}
           </InfoCard>
 
+        </section>
+
+        <section>
           <InfoCard
             title={
               <span className="inline-flex items-center gap-3">

@@ -21,11 +21,20 @@ export async function update(id, updates) {
 }
 
 export async function archive(id) {
-  return { data: { id, archived: true }, skipped: true, message: 'Local mode: client archived in App state' }
+  const archivedAt = new Date().toISOString()
+  return {
+    data: { id, archived: true, archivedAt, archived_at: archivedAt, isArchived: true },
+    skipped: true,
+    message: 'Local mode: client archived in App state',
+  }
 }
 
 export async function restore(id) {
-  return { data: { id, archived: false }, skipped: true, message: 'Local mode: client restored in App state' }
+  return {
+    data: { id, archived: false, archivedAt: null, archived_at: null, isArchived: false },
+    skipped: true,
+    message: 'Local mode: client restored in App state',
+  }
 }
 
 export async function deletePermanently(id) {

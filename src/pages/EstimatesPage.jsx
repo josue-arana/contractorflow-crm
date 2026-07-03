@@ -10,6 +10,7 @@ import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import ActionMenu from '../components/common/ActionMenu'
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../config/backendConfig'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
+import { getEstimateDisplayNumber } from '../utils/estimateNumber'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import estimatesHeroBackground from '../assets/page-heroes/estimates-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
@@ -35,6 +36,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     id: lead.id,
     sourceLeadId: lead.id,
     routeId: lead.projectId || lead.project_id || lead.id,
+    estimateNumber: getEstimateDisplayNumber(lead.portal?.estimate || {}, lead),
     client: lead.client,
     projectTitle: lead.projectTitle || lead.projectType,
     amount: lead.portal?.estimate?.total || lead.value,
@@ -62,6 +64,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
       id: estimate.id,
       sourceLeadId: linkedLead?.id || estimate.leadId || estimate.projectId || estimate.id,
       routeId,
+      estimateNumber: getEstimateDisplayNumber(estimate, linkedLead || estimate),
       client: linkedLead?.client || estimate.client || t('customer'),
       projectTitle: linkedLead?.projectTitle || linkedLead?.projectType || estimate.projectTitle || estimate.title || t('estimate'),
       amount: Number(estimate.total || estimate.totalAmount || estimate.amount || 0),
@@ -150,16 +153,16 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
 
     const actionLayoutClasses = compact
       ? `grid ${isArchived ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'} items-center gap-2`
-      : 'flex items-center justify-end gap-2'
+      : `ml-auto grid ${isArchived ? 'grid-cols-[8.75rem_5.25rem]' : 'grid-cols-[8.75rem_10.5rem_5.25rem]'} items-center justify-end gap-2`
 
     const moreButtonClasses = compact
       ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
-      : 'inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
+      : 'inline-flex min-h-[40px] w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
 
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+          <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
@@ -172,8 +175,8 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     }
     return (
       <div className={actionLayoutClasses}>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewContract') : t('convertToContract')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewContract') : t('convertToContract')}</button>
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
@@ -228,39 +231,71 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
             <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">{t('customerProject')}</th>
-                <th className="px-4 py-3 text-right">{t('estimateAmount')}</th>
+                <th className="px-4 py-3">{t('estimate')}</th>
                 <th className="px-4 py-3">{t('status')}</th>
-                <th className="px-4 py-3">{t('dateCreated')}</th>
-                <th className="px-4 py-3">{t('nextAction')}</th>
+                <th className="px-4 py-3">{t('date')}</th>
                 <th className="px-4 py-3 text-right">{t('action')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredEstimates.map((estimate) => (
+              {filteredEstimates.length ? filteredEstimates.map((estimate) => (
                 <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.routeId)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
-                  <td className="px-4 py-4"><p className="font-bold text-slate-950">{estimate.client}</p><p className="text-sm text-slate-500">{estimate.projectTitle}</p></td>
-                  <td className="px-4 py-4 text-right font-bold text-slate-900">{currency.format(estimate.amount)}</td>
-                  <td className="px-4 py-4"><StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} /></td>
-                  <td className="px-4 py-4 font-medium text-slate-700">{formatDisplayDate(estimate.dateCreated, estimate.dateCreated)}</td>
-                  <td className="px-4 py-4 text-slate-600">{estimate.nextAction}</td>
-                  <td className="px-4 py-4 text-right">{renderEstimateActions(estimate)}</td>
+                  <td className="px-4 py-4 align-top">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-slate-950">{estimate.client}</p>
+                      <p className="mt-1 truncate text-sm text-slate-500">{estimate.projectTitle}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-slate-950">{estimate.estimateNumber}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-600">{currency.format(estimate.amount)}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 align-top"><StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} /></td>
+                  <td className="px-4 py-4 align-top font-medium text-slate-700">{formatDisplayDate(estimate.dateCreated, estimate.dateCreated)}</td>
+                  <td className="px-4 py-4 text-right align-top">{renderEstimateActions(estimate)}</td>
                 </tr>
-              ))}
+              )) : (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8">
+                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">{t('noEstimates')}</div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="space-y-3 md:hidden">
-          {filteredEstimates.map((estimate) => (
+          {filteredEstimates.length ? filteredEstimates.map((estimate) => (
             <article key={estimate.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-4 flex items-start justify-between gap-3">
-                <div><h3 className="font-bold text-slate-950">{estimate.client}</h3><p className="text-sm text-slate-500">{estimate.projectTitle}</p></div>
+                <div className="min-w-0">
+                  <h3 className="truncate font-bold text-slate-950">{estimate.client}</h3>
+                  <p className="mt-1 truncate text-sm text-slate-500">{estimate.projectTitle}</p>
+                </div>
                 <StatusBadge status={estimate.isArchived ? 'Archived' : estimate.status} t={t} />
               </div>
-              <div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('estimateAmount')}</p><p className="mt-1 text-xl font-bold text-slate-900">{currency.format(estimate.amount)}</p></div>
+              <div className="grid gap-3 rounded-2xl bg-slate-50 p-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('estimate')}</p>
+                  <p className="mt-1 text-sm font-bold text-slate-950">{estimate.estimateNumber}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('date')}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-700">{formatDisplayDate(estimate.dateCreated, estimate.dateCreated)}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('estimateAmount')}</p>
+                  <p className="mt-1 text-xl font-bold text-slate-900">{currency.format(estimate.amount)}</p>
+                </div>
+              </div>
               <div className="mt-3">{renderEstimateActions(estimate, true)}</div>
             </article>
-          ))}
+          )) : (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-500">{t('noEstimates')}</div>
+          )}
         </div>
       </section>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />

@@ -237,6 +237,15 @@ function resolvePersistedProjectLink(...records) {
   return null
 }
 
+function isLeadArchivedRecord(lead = {}, archivedLeadIds = []) {
+  return Boolean(
+    lead?.isArchived
+      || lead?.archivedAt
+      || lead?.archived_at
+      || archivedLeadIds.includes(lead?.id)
+  )
+}
+
 function getLinkedContract(lead) {
   if (hasContractData(lead?.portal?.contract)) {
     return lead.portal.contract
@@ -432,6 +441,10 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 
 function isUuid(value) {
   return typeof value === 'string' && uuidPattern.test(value.trim())
+}
+
+function normalizeComparableText(value) {
+  return String(value || '').trim().toLowerCase()
 }
 
 function logLeadDevError(message, error, meta) {
@@ -780,7 +793,7 @@ function ContractorFlowApp() {
   const visibleLeads = useMemo(() => leads
     .filter((lead) => !archives.deletedLeadIds.includes(lead.id))
     .map((lead) => mergePersistedDocumentsIntoLead(lead, persistedEstimates, persistedContracts)), [archives.deletedLeadIds, leads, persistedContracts, persistedEstimates])
-  const activeLeads = useMemo(() => visibleLeads.filter((lead) => !archives.leadIds.includes(lead.id)), [visibleLeads, archives.leadIds])
+  const activeLeads = useMemo(() => visibleLeads.filter((lead) => !isLeadArchivedRecord(lead, archives.leadIds)), [visibleLeads, archives.leadIds])
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => sortScheduleEventRecords(scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id))), [scheduleEvents, archives.deletedScheduleEventIds])
   const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id) && !event.archivedAt), [visibleScheduleEvents, archives.scheduleEventIds])
@@ -1189,6 +1202,111 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     })
   }
 
+  function findClientForLead(leadRecord) {
+    const requestedClientId = leadRecord?.clientId || leadRecord?.client_id || ''
+    const normalizedClientName = normalizeComparableText(leadRecord?.client || leadRecord?.clientName || leadRecord?.customerName || '')
+    const normalizedPhone = normalizeComparableText(leadRecord?.phone || '')
+    const normalizedEmail = normalizeComparableText(leadRecord?.email || '')
+
+    if (requestedClientId) {
+      const clientById = clients.find((client) => client.id === requestedClientId)
+      if (clientById) {
+        return clientById
+      }
+    }
+
+    if (!normalizedClientName) {
+      return null
+    }
+
+    return clients.find((client) => {
+      const candidateName = normalizeComparableText(client?.displayName || client?.name || '')
+      if (!candidateName || candidateName !== normalizedClientName) {
+        return false
+      }
+
+      const candidatePhone = normalizeComparableText(client?.phone || '')
+      const candidateEmail = normalizeComparableText(client?.email || '')
+
+      if (normalizedEmail && candidateEmail && normalizedEmail !== candidateEmail) {
+        return false
+      }
+
+      if (normalizedPhone && candidatePhone && normalizedPhone !== candidatePhone) {
+        return false
+      }
+
+      return true
+    }) || null
+  }
+
+  async function ensureClientForLeadConversion(leadRecord) {
+    const matchedClient = findClientForLead(leadRecord)
+    const matchedClientId = matchedClient?.id || ''
+    const requiresUuid = USE_SUPABASE || USE_SUPABASE_CLIENTS
+
+    if (matchedClientId && (!requiresUuid || isUuid(matchedClientId))) {
+      return matchedClient
+    }
+
+    const clientName = String(leadRecord?.client || leadRecord?.clientName || leadRecord?.customerName || '').trim()
+    if (!clientName) {
+      return null
+    }
+
+    const fallbackClientId = getClientSlug(clientName) || `client-${Date.now()}`
+    const clientDraft = {
+      id: fallbackClientId,
+      name: clientName,
+      displayName: clientName,
+      phone: leadRecord?.phone || '',
+      email: leadRecord?.email || '',
+      address: leadRecord?.address || leadRecord?.location || '',
+    }
+
+    try {
+      const clientResponse = await dataProvider?.clients?.create?.(clientDraft, {
+        contractorId: clientsContractorId,
+      })
+
+      if (clientResponse?.error) {
+        showToast(clientResponse.error.message || t('leadClientLinkFailed'), 'error')
+        logLeadConversionDevError('[dev] Failed to create or link a client during lead conversion.', clientResponse.error, {
+          leadId: leadRecord?.id || null,
+          clientDraft,
+        })
+        return null
+      }
+
+      const persistedClient = {
+        ...clientDraft,
+        ...(clientResponse?.data || {}),
+        id: clientResponse?.data?.id || clientDraft.id,
+      }
+
+      if (requiresUuid && !isUuid(persistedClient.id)) {
+        const error = new Error('Client conversion linkage did not return a valid uuid.')
+        showToast(t('leadClientLinkFailed'), 'error')
+        logLeadConversionDevError('[dev] Client conversion linkage returned an invalid id.', error, {
+          leadId: leadRecord?.id || null,
+          clientDraft,
+          clientResponse,
+        })
+        return null
+      }
+
+      upsertClientSilently(persistedClient)
+      return persistedClient
+    } catch (error) {
+      showToast(error?.message || t('leadClientLinkFailed'), 'error')
+      logLeadConversionDevError('[dev] Client conversion linkage threw unexpectedly.', error, {
+        leadId: leadRecord?.id || null,
+        clientDraft,
+      })
+      return null
+    }
+  }
+
   async function saveLeadRecord(leadDraft) {
     try {
       let clientId = leadDraft.clientId || ''
@@ -1452,15 +1570,63 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     }
 
     if (targetStage === leadPipelineStages.CONVERTED_TO_JOB) {
+      const linkedClientRecord = await ensureClientForLeadConversion(sourceLead)
+      const linkedClientId = linkedClientRecord?.id || sourceLead?.clientId || sourceLead?.client_id || null
+      const requiresClientLink = Boolean(String(sourceLead?.client || sourceLead?.clientName || sourceLead?.customerName || '').trim())
+
+      if (requiresClientLink && !linkedClientId) {
+        logLeadConversionDevError('[dev] Lead conversion stopped because no client could be linked.', null, {
+          leadId,
+          sourceLead,
+        })
+        return null
+      }
+
       const existingProjectId = sourceLead.projectId || sourceLead.project_id || ''
       const fallbackProjectId = existingProjectId || (USE_SUPABASE_PROJECTS ? '' : leadId)
       const sourceEstimate = hasEstimateData(sourceLead?.portal?.estimate)
         ? sourceLead.portal.estimate
         : readLinkedEstimateDraft(sourceLead || leadId, leadId)
-      const projectDraft = buildProjectFromLead(sourceLead, fallbackProjectId, sourceEstimate)
+      const projectDraft = buildProjectFromLead({
+        ...sourceLead,
+        ...(linkedClientId ? { clientId: linkedClientId, client_id: linkedClientId } : {}),
+        client: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.client,
+        clientName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.clientName || sourceLead?.client,
+        customerName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.customerName || sourceLead?.client,
+      }, fallbackProjectId, sourceEstimate)
       let linkedProject = existingProjectId ? { id: existingProjectId } : null
+      let reusedExistingProject = Boolean(existingProjectId)
 
-      if (!existingProjectId) {
+      if (!linkedProject && (USE_SUPABASE || USE_SUPABASE_PROJECTS)) {
+        try {
+          const existingProjectResponse = await dataProvider?.projects?.list?.({
+            contractorId: projectsContractorId,
+            leadId,
+            includeArchived: true,
+          })
+
+          if (existingProjectResponse?.error) {
+            showToast(existingProjectResponse.error.message || t('jobCreateFailed'), 'error')
+            logLeadConversionDevError('[dev] Failed to look up an existing project before lead conversion.', existingProjectResponse.error, {
+              leadId,
+            })
+            return null
+          }
+
+          if (existingProjectResponse?.data?.[0]) {
+            linkedProject = existingProjectResponse.data[0]
+            reusedExistingProject = true
+          }
+        } catch (error) {
+          showToast(error?.message || t('jobCreateFailed'), 'error')
+          logLeadConversionDevError('[dev] Existing project lookup threw before lead conversion.', error, {
+            leadId,
+          })
+          return null
+        }
+      }
+
+      if (!linkedProject) {
         try {
           const projectResponse = await dataProvider?.projects?.create?.(projectDraft, {
             contractorId: projectsContractorId,
@@ -1506,7 +1672,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
           id: sourceEstimate?.id || null,
           leadId,
           projectId: linkedProjectId,
-          clientId: sourceLead?.clientId || sourceLead?.client_id || sourceEstimate?.clientId || null,
+          clientId: linkedClientId || sourceEstimate?.clientId || sourceEstimate?.client_id || null,
           projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || sourceEstimate?.projectTitle || 'Estimate',
           total: resolveEstimateTotal(sourceLead, sourceEstimate),
         }
@@ -1552,7 +1718,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       try {
         await dataProvider?.projects?.update?.(linkedProjectId, {
           leadId,
-          clientId: sourceLead?.clientId || sourceLead?.client_id || null,
+          clientId: linkedClientId,
           projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || projectDraft.projectTitle,
           projectType: sourceLead?.projectType || sourceLead?.projectTitle || projectDraft.projectType,
           value: estimateTotal,
@@ -1586,6 +1752,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       try {
         const response = await dataProvider?.leads?.update?.(leadId, {
           projectId: linkedProjectId,
+          clientId: linkedClientId,
           estimateId: linkedEstimateId,
           value: estimateTotal,
           estimatedValue: estimateTotal,
@@ -1622,6 +1789,8 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         id: leadId,
         projectId: linkedProjectId,
         project_id: linkedProjectId,
+        clientId: linkedClientId,
+        client_id: linkedClientId,
         estimateId: linkedEstimateId,
         value: estimateTotal,
         estimatedValue: estimateTotal,
@@ -1638,7 +1807,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
 
       if (!silent) {
-        showToast(t('jobCreated'))
+        showToast(reusedExistingProject ? t('leadAlreadyConvertedToJob') : t('jobCreated'))
       }
 
       return persistedLead
@@ -1928,9 +2097,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       id: nextEstimateId,
       contractorId: estimate?.contractorId || estimate?.contractor_id || existingEstimate.contractorId || projectsContractorId || undefined,
       leadId: sourceLead?.id || leadId,
+      lead_id: sourceLead?.id || leadId,
       projectId: relatedProjectId,
       project_id: relatedProjectId,
-      clientId: estimate?.clientId || existingEstimate.clientId || sourceLead?.clientId || null,
+      clientId: estimate?.clientId || estimate?.client_id || existingEstimate.clientId || existingEstimate.client_id || sourceLead?.clientId || sourceLead?.client_id || null,
+      client_id: estimate?.clientId || estimate?.client_id || existingEstimate.clientId || existingEstimate.client_id || sourceLead?.clientId || sourceLead?.client_id || null,
       projectTitle: estimate?.projectTitle || existingEstimate.projectTitle || sourceLead?.projectTitle || sourceLead?.projectType || 'Estimate',
       number: estimateNumber,
       total: resolveEstimateTotal(sourceLead, estimate, toSafeNumber(existingEstimate.total)),
@@ -1942,10 +2113,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     try {
       let estimateId = estimate?.id || existingEstimate.id || null
 
-      if (!estimate?.id && !existingEstimate.id && relatedProjectId && (USE_SUPABASE || USE_SUPABASE_ESTIMATES)) {
+      if (!estimate?.id && !existingEstimate.id && (USE_SUPABASE || USE_SUPABASE_ESTIMATES)) {
         const existingEstimateResponse = await dataProvider.estimates.list({
           contractorId: projectsContractorId,
-          projectId: relatedProjectId,
+          ...(relatedProjectId ? { projectId: relatedProjectId } : { leadId: sourceLead?.id || leadId }),
           includeArchived: true,
         })
 
@@ -2741,11 +2912,12 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
   function openEstimateForLead(leadId) {
     const matchingLead = findLeadByProjectLookup(visibleLeads, leadId)
-    const routeId = resolveLinkedProjectId(matchingLead, leadId)
+    const hasProject = Boolean(matchingLead?.projectId || matchingLead?.project_id)
+    const routeId = hasProject ? resolveLinkedProjectId(matchingLead, leadId) : (matchingLead?.id || leadId)
 
     navigate(`/projects/${routeId}/estimate`, {
       state: {
-        source: 'project',
+        source: hasProject ? 'project' : 'lead',
         projectId: routeId,
         leadId: matchingLead?.id || leadId,
       },

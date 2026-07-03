@@ -13,7 +13,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
 import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
-import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft } from '../utils/estimateLinks'
+import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { getLeadNextStepKey, getLeadPipelineStage, getLeadPrimaryAction, leadPipelineStages } from '../utils/leadPipeline'
@@ -219,19 +219,35 @@ export function LeadDetailPage({
     async function loadEstimate() {
       const activeLead = USE_SUPABASE_LEADS ? record : lead
       const relatedProjectId = activeLead?.projectId || activeLead?.project_id || null
+      const relatedLeadId = activeLead?.id || leadId
+      const knownEstimateId = activeLead?.estimateId || activeLead?.portal?.estimate?.id || null
       const draftEstimate = readLinkedEstimateDraft(activeLead || leadId, [leadId, relatedProjectId || ''])
 
-      if (!relatedProjectId) {
-        if (!isCancelled) {
-          setEstimateRecord(draftEstimate)
-        }
-        return
-      }
-
       try {
+        if (knownEstimateId) {
+          const estimateResponse = await dataProvider.estimates.getById?.(knownEstimateId, {
+            contractorId,
+          })
+
+          if (!isCancelled && !estimateResponse?.error && estimateResponse?.data) {
+            const nextEstimate = { ...(draftEstimate || {}), ...estimateResponse.data }
+            setEstimateRecord(nextEstimate)
+            writeLinkedEstimateDrafts([leadId, relatedProjectId || '', relatedLeadId || '', nextEstimate.id], nextEstimate)
+            return
+          }
+        }
+
+        if (!relatedProjectId && !relatedLeadId) {
+          if (!isCancelled) {
+            setEstimateRecord(draftEstimate)
+          }
+          return
+        }
+
         const response = await dataProvider.estimates.list({
           contractorId,
-          projectId: relatedProjectId,
+          ...(relatedProjectId ? { projectId: relatedProjectId } : {}),
+          ...(relatedLeadId ? { leadId: relatedLeadId } : {}),
           includeArchived: true,
         })
 
@@ -243,7 +259,14 @@ export function LeadDetailPage({
         }
 
         if (!isCancelled) {
-          setEstimateRecord(response?.data?.[0] || draftEstimate)
+          const nextEstimate = response?.data?.[0]
+            ? { ...(draftEstimate || {}), ...response.data[0] }
+            : draftEstimate
+
+          setEstimateRecord(nextEstimate)
+          if (nextEstimate) {
+            writeLinkedEstimateDrafts([leadId, relatedProjectId || '', relatedLeadId || '', nextEstimate.id], nextEstimate)
+          }
         }
       } catch (error) {
         if (!isCancelled) {

@@ -1,4 +1,5 @@
 import { Inbox } from 'lucide-react'
+import { useAnalyticsMode } from '../../contexts/SimpleModeContext'
 import { SelectField } from '../ui/SelectField'
 import { currency } from '../../utils/formatters'
 import { getLeadDisplayValue, getLeadNextStepLabel, getLeadPipelineStage, getLeadPipelineStageLabelKey, getLeadStageLabel, getPriorityLabel } from '../../utils/leadPipeline'
@@ -26,6 +27,7 @@ export function PipelineBoard({
   setSelectedMobileStage,
   t = (key) => key,
 }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const selectedStageLeads = leads.filter((lead) => getLeadPipelineStage(lead) === selectedMobileStage)
 
   return (
@@ -36,7 +38,9 @@ export function PipelineBoard({
           <p className="hidden text-sm text-slate-500 lg:block">{t('dragCardsHelp')}</p>
           <p className="text-sm text-slate-500 lg:hidden">{t('chooseStageHelp')}</p>
         </div>
-        <p className="text-sm font-medium text-slate-500">{leads.length} {t('activeOpportunities')}</p>
+        <p className="text-sm font-medium text-slate-500">
+          {leads.length} {isAnalyticsMode ? t('activeOpportunities') : t('leads').toLowerCase()}
+        </p>
       </div>
 
       <div className="lg:hidden">
@@ -70,6 +74,7 @@ export function PipelineBoard({
 }
 
 function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, moveLead, onLeadClick, t }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const selectedTotal = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -94,7 +99,10 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
       <div className="mb-4 flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
         <div>
           <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(selectedStage))}</h3>
-          <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(selectedTotal)}</p>
+          <p className="text-xs text-slate-500">
+            {leads.length} {t('leads').toLowerCase()}
+            {isAnalyticsMode ? ` · ${currency.format(selectedTotal)}` : ''}
+          </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
       </div>
@@ -123,6 +131,7 @@ function MobilePipeline({ leads, statuses, selectedStage, setSelectedStage, move
 }
 
 function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick, t }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const total = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -137,7 +146,10 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(status))}</h3>
-          <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(total)}</p>
+          <p className="text-xs text-slate-500">
+            {leads.length} {t('leads').toLowerCase()}
+            {isAnalyticsMode ? ` · ${currency.format(total)}` : ''}
+          </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
       </div>
@@ -158,6 +170,7 @@ function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLe
 }
 
 function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, onClick, t = (key) => key }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const priorityClasses = {
     high: 'bg-red-50 text-red-700 ring-red-100',
     medium: 'bg-amber-50 text-amber-700 ring-amber-100',
@@ -179,25 +192,36 @@ function LeadCard({ lead, onDragStart, statuses = [], moveLead, mobile = false, 
           <h4 className="font-bold text-slate-950">{lead.client}</h4>
           <p className="text-sm text-slate-500">{getLeadDisplayValue(lead.projectType, t)}</p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${priorityClassName}`}>
-          {getPriorityLabel(lead.priority, t)}
-        </span>
+        {isAnalyticsMode && (
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${priorityClassName}`}>
+            {getPriorityLabel(lead.priority, t)}
+          </span>
+        )}
       </div>
 
-      <div className="space-y-2 text-sm">
-        <div className="flex justify-between gap-4">
-          <span className="text-slate-500">{t('value')}</span>
-          <span className="font-bold text-slate-900">{currency.format(lead.value)}</span>
+      {isAnalyticsMode ? (
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">{t('value')}</span>
+            <span className="font-bold text-slate-900">{currency.format(lead.value)}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">{t('location')}</span>
+            <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.location, t)}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">{t('source')}</span>
+            <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.source, t)}</span>
+          </div>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-slate-500">{t('location')}</span>
-          <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.location, t)}</span>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between gap-4">
+            <span className="text-slate-500">{t('location')}</span>
+            <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.location, t)}</span>
+          </div>
         </div>
-        <div className="flex justify-between gap-4">
-          <span className="text-slate-500">{t('source')}</span>
-          <span className="font-medium text-slate-700">{getLeadDisplayValue(lead.source, t)}</span>
-        </div>
-      </div>
+      )}
 
       <div className="mt-4 rounded-2xl bg-slate-50 p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{t('nextStep')}</p>

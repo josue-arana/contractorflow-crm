@@ -223,8 +223,12 @@ export function inferLeadPipelineStage(lead = {}) {
     return leadPipelineStages.LOST
   }
 
-  if (hasProjectLink || hasScheduledProject) {
-    return hasScheduledProject ? leadPipelineStages.CONVERTED_TO_JOB : leadPipelineStages.READY_FOR_JOB
+  if (hasProjectLink) {
+    return leadPipelineStages.CONVERTED_TO_JOB
+  }
+
+  if (hasScheduledProject) {
+    return leadPipelineStages.CONVERTED_TO_JOB
   }
 
   if (contractStatus === 'signed') {

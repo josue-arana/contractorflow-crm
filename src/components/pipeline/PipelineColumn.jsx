@@ -1,8 +1,10 @@
 import { currency } from '../../utils/formatters'
+import { useAnalyticsMode } from '../../contexts/SimpleModeContext'
 import { getLeadPipelineStageLabelKey } from '../../utils/leadPipeline'
 import { LeadCard } from './LeadCard'
 
 export function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId, moveLead, onLeadClick, t = (key) => key }) {
+  const { isAnalyticsMode } = useAnalyticsMode()
   const total = leads.reduce((sum, lead) => sum + lead.value, 0)
 
   return (
@@ -17,7 +19,10 @@ export function PipelineColumn({ status, leads, draggedLeadId, setDraggedLeadId,
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="font-bold text-slate-900">{t(getLeadPipelineStageLabelKey(status))}</h3>
-          <p className="text-xs text-slate-500">{leads.length} {t('leads').toLowerCase()} · {currency.format(total)}</p>
+          <p className="text-xs text-slate-500">
+            {leads.length} {t('leads').toLowerCase()}
+            {isAnalyticsMode ? ` · ${currency.format(total)}` : ''}
+          </p>
         </div>
         <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-600 shadow-sm">{leads.length}</span>
       </div>
