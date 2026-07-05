@@ -1,16 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { contractorCompany } from '../data/mockInvoices'
 import { currency } from '../utils/formatters'
-import { archivePanelButtonClasses } from '../utils/buttonStyles'
+import { archiveMenuItemClasses } from '../utils/buttonStyles'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
+import { useToast } from '../components/common/ToastProvider'
+import ActionMenu from '../components/common/ActionMenu'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
+import { getInvoicesContractorId } from '../services/system/invoicesRuntimeService'
 import { getPaymentsContractorId } from '../services/system/paymentsRuntimeService'
+import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -23,27 +27,93 @@ function calculateInvoiceTotal(lineItems = []) {
   return lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
 }
 
-export function InvoiceDetailRoute({ companySettings, leads, invoices = [], archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
+export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invoicesLoaded = false, archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
+  const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const contractorId = getPaymentsContractorId({ contractor, company, session })
+  const invoicesContractorId = getInvoicesContractorId({ contractor, company, session })
   const [confirmAction, setConfirmAction] = useState(null)
   const [showPreview, setShowPreview] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showSendModal, setShowSendModal] = useState(false)
   const [successMessage, setSuccessMessage] = useState('')
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false)
+  const invoiceSaveGuardRef = useRef(false)
+  const [routeInvoice, setRouteInvoice] = useState(null)
+  const [routeInvoiceState, setRouteInvoiceState] = useState({ loading: false, error: '' })
   const invoice = invoices.find((item) => item.id === invoiceId && !deletedIds.includes(item.id))
-  const lead = invoice ? leads.find((item) => item.id === invoice.leadId) : null
-  const [draftInvoice, setDraftInvoice] = useState(invoice || null)
+  const resolvedInvoice = invoice || routeInvoice
+  const lead = resolvedInvoice ? findRelatedLeadForInvoice(leads, resolvedInvoice) : null
+  const [draftInvoice, setDraftInvoice] = useState(resolvedInvoice || null)
 
-  const syncedInvoice = useMemo(() => invoice ? { ...invoice, ...draftInvoice, id: invoice.id } : null, [invoice, draftInvoice])
+  const syncedInvoice = useMemo(() => (
+    resolvedInvoice ? { ...resolvedInvoice, ...draftInvoice, id: resolvedInvoice.id } : null
+  ), [resolvedInvoice, draftInvoice])
 
-  if (!invoice || !syncedInvoice) {
+  useEffect(() => {
+    setDraftInvoice(resolvedInvoice || null)
+  }, [resolvedInvoice])
+
+  useEffect(() => {
+    if (invoice) {
+      setRouteInvoice(null)
+      setRouteInvoiceState({ loading: false, error: '' })
+      return undefined
+    }
+
+    if (!invoiceId || !invoicesLoaded || !invoicesContractorId) {
+      return undefined
+    }
+
+    let isCancelled = false
+
+    async function loadInvoiceById() {
+      setRouteInvoiceState({ loading: true, error: '' })
+
+      try {
+        const response = await dataProvider.invoices.getById(invoiceId, { contractorId: invoicesContractorId })
+
+        if (isCancelled) return
+
+        if (response?.error) {
+          setRouteInvoice(null)
+          setRouteInvoiceState({ loading: false, error: response.error.message || t('invoiceLoadFailed') })
+          return
+        }
+
+        setRouteInvoice(response?.data || null)
+        setRouteInvoiceState({ loading: false, error: '' })
+      } catch (error) {
+        if (isCancelled) return
+
+        setRouteInvoice(null)
+        setRouteInvoiceState({ loading: false, error: error?.message || t('invoiceLoadFailed') })
+      }
+    }
+
+    loadInvoiceById()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [invoice, invoiceId, invoicesContractorId, invoicesLoaded, t])
+
+  if (!resolvedInvoice && (!invoicesLoaded || routeInvoiceState.loading)) {
     return (
       <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-        <h1 className="text-2xl font-bold text-slate-950">{t('invoiceNotFound')}</h1>
-        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('invoiceNotFoundHelp')}</p>
+        <h1 className="text-2xl font-bold text-slate-950">{t('loading')}</h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('invoiceDetailHelp')}</p>
+      </section>
+    )
+  }
+
+  if (!resolvedInvoice || !syncedInvoice) {
+    return (
+      <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+        <h1 className="text-2xl font-bold text-slate-950">{routeInvoiceState.error ? t('invoiceDetail') : t('invoiceNotFound')}</h1>
+        <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{routeInvoiceState.error || t('invoiceNotFoundHelp')}</p>
         <button onClick={() => navigate('/invoices')} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">
           {t('backToInvoices')}
         </button>
@@ -78,33 +148,77 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
   }
 
   async function saveInvoice() {
+    if (invoiceSaveGuardRef.current) {
+      return
+    }
+
+    invoiceSaveGuardRef.current = true
+    setIsSavingInvoice(true)
+
     try {
       const payload = { ...currentInvoice }
+      let response = null
+
       if (currentInvoice && currentInvoice.id) {
-        await dataProvider.invoices.update(currentInvoice.id, payload)
+        response = await dataProvider.invoices.update(currentInvoice.id, payload, { contractorId: invoicesContractorId })
       } else {
-        await dataProvider.invoices.create({ ...payload, leadId: lead?.id })
+        response = await dataProvider.invoices.create({ ...payload, leadId: lead?.id }, { contractorId: invoicesContractorId })
+      }
+
+      if (response?.error) {
+        throw new Error(response.error.message || t('invoiceSaveFailed'))
+      }
+
+      const persistedInvoice = response?.data || currentInvoice
+
+      if (!persistedInvoice?.id) {
+        throw new Error(t('invoiceSaveFailed'))
+      }
+
+      onUpdateInvoice?.(persistedInvoice.id || currentInvoice.id, persistedInvoice)
+
+      if (!currentInvoice?.id && persistedInvoice?.id) {
+        navigate(`/invoices/${persistedInvoice.id}`, { replace: true })
       }
     } catch (err) {
       console.warn('Invoice save failed', err)
+      showToast(err?.message || t('invoiceSaveFailed'), 'error')
+      return
+    } finally {
+      invoiceSaveGuardRef.current = false
+      setIsSavingInvoice(false)
     }
-    onUpdateInvoice?.(currentInvoice.id, currentInvoice)
     setSuccessMessage(t('invoiceSaved'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
   async function savePayment(payment) {
+    const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
+
     try {
-      const paymentEntry = { id: `payment-${Date.now()}`, ...payment }
-      // create payment in provider (no-op in local mode)
-      await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+      const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+      if (paymentResponse?.error) {
+        throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
+      }
+
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
       const nextAmountPaid = Math.min(Number(currentInvoice.amount || 0), Number(currentInvoice.amountPaid || 0) + Number(payment.amount || 0))
-      await dataProvider.invoices.update(currentInvoice.id, { amountPaid: nextAmountPaid, paymentHistory: nextPaymentHistory })
+      const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: nextAmountPaid, paymentHistory: nextPaymentHistory }, { contractorId: invoicesContractorId })
+
+      if (invoiceResponse?.error) {
+        throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
+      }
+
+      if (invoiceResponse?.data?.id) {
+        onUpdateInvoice?.(invoiceResponse.data.id, invoiceResponse.data)
+      }
+
+      onRecordInvoicePayment?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
     } catch (err) {
       console.warn('Record payment failed', err)
+      showToast(err?.message || t('paymentSaveFailed'), 'error')
+      return
     }
-    onRecordInvoicePayment?.(currentInvoice.id, payment)
     setShowPaymentModal(false)
     setSuccessMessage(t('paymentRecorded'))
     window.setTimeout(() => setSuccessMessage(''), 2500)
@@ -115,43 +229,125 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
       setConfirmAction({ mode: 'markPaid' })
       return
     }
+    const paymentEntry = {
+      id: `payment-${Date.now()}`,
+      amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0),
+      date: new Date().toISOString().slice(0, 10),
+      method: 'Other',
+      type: 'Final Payment',
+      notes: 'Marked as paid.',
+    }
     try {
-      const paymentEntry = { id: `payment-${Date.now()}`, amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
-      await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+      const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+      if (paymentResponse?.error) {
+        throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
+      }
+
       const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
-      await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
+      const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' }, { contractorId: invoicesContractorId })
+
+      if (invoiceResponse?.error) {
+        throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
+      }
+
+      if (invoiceResponse?.data?.id) {
+        onUpdateInvoice?.(invoiceResponse.data.id, invoiceResponse.data)
+      }
+
+      onMarkInvoicePaid?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
     } catch (err) {
       console.warn('Mark paid failed', err)
+      showToast(err?.message || t('invoiceSaveFailed'), 'error')
+      return
     }
-    onMarkInvoicePaid?.(currentInvoice.id)
+    setSuccessMessage(t('invoiceMarkedPaid'))
+    window.setTimeout(() => setSuccessMessage(''), 2500)
   }
 
   async function runConfirmAction() {
     try {
       if (confirmAction?.mode === 'archive') {
-        await dataProvider.invoices.archive(currentInvoice.id)
+        const response = await dataProvider.invoices.archive(currentInvoice.id, { contractorId: invoicesContractorId })
+        if (response?.error) {
+          throw new Error(response.error.message || t('archiveFailed'))
+        }
         onArchiveInvoice?.(currentInvoice.id)
       }
       if (confirmAction?.mode === 'delete') {
-        await dataProvider.invoices.deletePermanently(currentInvoice.id)
+        const response = await dataProvider.invoices.deletePermanently(currentInvoice.id, { contractorId: invoicesContractorId })
+        if (response?.error) {
+          throw new Error(response.error.message || t('deleteFailed'))
+        }
         onDeleteInvoice?.(currentInvoice.id)
         navigate('/invoices')
       }
       if (confirmAction?.mode === 'markPaid') {
         const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
-        await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+        const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+        if (paymentResponse?.error) {
+          throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
+        }
+
         const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
-        await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' })
-        onMarkInvoicePaid?.(currentInvoice.id)
+        const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' }, { contractorId: invoicesContractorId })
+        if (invoiceResponse?.error) {
+          throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
+        }
+
+        if (invoiceResponse?.data?.id) {
+          onUpdateInvoice?.(invoiceResponse.data.id, invoiceResponse.data)
+        }
+
+        onMarkInvoicePaid?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
         setSuccessMessage(t('invoiceMarkedPaid'))
         window.setTimeout(() => setSuccessMessage(''), 2500)
       }
     } catch (err) {
       console.warn('Confirm invoice action failed', err)
+      showToast(err?.message || t(confirmAction?.mode === 'delete' ? 'deleteFailed' : confirmAction?.mode === 'archive' ? 'archiveFailed' : 'invoiceSaveFailed'), 'error')
     } finally {
       setConfirmAction(null)
     }
   }
+
+  async function restoreInvoice() {
+    try {
+      const response = await dataProvider.invoices.restore(currentInvoice.id, { contractorId: invoicesContractorId })
+      if (response?.error) {
+        throw new Error(response.error.message || t('restoreFailed'))
+      }
+      onRestoreInvoice?.(currentInvoice.id)
+    } catch (error) {
+      console.warn('Restore invoice failed', error)
+      showToast(error?.message || t('restoreFailed'), 'error')
+    }
+  }
+
+  const moreMenuItems = isArchived
+    ? [
+        {
+          id: 'restore-invoice',
+          label: t('restore'),
+          icon: <Undo2 className="mr-2 h-4 w-4" />,
+          onClick: restoreInvoice,
+        },
+        {
+          id: 'delete-invoice',
+          label: t('deletePermanently'),
+          icon: <Trash2 className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'delete' }),
+          className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+        },
+      ]
+    : [
+        {
+          id: 'archive-invoice',
+          label: t('archive'),
+          icon: <Archive className="mr-2 h-4 w-4" />,
+          onClick: () => setConfirmAction({ mode: 'archive' }),
+          className: archiveMenuItemClasses,
+        },
+      ]
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -184,19 +380,18 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
                 <p className="text-sm text-slate-500">{t('invoiceDetailHelp')}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button onClick={saveInvoice} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('saveInvoice')}</button>
+                <button disabled={isSavingInvoice} onClick={saveInvoice} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingInvoice ? t('saving') : t('saveInvoice')}</button>
                 <button onClick={() => setShowPreview(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('previewPdf')}</button>
                 <button onClick={() => setShowPaymentModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
                 <button onClick={confirmMarkPaid} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100">{t('markAsPaid')}</button>
                 <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-                {isArchived ? (
-                  <>
-                    <button onClick={() => onRestoreInvoice?.(currentInvoice.id)} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
-                    <button onClick={() => setConfirmAction({ mode: 'delete' })} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
-                  </>
-                ) : (
-                  <button onClick={() => setConfirmAction({ mode: 'archive' })} className={archivePanelButtonClasses}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
-                )}
+                <ActionMenu
+                  label={t('more')}
+                  ariaLabel={t('more')}
+                  showChevron
+                  buttonClassName="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+                  items={moreMenuItems}
+                />
               </div>
             </div>
 
@@ -272,7 +467,33 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], arch
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode === 'delete' ? 'delete' : 'archive'} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : confirmAction?.mode === 'markPaid' ? t('confirmMarkAsPaid') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : confirmAction?.mode === 'markPaid' ? t('markAsPaidHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : confirmAction?.mode === 'markPaid' ? t('markAsPaid') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
       <InvoicePreviewModal isOpen={showPreview} invoice={currentInvoice} lead={lead} contractorCompany={displayCompany} onClose={() => setShowPreview(false)} t={t} />
       <RecordPaymentModal isOpen={showPaymentModal} remainingBalance={balance} onClose={() => setShowPaymentModal(false)} onSave={savePayment} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="invoice" customer={{ name: currentInvoice.client, phone: lead?.phone, email: lead?.email }} projectTitle={currentInvoice.projectTitle} amountLabel={t('amountDue')} amountValue={currency.format(balance)} dueDate={currentInvoice.dueDate} onClose={() => setShowSendModal(false)} onSent={() => onInvoiceSent?.(currentInvoice.id)} t={t} />
+      <SendToCustomerModal
+        isOpen={showSendModal}
+        documentType="invoice"
+        customer={{ name: currentInvoice.client, phone: lead?.phone, email: lead?.email }}
+        projectTitle={currentInvoice.projectTitle}
+        amountLabel={t('amountDue')}
+        amountValue={currency.format(balance)}
+        dueDate={currentInvoice.dueDate}
+        onClose={() => setShowSendModal(false)}
+        onSent={async () => {
+          try {
+            const response = await dataProvider.invoices.update(currentInvoice.id, { status: 'Sent' }, { contractorId: invoicesContractorId })
+            if (response?.error) {
+              throw new Error(response.error.message || t('invoiceSaveFailed'))
+            }
+            if (response?.data?.id) {
+              onUpdateInvoice?.(response.data.id, response.data)
+            }
+          } catch (err) {
+            console.warn('Mark invoice sent failed', err)
+            showToast(err?.message || t('invoiceSaveFailed'), 'error')
+            return
+          }
+          onInvoiceSent?.(currentInvoice.id)
+        }}
+        t={t}
+      />
     </div>
   )
 }
@@ -315,9 +536,17 @@ function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose
 
 function RecordPaymentModal({ isOpen, remainingBalance, onClose, onSave, t }) {
   const [payment, setPayment] = useState({ amount: remainingBalance || 0, date: new Date().toISOString().slice(0, 10), method: 'Cash', type: 'Progress Payment', notes: '' })
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
+  useEffect(() => {
+    if (!isOpen) return
+    setPayment({ amount: remainingBalance || 0, date: new Date().toISOString().slice(0, 10), method: 'Cash', type: 'Progress Payment', notes: '' })
+    setIsSubmitting(false)
+    submitGuardRef.current = false
+  }, [isOpen, remainingBalance])
   if (!isOpen) return null
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-lg">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-lg">
       <h2 className="text-xl font-bold text-slate-950">{t('recordPayment')}</h2>
       <div className="mt-5 grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-bold text-slate-700">{t('amount')}<input type="number" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500" /></label>
@@ -326,7 +555,21 @@ function RecordPaymentModal({ isOpen, remainingBalance, onClose, onSave, t }) {
         <label className="text-sm font-bold text-slate-700">{t('paymentType')}<select value={payment.type} onChange={(event) => setPayment({ ...payment, type: event.target.value })} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500">{paymentTypes.map((type) => <option key={type} value={type}>{t(type)}</option>)}</select></label>
       </div>
       <label className="mt-4 block text-sm font-bold text-slate-700">{t('notes')}<textarea value={payment.notes} onChange={(event) => setPayment({ ...payment, notes: event.target.value })} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none focus:border-blue-500" /></label>
-      <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button><button onClick={() => onSave(payment)} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('savePayment')}</button></div>
+      <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button><button disabled={isSubmitting} onClick={async () => {
+        if (submitGuardRef.current) {
+          return
+        }
+
+        submitGuardRef.current = true
+        setIsSubmitting(true)
+
+        try {
+          await onSave?.(payment)
+        } finally {
+          submitGuardRef.current = false
+          setIsSubmitting(false)
+        }
+      }} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSubmitting ? t('saving') : t('savePayment')}</button></div>
     </ModalShell>
   )
 }

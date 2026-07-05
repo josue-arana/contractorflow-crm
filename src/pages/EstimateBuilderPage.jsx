@@ -98,6 +98,8 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false)
+  const estimateSaveGuardRef = useRef(false)
   const [lineItemAmountInputs, setLineItemAmountInputs] = useState(() => (
     (hasSavedLineItems ? savedLineItems : [
       { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
@@ -193,13 +195,41 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     }
   }
 
-  async function saveEstimate() {
-    const result = await onSaveEstimate?.(getEstimatePayload())
-    if (!result) {
+  async function persistEstimate(overrides = {}, { closeSendModal = false, stopEditing = false } = {}) {
+    if (estimateSaveGuardRef.current) {
       return null
     }
 
-    setIsEditing(false)
+    estimateSaveGuardRef.current = true
+    setIsSavingEstimate(true)
+
+    try {
+      const result = await onSaveEstimate?.({
+        ...getEstimatePayload(),
+        ...overrides,
+      })
+
+      if (result) {
+        if (stopEditing) {
+          setIsEditing(false)
+        }
+        if (closeSendModal) {
+          setShowSendModal(false)
+        }
+      }
+
+      return result
+    } finally {
+      estimateSaveGuardRef.current = false
+      setIsSavingEstimate(false)
+    }
+  }
+
+  async function saveEstimate() {
+    const result = await persistEstimate({}, { stopEditing: true })
+    if (!result) {
+      return null
+    }
     return result
   }
 
@@ -537,7 +567,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
           {isEditing && (
-            <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
+            <button disabled={isSavingEstimate} onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isSavingEstimate ? t('saving') : t('saveEstimate')}</button>
           )}
           <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
@@ -556,11 +586,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
       <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
-        await onSendEstimate?.({
-          ...getEstimatePayload(),
-          status: 'Sent',
-        })
-        setShowSendModal(false)
+        await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
       }} t={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">

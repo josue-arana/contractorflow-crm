@@ -80,6 +80,8 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [isSavingContract, setIsSavingContract] = useState(false)
+  const contractSaveGuardRef = useRef(false)
   const [scope, setScope] = useState(editorState.scope)
   const [paymentTerms, setPaymentTerms] = useState(editorState.paymentTerms)
   const [materials, setMaterials] = useState(editorState.materials)
@@ -193,8 +195,13 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     }
   }
 
-  async function saveContract() {
-    const payload = getContractPayload()
+  async function persistContract(payload, { errorKey = 'contractSaveFailed', stopEditing = false, resetEditingState = false, onPersist = null } = {}) {
+    if (contractSaveGuardRef.current) {
+      return null
+    }
+
+    contractSaveGuardRef.current = true
+    setIsSavingContract(true)
 
     try {
       const existing = savedContract || {}
@@ -204,75 +211,68 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         : await dataProvider.contracts.create(payload, { contractorId })
 
       if (response?.error) {
-        showToast(response.error.message || t('contractSaveFailed'), 'error')
-        return
+        showToast(response.error.message || t(errorKey), 'error')
+        return null
       }
 
-      onSaveContract?.({
+      const persistedContract = {
         ...payload,
         ...(response?.data || {}),
-      })
-      setIsEditing(false)
+      }
+
+      await onPersist?.(persistedContract)
+
+      if (stopEditing) {
+        setIsEditing(false)
+      }
+
+      if (resetEditingState && isEditing) {
+        resetEditorState()
+      }
+
+      return persistedContract
     } catch (err) {
-      console.warn('Contract save via dataProvider failed', err)
-      showToast(err?.message || t('contractSaveFailed'), 'error')
+      console.warn('Contract persistence via dataProvider failed', err)
+      showToast(err?.message || t(errorKey), 'error')
+      return null
+    } finally {
+      contractSaveGuardRef.current = false
+      setIsSavingContract(false)
     }
+  }
+
+  async function saveContract() {
+    const payload = getContractPayload()
+    await persistContract(payload, {
+      errorKey: 'contractSaveFailed',
+      stopEditing: true,
+      onPersist: async (persistedContract) => {
+        await onSaveContract?.(persistedContract)
+      },
+    })
   }
 
   async function markSent() {
     const payload = getContractPayload({ status: 'Sent' })
-
-    try {
-      const existing = savedContract || {}
-
-      const response = existing && existing.id
-        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
-        : await dataProvider.contracts.create(payload, { contractorId })
-
-      if (response?.error) {
-        showToast(response.error.message || t('contractSaveFailed'), 'error')
-        return
-      }
-
-      onSaveContract?.({
-        ...payload,
-        ...(response?.data || {}),
-      })
-    } catch (err) {
-      console.warn('Contract send via dataProvider failed', err)
-      showToast(err?.message || t('contractSaveFailed'), 'error')
-    }
+    await persistContract(payload, {
+      errorKey: 'contractSaveFailed',
+      onPersist: async (persistedContract) => {
+        await onSaveContract?.(persistedContract)
+      },
+    })
   }
 
   async function markSigned() {
     const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
     const payload = getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today })
-
-    try {
-      const existing = savedContract || {}
-
-      const response = existing && existing.id
-        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
-        : await dataProvider.contracts.create(payload, { contractorId })
-
-      if (response?.error) {
-        showToast(response.error.message || t('contractSignFailed'), 'error')
-        return
-      }
-
-      onMarkSigned?.({
-        ...payload,
-        ...(response?.data || {}),
-      })
-      setIsEditing(false)
-    } catch (err) {
-      console.warn('Mark signed via dataProvider failed', err)
-      showToast(err?.message || t('contractSignFailed'), 'error')
-    }
-
-    if (isEditing) {
-      resetEditorState()
-    }
+    await persistContract(payload, {
+      errorKey: 'contractSignFailed',
+      stopEditing: true,
+      resetEditingState: true,
+      onPersist: async (persistedContract) => {
+        await onMarkSigned?.(persistedContract)
+      },
+    })
   }
 
   async function markUnsigned() {
@@ -356,13 +356,13 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
         <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {isEditing ? (
-            <button onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">{t('saveContract')}</button>
+            <button disabled={isSavingContract} onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingContract ? t('saving') : t('saveContract')}</button>
           ) : (
             <button onClick={() => setIsEditing(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
           )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
           <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
-          {!isSigned ? <button onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{t('markAsSigned')}</button> : <div className="hidden xl:block" />}
+          {!isSigned ? <button disabled={isSavingContract} onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">{isSavingContract ? t('saving') : t('markAsSigned')}</button> : <div className="hidden xl:block" />}
           <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
           <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} />
         </div>

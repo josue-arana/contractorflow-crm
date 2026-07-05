@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { ModalShell } from '../common/ModalShell'
 import { SelectField } from '../ui/SelectField'
@@ -50,6 +50,8 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
   const [form, setForm] = useState(emptyJob)
   const [clientMode, setClientMode] = useState('existing')
   const [selectedClientId, setSelectedClientId] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
 
   const sortedClients = useMemo(() => [...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [clients])
 
@@ -71,6 +73,8 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
 
     setClientMode(nextClientMode)
     setSelectedClientId(nextSelectedClientId)
+    setIsSubmitting(false)
+    submitGuardRef.current = false
     setForm({
       ...emptyJob,
       client: matchedClient?.name || '',
@@ -136,8 +140,12 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
     setForm((current) => ({ ...current, [field]: value }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
+
+    if (submitGuardRef.current) {
+      return
+    }
 
     const selectedClient = clientMode === 'existing'
       ? sortedClients.find((client) => client.id === selectedClientId)
@@ -147,34 +155,42 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
     const projectTitle = form.projectTitle.trim() || projectType
     const address = form.address.trim() || form.location.trim() || selectedClient?.address || ''
 
-    onSave({
-      client: trimmedClientName,
-      clientId: selectedClient?.id || '',
-      phone: selectedClient?.phone || '',
-      email: selectedClient?.email || '',
-      address,
-      location: form.location.trim() || address,
-      projectTitle,
-      projectType,
-      projectStatus: form.projectStatus,
-      status: 'Won',
-      startDate: form.startDate || todayIso(),
-      value: normalizeValue(form.value),
-      notes: form.notes.trim(),
-      nextStep: form.notes.trim() || t('jobReadyToManage'),
-      source: 'Direct Job',
-    })
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      await onSave?.({
+        client: trimmedClientName,
+        clientId: selectedClient?.id || '',
+        phone: selectedClient?.phone || '',
+        email: selectedClient?.email || '',
+        address,
+        location: form.location.trim() || address,
+        projectTitle,
+        projectType,
+        projectStatus: form.projectStatus,
+        status: 'Won',
+        startDate: form.startDate || todayIso(),
+        value: normalizeValue(form.value),
+        notes: form.notes.trim(),
+        nextStep: form.notes.trim() || t('jobReadyToManage'),
+        source: 'Direct Job',
+      })
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-3xl">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-3xl">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">{t('projectJob')}</p>
           <h2 className="mt-1 text-2xl font-bold text-slate-950">{t('createJob')}</h2>
           <p className="mt-1 text-sm text-slate-500">{t('jobFormHelp')}</p>
         </div>
-        <button onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" aria-label={t('close')}>
+        <button disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label={t('close')}>
           <X className="h-5 w-5" />
         </button>
       </div>
@@ -232,8 +248,8 @@ export function JobFormModal({ isOpen, clients = [], initialClientId = '', initi
         </div>
 
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-          <button type="submit" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">{t('createJob')}</button>
+          <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button>
+          <button type="submit" disabled={isSubmitting} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSubmitting ? t('saving') : t('createJob')}</button>
         </div>
       </form>
     </ModalShell>

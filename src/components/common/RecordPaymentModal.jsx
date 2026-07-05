@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ModalShell } from './ModalShell'
 import { SelectField } from '../ui/SelectField'
 
@@ -49,6 +49,8 @@ function buildPaymentState(initialPayment = null) {
 export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue = 0, initialPayment = null, onClose, onSave, t }) {
   const [payment, setPayment] = useState(() => buildPaymentState(initialPayment))
   const [amountError, setAmountError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
   const isEditing = Boolean(initialPayment?.id)
   const halfDepositAmount = Number(projectValue || 0) > 0 ? Number(projectValue || 0) * 0.5 : 0
 
@@ -56,6 +58,8 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue 
     if (isOpen) {
       setPayment(buildPaymentState(initialPayment))
       setAmountError('')
+      setIsSubmitting(false)
+      submitGuardRef.current = false
     }
   }, [initialPayment, isOpen])
 
@@ -68,7 +72,7 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue 
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
     const parsedAmount = Number(payment.amount)
 
     if (!payment.amount) {
@@ -81,14 +85,26 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue 
       return
     }
 
-    onSave({
-      ...payment,
-      amount: parsedAmount,
-    })
+    if (submitGuardRef.current) {
+      return
+    }
+
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      await onSave?.({
+        ...payment,
+        amount: parsedAmount,
+      })
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-lg">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-lg">
       <h2 className="text-xl font-bold text-slate-950">{t(isEditing ? 'editPayment' : 'recordPayment')}</h2>
       <p className="mt-1 text-sm text-slate-500">{t('recordPaymentHelp')}</p>
 
@@ -106,8 +122,9 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue 
           {payment.type === 'Deposit' && halfDepositAmount > 0 ? (
             <button
               type="button"
+              disabled={isSubmitting}
               onClick={() => handleAmountChange(String(halfDepositAmount))}
-              className="mt-2 inline-flex items-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"
+              className="mt-2 inline-flex items-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {t('useHalfDeposit')}
             </button>
@@ -164,14 +181,15 @@ export function RecordPaymentModal({ isOpen, remainingBalance = 0, projectValue 
       </label>
 
       <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+        <button disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
           {t('cancel')}
         </button>
         <button
+          disabled={isSubmitting}
           onClick={handleSave}
-          className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700"
+          className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
         >
-          {t(isEditing ? 'saveChanges' : 'savePayment')}
+          {isSubmitting ? t('saving') : t(isEditing ? 'saveChanges' : 'savePayment')}
         </button>
       </div>
     </ModalShell>

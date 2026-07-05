@@ -9,8 +9,12 @@ import { tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import ActionMenu from '../components/common/ActionMenu'
+import { useToast } from '../components/common/ToastProvider'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
+import { useAuth } from '../contexts/AuthContext'
 import dataProvider from '../services/dataProvider'
+import { getInvoicesContractorId } from '../services/system/invoicesRuntimeService'
+import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
 import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
@@ -24,10 +28,13 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [sendInvoice, setSendInvoice] = useState(null)
+  const { showToast } = useToast()
   const { isAnalyticsMode } = useAnalyticsMode()
+  const { contractor, company, session } = useAuth()
+  const contractorId = getInvoicesContractorId({ contractor, company, session })
 
   const invoices = useMemo(() => invoiceRecords.filter((invoice) => !deletedIds.includes(invoice.id)).map((invoice) => {
-    const lead = leads.find((item) => item.id === invoice.leadId)
+    const lead = findRelatedLeadForInvoice(leads, invoice)
     return {
       ...invoice,
       client: invoice.client || lead?.client || t('unknownClient'),
@@ -64,15 +71,22 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await dataProvider.invoices.archive(confirmAction.invoice.id)
+        const response = await dataProvider.invoices.archive(confirmAction.invoice.id, { contractorId })
+        if (response?.error) {
+          throw new Error(response.error.message || t('archiveFailed'))
+        }
         onArchiveInvoice(confirmAction.invoice.id)
       }
       if (confirmAction.mode === 'delete') {
-        await dataProvider.invoices.deletePermanently(confirmAction.invoice.id)
+        const response = await dataProvider.invoices.deletePermanently(confirmAction.invoice.id, { contractorId })
+        if (response?.error) {
+          throw new Error(response.error.message || t('deleteFailed'))
+        }
         onDeleteInvoice(confirmAction.invoice.id)
       }
     } catch (err) {
       console.warn('Invoice action failed', err)
+      showToast(err?.message || t(confirmAction?.mode === 'delete' ? 'deleteFailed' : 'archiveFailed'), 'error')
     } finally {
       setConfirmAction(null)
     }
@@ -86,9 +100,18 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
             id: 'restore-invoice',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
-            onClick: (event) => {
+            onClick: async (event) => {
               event.stopPropagation()
-              onRestoreInvoice(invoice.id)
+              try {
+                const response = await dataProvider.invoices.restore(invoice.id, { contractorId })
+                if (response?.error) {
+                  throw new Error(response.error.message || t('restoreFailed'))
+                }
+                onRestoreInvoice(invoice.id)
+              } catch (error) {
+                console.warn('Restore invoice failed', error)
+                showToast(error?.message || t('restoreFailed'), 'error')
+              }
             },
           },
           {
@@ -240,7 +263,11 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
       <SendToCustomerModal
         isOpen={Boolean(sendInvoice)}
         documentType="invoice"
-        customer={{ name: sendInvoice?.client, phone: leads.find((lead) => lead.id === sendInvoice?.leadId)?.phone, email: leads.find((lead) => lead.id === sendInvoice?.leadId)?.email }}
+        customer={{
+          name: sendInvoice?.client,
+          phone: findRelatedLeadForInvoice(leads, sendInvoice || {})?.phone,
+          email: findRelatedLeadForInvoice(leads, sendInvoice || {})?.email,
+        }}
         projectTitle={sendInvoice?.projectTitle || ''}
         amountLabel={t('amountDue')}
         amountValue={currency.format(sendInvoice?.remainingBalance ?? 0)}
@@ -248,9 +275,14 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         onClose={() => setSendInvoice(null)}
         onSent={async () => {
           try {
-            await dataProvider.invoices.update(sendInvoice.id, { status: 'Sent' })
+            const response = await dataProvider.invoices.update(sendInvoice.id, { status: 'Sent' }, { contractorId })
+            if (response?.error) {
+              throw new Error(response.error.message || t('invoiceSaveFailed'))
+            }
           } catch (err) {
             console.warn('Mark invoice sent failed', err)
+            showToast(err?.message || t('invoiceSaveFailed'), 'error')
+            return
           }
           onInvoiceSent?.(sendInvoice?.id)
         }}
