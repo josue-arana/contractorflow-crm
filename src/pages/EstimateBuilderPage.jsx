@@ -90,6 +90,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
   const [scope, setScope] = useState(readEstimateScopeText(savedEstimate))
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
+  const [totalInput, setTotalInput] = useState(() => formatAmountInputValue(savedEstimate.total ?? lead.value ?? 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(defaultMaterialsIncluded)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
   const [estimateLanguage, setEstimateLanguage] = useState(savedEstimate.estimateLanguage || 'match')
@@ -122,6 +123,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
     setScope(readEstimateScopeText(nextSavedEstimate))
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
+    setTotalInput(formatAmountInputValue(nextSavedEstimate.total ?? lead.value ?? 0))
     setMaterialsIncluded(nextDefaultMaterialsIncluded)
     setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
     setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
@@ -288,6 +290,27 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     const numericValue = Number(normalizedValue)
     updateLineItem(index, 'amount', Number.isFinite(numericValue) ? numericValue : 0)
     setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? formatAmountInputValue(numericValue) : item))
+  }
+
+  function handleSimpleTotalInput(rawValue) {
+    const sanitizedValue = sanitizeAmountInput(rawValue)
+    setTotalInput(sanitizedValue)
+    setTotal(sanitizedValue === '' ? 0 : Number(sanitizedValue))
+  }
+
+  function handleSimpleTotalBlur() {
+    const normalizedValue = sanitizeAmountInput(totalInput)
+
+    if (normalizedValue === '' || normalizedValue === '0' || normalizedValue === '0.') {
+      setTotal(0)
+      setTotalInput('')
+      return
+    }
+
+    const numericValue = Number(normalizedValue)
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0
+    setTotal(safeValue)
+    setTotalInput(formatAmountInputValue(safeValue))
   }
 
   function insertBulletIntoTextarea(textarea, currentValue, onUpdate) {
@@ -528,7 +551,14 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                   {isEditing ? (
                     <div>
                       <label className="mb-2 block text-sm font-bold text-slate-700">{t('totalPrice')}</label>
-                      <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm ring-1 ring-slate-100">
+                        <div className="flex items-center justify-between gap-3">
+                          <input type="text" inputMode="decimal" value={totalInput} onChange={(event) => handleSimpleTotalInput(event.target.value)} onBlur={handleSimpleTotalBlur} className="min-w-0 flex-1 bg-transparent text-lg font-bold text-slate-900 outline-none focus:outline-none" />
+                          <div className="shrink-0 rounded-xl bg-white px-3 py-2 text-right text-sm font-bold text-slate-900 ring-1 ring-slate-200">
+                            {currency.format(estimateTotal)}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold text-slate-900">{currency.format(estimateTotal)}</div>

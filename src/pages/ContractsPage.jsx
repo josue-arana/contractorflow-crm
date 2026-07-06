@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, MoreVertical } from 'lucide-react'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { ContractPdfTemplate } from '../components/contracts/ContractPdfTemplate'
+import { SelectField } from '../components/ui/SelectField'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
@@ -17,10 +18,13 @@ import { downloadContractPdf } from '../utils/contractPdf'
 import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
 import { printDocumentElement } from '../utils/printDocument'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
+import { createTranslator } from '../translations'
 
-function formatContractDate(value) {
+function formatContractDate(value, language = 'en') {
+  const locale = language === 'es' ? 'es-ES' : 'en-US'
+
   if (!value) {
-    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    return new Date().toLocaleDateString(locale, { month: 'long', day: 'numeric', year: 'numeric' })
   }
 
   const parsedDate = new Date(value)
@@ -28,7 +32,7 @@ function formatContractDate(value) {
     return String(value)
   }
 
-  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  return parsedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 function buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t }) {
@@ -68,7 +72,7 @@ function buildContractEditorState({ lead, portal, savedContract, estimate, t }) 
   }
 }
 
-export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveContract, onMarkSigned, onMarkUnsigned }) {
+export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettings, onBack, onSaveContract, onMarkSigned, onMarkUnsigned }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
@@ -76,12 +80,15 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   const portal = getPortalData(lead)
   const savedContract = lead.portal?.contract || readLinkedContractDraft(lead, [lead.id, lead.projectId, lead.estimateId]) || portal.contract || {}
   const estimate = lead.portal?.estimate || portal.estimate || {}
-  const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t })
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [isSavingContract, setIsSavingContract] = useState(false)
   const contractSaveGuardRef = useRef(false)
+  const [contractLanguage, setContractLanguage] = useState(savedContract.contractLanguage || 'match')
+  const contractOutputLanguage = contractLanguage === 'match' ? appLanguage : contractLanguage
+  const contractT = useMemo(() => createTranslator(contractOutputLanguage), [contractOutputLanguage])
+  const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t: contractT })
   const [scope, setScope] = useState(editorState.scope)
   const [paymentTerms, setPaymentTerms] = useState(editorState.paymentTerms)
   const [materials, setMaterials] = useState(editorState.materials)
@@ -91,12 +98,12 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(editorState.warrantyDisclaimer)
   const contractTotal = Number(lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
   const previewContractDate = useMemo(
-    () => formatContractDate(savedContract.signedDate || savedContract.updatedAt || lead.portal?.contract?.updatedAt || new Date()),
-    [lead.portal?.contract?.updatedAt, savedContract.signedDate, savedContract.updatedAt]
+    () => formatContractDate(savedContract.signedDate || savedContract.updatedAt || lead.portal?.contract?.updatedAt || new Date(), contractOutputLanguage),
+    [contractOutputLanguage, lead.portal?.contract?.updatedAt, savedContract.signedDate, savedContract.updatedAt]
   )
   const notesAndTermsItems = useMemo(
-    () => buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t }),
-    [changeOrders, clientResponsibilities, materials, paymentTerms, t, timeline, warrantyDisclaimer]
+    () => buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t: contractT }),
+    [changeOrders, clientResponsibilities, contractT, materials, paymentTerms, timeline, warrantyDisclaimer]
   )
   const previewContractNumber = useMemo(
     () => formatContractDisplayNumber(savedContract.number || generateContractNumber(lead), { ...lead, ...savedContract }),
@@ -110,8 +117,8 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
     notesAndTermsItems,
     scope,
     total: contractTotal,
-    t,
-  }), [companySettings?.company, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope, t])
+    t: contractT,
+  }), [companySettings?.company, contractT, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope])
   const isSigned = Boolean(
     savedContract?.status === 'Signed'
       || savedContract?.signed
@@ -126,7 +133,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       portal: getPortalData(lead),
       savedContract: lead.portal?.contract || {},
       estimate: lead.portal?.estimate || {},
-      t,
+      t: contractT,
     })
 
     setScope(nextState.scope)
@@ -139,8 +146,14 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   }
 
   useEffect(() => {
-    resetEditorState()
-  }, [lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate, t])
+    setContractLanguage(savedContract.contractLanguage || 'match')
+  }, [savedContract.contractLanguage, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate])
+
+  useEffect(() => {
+    if (!isEditing) {
+      resetEditorState()
+    }
+  }, [contractLanguage, contractT, isEditing, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate])
 
   function getContractPayload(extra = {}) {
     return {
@@ -155,6 +168,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
       title: savedContract.title || lead.projectTitle || lead.projectType || 'Contract',
       status: savedContract.status || 'Draft',
       signedDate: savedContract.signedDate || '',
+      contractLanguage,
       scope,
       paymentTerms,
       materials,
@@ -187,7 +201,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         clientResponsibilities,
         warrantyDisclaimer,
         total: contractTotal,
-        t,
+        t: contractT,
       })
       showToast(t('contractPdfGenerated'))
     } catch (error) {
@@ -354,6 +368,17 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
         <p className="mt-2 break-words text-slate-300">{lead.client} · {lead.address || lead.location}</p>
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+        <div className="mb-5 rounded-3xl border border-slate-200 bg-slate-50/80 p-5">
+          <p className="text-base font-bold text-slate-950">{t('contractLanguage')}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-500">{t('contractLanguageHelp')}</p>
+          <div className="mt-3 max-w-sm">
+            <SelectField value={contractLanguage} onChange={(event) => setContractLanguage(event.target.value)} className="bg-white">
+              <option value="match">{t('matchAppLanguage')}</option>
+              <option value="en">{t('english')}</option>
+              <option value="es">{t('spanish')}</option>
+            </SelectField>
+          </div>
+        </div>
         <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           {isEditing ? (
             <button disabled={isSavingContract} onClick={saveContract} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingContract ? t('saving') : t('saveContract')}</button>
@@ -388,6 +413,7 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
           setClientResponsibilities={setClientResponsibilities}
           warrantyDisclaimer={warrantyDisclaimer}
           setWarrantyDisclaimer={setWarrantyDisclaimer}
+          contractT={contractT}
           t={t}
         />
         {isEditing ? (
@@ -420,10 +446,10 @@ export function ContractPreviewPage({ lead, t, companySettings, onBack, onSaveCo
   )
 }
 
-function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, t }) {
+function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, contractT, t }) {
   return (
     <div className="space-y-5 text-sm leading-6 text-slate-700">
-      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} total={contractTotal} t={t} /> : null}
+      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} total={contractTotal} t={contractT} /> : null}
       {isEditing ? (
         <>
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
@@ -479,7 +505,7 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
   )
 }
 
-export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t }) {
+export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -567,6 +593,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
     <ContractPreviewPage
       lead={mergedLead}
       t={t}
+      appLanguage={appLanguage}
       companySettings={companySettings}
       onBack={() => navigate(`/projects/${projectId}`)}
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}

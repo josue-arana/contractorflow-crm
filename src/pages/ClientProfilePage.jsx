@@ -89,6 +89,44 @@ function getProjectThumbnail(project = {}) {
     || ''
 }
 
+function getLatestProjectInvoice(project = {}) {
+  const invoices = [
+    ...(Array.isArray(project?.invoices) ? project.invoices : []),
+    ...(Array.isArray(project?.portal?.invoices) ? project.portal.invoices : []),
+  ].filter((invoice) => invoice && typeof invoice === 'object')
+
+  return invoices.sort((left, right) => (
+    getTimestamp(right?.updatedAt || right?.updated_at || right?.createdAt || right?.created_at || right?.dateCreated)
+    - getTimestamp(left?.updatedAt || left?.updated_at || left?.createdAt || left?.created_at || left?.dateCreated)
+  ))[0] || null
+}
+
+function getContextualProjectStatus(project = {}, estimate = null, contract = null) {
+  const invoice = getLatestProjectInvoice(project)
+  const baseStatus = contract?.status || estimate?.status || invoice?.status || project?.latestStatus || project?.projectStatus || project?.status || ''
+
+  if (baseStatus !== 'Sent') {
+    return baseStatus
+  }
+
+  if (invoice?.status === 'Sent' || (invoice && (invoice.sentAt || invoice.sent_at || invoice.updatedAt || invoice.createdAt))) {
+    return 'Invoice Sent'
+  }
+
+  if (contract?.status === 'Sent') {
+    return 'Contract Sent'
+  }
+
+  if (estimate?.status === 'Sent') {
+    return 'Estimate Sent'
+  }
+
+  if (invoice) return 'Invoice Sent'
+  if (contract) return 'Contract Sent'
+  if (estimate) return 'Estimate Sent'
+  return baseStatus
+}
+
 function derivePreferredContact(client = {}, t = (key) => key) {
   if (client?.phone) return t('call')
   if (client?.email) return t('email')
@@ -561,13 +599,15 @@ function renderMobileAccountSummary() {
   function renderMobileProjectsList(cards = projectCards) {
     return cards.length ? cards.map(({ project, thumbnail, projectAddress, displayDate, contract, estimate, projectValue, remainingBalance, remainingBalanceAmount }) => (
       <article key={project.id} onClick={() => (project.isProjectRecord ? onOpenProject(project.id) : onOpenLead?.(project.id))} className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-          {thumbnail ? <img src={thumbnail} alt={project.projectTitle || project.projectType} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-slate-400"><Images className="h-5 w-5" /></div>}
-        </div>
+        {thumbnail ? (
+          <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+            <img src={thumbnail} alt={project.projectTitle || project.projectType} className="h-full w-full object-cover" />
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-lg font-bold text-slate-950">{project.projectTitle || project.projectType}</h3>
-            {(hasContractData(contract) || hasEstimateData(estimate) || project.latestStatus) ? <StatusBadge status={hasContractData(contract) ? contract.status : hasEstimateData(estimate) ? estimate.status : project.latestStatus} t={t} /> : null}
+            {(hasContractData(contract) || hasEstimateData(estimate) || project.latestStatus || project.projectStatus || project.status || getLatestProjectInvoice(project)?.status) ? <StatusBadge status={getContextualProjectStatus(project, estimate, contract)} t={t} /> : null}
           </div>
           {projectAddress ? <p className="mt-1 line-clamp-2 text-sm text-slate-500">{projectAddress}</p> : null}
           {displayDate ? <p className="mt-1 text-sm text-slate-600">{displayDate}</p> : null}
@@ -992,17 +1032,15 @@ function renderMobileAccountSummary() {
           >
             {projectCards.length ? projectCards.map(({ project, displayDate, projectValue, remainingBalance, remainingBalanceAmount, thumbnail, projectAddress, contract, estimate }) => (
               <article key={project.id} className="flex items-center gap-4 rounded-3xl border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50/60">
-                <div className="h-20 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
-                  {thumbnail ? (
+                {thumbnail ? (
+                  <div className="h-20 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
                     <img src={thumbnail} alt={project.projectTitle || project.projectType} className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-slate-400"><Images className="h-5 w-5" /></div>
-                  )}
-                </div>
+                  </div>
+                ) : null}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="truncate text-lg font-bold text-slate-950">{project.projectTitle || project.projectType}</h3>
-                    {(hasContractData(contract) || hasEstimateData(estimate) || project.latestStatus) ? <StatusBadge status={hasContractData(contract) ? contract.status : hasEstimateData(estimate) ? estimate.status : project.latestStatus} t={t} /> : null}
+                    {(hasContractData(contract) || hasEstimateData(estimate) || project.latestStatus || project.projectStatus || project.status || getLatestProjectInvoice(project)?.status) ? <StatusBadge status={getContextualProjectStatus(project, estimate, contract)} t={t} /> : null}
                   </div>
                   {projectAddress ? <p className="mt-1 truncate text-sm text-slate-500">{projectAddress}</p> : null}
                   <div className="mt-3 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">

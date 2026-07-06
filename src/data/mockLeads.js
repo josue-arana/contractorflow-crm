@@ -22,7 +22,7 @@ export const initialLeads = [
     source: 'Referral',
     nextStep: 'Complete cabinet installation',
     portal: {
-      shareUrl: 'contractorflow.app/portal/maria-lopez-kitchen',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/maria-lopez-kitchen',
       percentComplete: 58,
       contractAmount: 18500,
       depositRequired: 9250,
@@ -77,7 +77,7 @@ export const initialLeads = [
     source: 'Website',
     nextStep: 'Confirm composite railing delivery date',
     portal: {
-      shareUrl: 'contractorflow.app/portal/james-carter-deck',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/james-carter-deck',
       percentComplete: 25,
       contractAmount: 12400,
       depositRequired: 6200,
@@ -123,7 +123,7 @@ export const initialLeads = [
     source: 'Google Business',
     nextStep: 'Confirm dumpster drop-off window',
     portal: {
-      shareUrl: 'contractorflow.app/portal/angela-smith-roof',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/angela-smith-roof',
       percentComplete: 10,
       contractAmount: 22000,
       depositRequired: 11000,
@@ -169,7 +169,7 @@ export const initialLeads = [
     source: 'Repeat Client',
     nextStep: 'Schedule final walkthrough and touch-up review',
     portal: {
-      shareUrl: 'contractorflow.app/portal/robert-nguyen-painting',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/robert-nguyen-painting',
       percentComplete: 92,
       contractAmount: 6800,
       depositRequired: 3400,
@@ -237,7 +237,7 @@ export const initialLeads = [
     source: 'Referral',
     nextStep: 'Client to approve tile selection allowance',
     portal: {
-      shareUrl: 'contractorflow.app/portal/sofia-martinez-bathroom',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/sofia-martinez-bathroom',
       percentComplete: 18,
       contractAmount: 15800,
       depositRequired: 7900,
@@ -283,7 +283,7 @@ export const initialLeads = [
     source: 'Referral',
     nextStep: 'Send final invoice receipt and request review',
     portal: {
-      shareUrl: 'contractorflow.app/portal/harold-jenkins-bathroom',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/harold-jenkins-bathroom',
       percentComplete: 100,
       contractAmount: 9400,
       depositRequired: 4700,
@@ -328,7 +328,7 @@ export const initialLeads = [
     source: 'Google Business',
     nextStep: 'Archive job and send warranty document',
     portal: {
-      shareUrl: 'contractorflow.app/portal/nina-patel-roof-gutters',
+      shareUrl: 'https://contractorflowcrm.netlify.app/portal/nina-patel-roof-gutters',
       percentComplete: 100,
       contractAmount: 11600,
       depositRequired: 5800,
