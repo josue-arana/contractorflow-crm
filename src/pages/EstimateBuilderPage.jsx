@@ -74,13 +74,14 @@ function sanitizeAmountInput(value) {
   return `${wholePart}.${decimalPart}`
 }
 
-export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
-  const { showToast } = useToast()
-  const pdfTemplateRef = useRef(null)
-  const scopeTextareaRef = useRef(null)
-  const lineItemTextareaRefs = useRef([])
-  const portal = getPortalData(lead)
-  const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+function buildDefaultLineItems(leadValue, materialsIncluded, t) {
+  return [
+    { name: t('laborAndProjectSetup'), amount: Math.round(Number(leadValue || 0) * 0.35), materialsIncluded },
+    { name: t('materialsAndFinishWork'), amount: Math.round(Number(leadValue || 0) * 0.65), materialsIncluded },
+  ]
+}
+
+function buildEstimateDraftState({ savedEstimate = {}, lead, companySettings, t }) {
   const defaultMaterialsIncluded = resolveMaterialsIncludedDefault(
     savedEstimate.materialsIncluded,
     companySettings?.defaults?.materialsIncluded,
@@ -88,59 +89,115 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   )
   const savedLineItems = normalizeLineItems(savedEstimate.lineItems, defaultMaterialsIncluded)
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-  const [scope, setScope] = useState(readEstimateScopeText(savedEstimate))
-  const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
-  const [totalInput, setTotalInput] = useState(() => formatAmountInputValue(savedEstimate.total ?? lead.value ?? 0))
-  const [materialsIncluded, setMaterialsIncluded] = useState(defaultMaterialsIncluded)
-  const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
-  const [estimateLanguage, setEstimateLanguage] = useState(savedEstimate.estimateLanguage || 'match')
-  const [pricingMode, setPricingMode] = useState(hasSavedLineItems ? detailedPricingMode : simplePricingMode)
+  const defaultLineItems = buildDefaultLineItems(lead?.value, defaultMaterialsIncluded, t)
+
+  return {
+    scope: readEstimateScopeText(savedEstimate),
+    total: Number(savedEstimate.total ?? lead?.value ?? 0),
+    totalInput: formatAmountInputValue(savedEstimate.total ?? lead?.value ?? 0),
+    materialsIncluded: defaultMaterialsIncluded,
+    paymentTerms: savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'),
+    estimateLanguage: savedEstimate.estimateLanguage || 'match',
+    pricingMode: hasSavedLineItems ? detailedPricingMode : simplePricingMode,
+    lineItems: hasSavedLineItems ? savedLineItems : defaultLineItems,
+    lineItemAmountInputs: (hasSavedLineItems ? savedLineItems : defaultLineItems).map((item) => formatAmountInputValue(item.amount)),
+  }
+}
+
+export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+  const { showToast } = useToast()
+  const pdfTemplateRef = useRef(null)
+  const scopeTextareaRef = useRef(null)
+  const lineItemTextareaRefs = useRef([])
+  const draftDirtyRef = useRef(false)
+  const lastInitializedSourceKeyRef = useRef('')
+  const lastInitializedOwnerKeyRef = useRef('')
+  const portal = getPortalData(lead)
+  const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+  const initialDraftState = useMemo(
+    () => buildEstimateDraftState({ savedEstimate, lead, companySettings, t }),
+    [companySettings, lead, savedEstimate, t]
+  )
+  const [scope, setScope] = useState(initialDraftState.scope)
+  const [total, setTotal] = useState(initialDraftState.total)
+  const [totalInput, setTotalInput] = useState(initialDraftState.totalInput)
+  const [materialsIncluded, setMaterialsIncluded] = useState(initialDraftState.materialsIncluded)
+  const [paymentTerms, setPaymentTerms] = useState(initialDraftState.paymentTerms)
+  const [estimateLanguage, setEstimateLanguage] = useState(initialDraftState.estimateLanguage)
+  const [pricingMode, setPricingMode] = useState(initialDraftState.pricingMode)
   const [confirmAction, setConfirmAction] = useState(null)
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
   const [isSavingEstimate, setIsSavingEstimate] = useState(false)
   const estimateSaveGuardRef = useRef(false)
-  const [lineItemAmountInputs, setLineItemAmountInputs] = useState(() => (
-    (hasSavedLineItems ? savedLineItems : [
-      { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
-      { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: defaultMaterialsIncluded },
-    ]).map((item) => formatAmountInputValue(item.amount))
-  ))
-  const [lineItems, setLineItems] = useState(hasSavedLineItems ? savedLineItems : [
-    { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
-    { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: defaultMaterialsIncluded },
+  const [lineItemAmountInputs, setLineItemAmountInputs] = useState(initialDraftState.lineItemAmountInputs)
+  const [lineItems, setLineItems] = useState(initialDraftState.lineItems)
+  const draftOwnerKey = useMemo(
+    () => `${lead?.id || ''}:${lead?.projectId || lead?.project_id || ''}`,
+    [lead?.id, lead?.projectId, lead?.project_id]
+  )
+
+  const draftSourceKey = useMemo(() => JSON.stringify({
+    leadId: lead?.id || '',
+    projectId: lead?.projectId || lead?.project_id || '',
+    leadValue: Number(lead?.value ?? 0),
+    estimateId: savedEstimate?.id || '',
+    estimateUpdatedAt: savedEstimate?.updatedAt || savedEstimate?.createdAt || savedEstimate?.created_at || '',
+    estimateStatus: savedEstimate?.status || '',
+    estimateTotal: savedEstimate?.total ?? null,
+    estimateSummary: readEstimateScopeText(savedEstimate),
+    estimateLanguage: savedEstimate?.estimateLanguage || '',
+    paymentTerms: savedEstimate?.paymentTerms || '',
+    materialsIncluded: savedEstimate?.materialsIncluded ?? null,
+    lineItems: Array.isArray(savedEstimate?.lineItems) ? savedEstimate.lineItems : [],
+    companyMaterialsIncluded: companySettings?.defaults?.materialsIncluded ?? null,
+    companyPaymentTerms: companySettings?.defaults?.paymentTerms || '',
+    defaultPaymentTermsLabel: t('defaultPaymentTerms'),
+    defaultLaborLabel: t('laborAndProjectSetup'),
+    defaultMaterialsLabel: t('materialsAndFinishWork'),
+  }), [
+    companySettings?.defaults?.materialsIncluded,
+    companySettings?.defaults?.paymentTerms,
+    lead?.id,
+    lead?.projectId,
+    lead?.project_id,
+    lead?.value,
+    savedEstimate,
+    t,
   ])
 
+  function markDraftDirty() {
+    draftDirtyRef.current = true
+  }
+
   useEffect(() => {
-    const nextSavedEstimate = lead.portal?.estimate || portal.estimate || {}
-    const nextDefaultMaterialsIncluded = resolveMaterialsIncludedDefault(
-      nextSavedEstimate.materialsIncluded,
-      companySettings?.defaults?.materialsIncluded,
-      false
-    )
-    const nextSavedLineItems = normalizeLineItems(nextSavedEstimate.lineItems, nextDefaultMaterialsIncluded)
-    const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
-    setScope(readEstimateScopeText(nextSavedEstimate))
-    setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
-    setTotalInput(formatAmountInputValue(nextSavedEstimate.total ?? lead.value ?? 0))
-    setMaterialsIncluded(nextDefaultMaterialsIncluded)
-    setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
-    setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
-    if (nextHasSavedLineItems) {
-      setLineItems(nextSavedLineItems)
-      setLineItemAmountInputs(nextSavedLineItems.map((item) => formatAmountInputValue(item.amount)))
-      setPricingMode(detailedPricingMode)
-    } else {
-      const defaultLineItems = [
-        { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: nextDefaultMaterialsIncluded },
-        { name: t('materialsAndFinishWork'), amount: Math.round(Number(lead.value || 0) * 0.65), materialsIncluded: nextDefaultMaterialsIncluded },
-      ]
-      setLineItems(defaultLineItems)
-      setLineItemAmountInputs(defaultLineItems.map((item) => formatAmountInputValue(item.amount)))
-      setPricingMode(simplePricingMode)
+    const sourceChanged = lastInitializedSourceKeyRef.current !== draftSourceKey
+    const draftOwnerChanged = lastInitializedOwnerKeyRef.current !== draftOwnerKey
+
+    if (!sourceChanged) {
+      return
     }
-  }, [companySettings?.defaults?.materialsIncluded, companySettings?.defaults?.paymentTerms, lead.client, lead.id, lead.projectType, lead.value, lead.portal?.estimate?.updatedAt, portal.estimate, t])
+
+    if (!draftOwnerChanged && draftDirtyRef.current) {
+      return
+    }
+
+    const nextDraftState = buildEstimateDraftState({ savedEstimate, lead, companySettings, t })
+    setScope(nextDraftState.scope)
+    setTotal(nextDraftState.total)
+    setTotalInput(nextDraftState.totalInput)
+    setMaterialsIncluded(nextDraftState.materialsIncluded)
+    setPaymentTerms(nextDraftState.paymentTerms)
+    setEstimateLanguage(nextDraftState.estimateLanguage)
+    setPricingMode(nextDraftState.pricingMode)
+    setLineItems(nextDraftState.lineItems)
+    setLineItemAmountInputs(nextDraftState.lineItemAmountInputs)
+
+    lastInitializedSourceKeyRef.current = draftSourceKey
+    lastInitializedOwnerKeyRef.current = draftOwnerKey
+    draftDirtyRef.current = false
+  }, [companySettings, draftOwnerKey, draftSourceKey, lead, savedEstimate, t])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
@@ -236,16 +293,19 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function updateLineItem(index, field, value) {
+    markDraftDirty()
     setLineItems((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item))
   }
 
   function addLineItem() {
+    markDraftDirty()
     setLineItems((items) => [...items, createEmptyLineItem(materialsIncluded)])
     setLineItemAmountInputs((items) => [...items, ''])
     setPricingMode(detailedPricingMode)
   }
 
   function removeLineItem(index) {
+    markDraftDirty()
     setLineItems((items) => {
       if (items.length === 1) return [createEmptyLineItem(materialsIncluded)]
       return items.filter((_, itemIndex) => itemIndex !== index)
@@ -273,6 +333,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   function handleLineItemAmountInput(index, rawValue) {
     const sanitizedValue = sanitizeAmountInput(rawValue)
 
+    markDraftDirty()
     setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? sanitizedValue : item))
     updateLineItem(index, 'amount', sanitizedValue === '' ? 0 : Number(sanitizedValue))
   }
@@ -294,6 +355,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
 
   function handleSimpleTotalInput(rawValue) {
     const sanitizedValue = sanitizeAmountInput(rawValue)
+    markDraftDirty()
     setTotalInput(sanitizedValue)
     setTotal(sanitizedValue === '' ? 0 : Number(sanitizedValue))
   }
@@ -337,7 +399,10 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function insertBulletIntoScope() {
-    insertBulletIntoTextarea(scopeTextareaRef.current, scope, setScope)
+    insertBulletIntoTextarea(scopeTextareaRef.current, scope, (nextValue) => {
+      markDraftDirty()
+      setScope(nextValue)
+    })
   }
 
   function insertBulletIntoLineItem(index) {
@@ -347,6 +412,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function useDetailedPricing() {
+    markDraftDirty()
     setLineItems((items) => items.map((item) => ({
       ...item,
       materialsIncluded: item?.materialsIncluded ?? materialsIncluded,
@@ -355,6 +421,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   function useSimplePricing() {
+    markDraftDirty()
     setPricingMode(simplePricingMode)
   }
 
@@ -406,7 +473,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           <InfoCard title={t('estimateLanguage')}>
             <div className="space-y-3">
               <p className="text-sm leading-6 text-slate-500">{t('estimateLanguageHelp')}</p>
-              <SelectField value={estimateLanguage} onChange={(event) => setEstimateLanguage(event.target.value)} className="bg-slate-50">
+              <SelectField value={estimateLanguage} onChange={(event) => { markDraftDirty(); setEstimateLanguage(event.target.value) }} className="bg-slate-50">
                 <option value="match">{t('matchAppLanguage')}</option>
                 <option value="en">{t('english')}</option>
                 <option value="es">{t('spanish')}</option>
@@ -419,7 +486,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                 <textarea
                   ref={scopeTextareaRef}
                   value={scope}
-                  onChange={(event) => setScope(event.target.value)}
+                  onChange={(event) => { markDraftDirty(); setScope(event.target.value) }}
                   rows={8}
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                 />
@@ -571,7 +638,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           {!isDetailedPricing ? (
           <InfoCard title={t('materialsIncluded')}>
             {isEditing ? (
-              <button onClick={() => setMaterialsIncluded((current) => !current)} className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
+              <button onClick={() => { markDraftDirty(); setMaterialsIncluded((current) => !current) }} className={`w-full rounded-2xl px-4 py-4 text-left text-sm font-bold ${materialsIncluded ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100' : 'bg-slate-50 text-slate-700 ring-1 ring-slate-200'}`}>
                 {materialsIncluded ? `${t('materialsIncluded')}: ${t('yes')}` : `${t('materialsIncluded')}: ${t('no')}`}
               </button>
             ) : (
@@ -584,7 +651,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
 
           <InfoCard title={t('paymentTerms')}>
             {isEditing ? (
-              <textarea value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+              <textarea value={paymentTerms} onChange={(event) => { markDraftDirty(); setPaymentTerms(event.target.value) }} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
             ) : (
               <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{paymentTerms}</div>
             )}
