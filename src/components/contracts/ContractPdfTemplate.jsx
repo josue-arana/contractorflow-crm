@@ -167,11 +167,13 @@ function NotesAndTermsSection({ items, t }) {
 }
 
 function SignatureRow({ contractorName, clientName, contractDate, t }) {
+  const resolvedContractorLabel = contractorName || t('contractorSignature')
+  const resolvedClientLabel = clientName || t('clientSignature')
   const items = [
-    { label: `${t('date')}`, value: contractDate },
-    { label: t('contractorSignatureName'), value: contractorName },
-    { label: `${t('client')} ${t('date')}`, value: '' },
-    { label: t('clientSignatureName'), value: clientName },
+    { label: t('contractorDate'), value: contractDate },
+    { label: resolvedContractorLabel, value: '' },
+    { label: t('clientDate'), value: '' },
+    { label: resolvedClientLabel, value: '' },
   ]
 
   return (
@@ -179,7 +181,7 @@ function SignatureRow({ contractorName, clientName, contractDate, t }) {
       <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.2fr 0.8fr 1.2fr', gap: '12px' }}>
         {items.map((item) => (
           <div key={item.label}>
-            <div style={{ minHeight: '20px', borderBottom: `1px solid ${colors.slate300}`, fontSize: '11px', color: colors.slate700 }}>{item.value}</div>
+            <div style={{ minHeight: '46px', paddingTop: '18px', borderBottom: `1px solid ${colors.slate300}`, fontSize: '11px', color: colors.slate700 }}>{item.value}</div>
             <p style={{ margin: '4px 0 0', fontSize: '10px', fontWeight: 700, color: colors.slate500 }}>{item.label}</p>
           </div>
         ))}

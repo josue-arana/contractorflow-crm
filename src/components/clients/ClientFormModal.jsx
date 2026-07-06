@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { ModalShell } from '../common/ModalShell'
 
@@ -12,9 +12,13 @@ const emptyClient = {
 
 export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSave, t }) {
   const [form, setForm] = useState(emptyClient)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
 
   useEffect(() => {
     if (!isOpen) return
+    setIsSubmitting(false)
+    submitGuardRef.current = false
     setForm(client ? { ...emptyClient, ...client } : emptyClient)
   }, [isOpen, client])
 
@@ -24,20 +28,33 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
     setForm((current) => ({ ...current, [field]: value }))
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
-    onSave({ ...form, name: form.name.trim() || t('newClientFallback') })
+
+    if (submitGuardRef.current) {
+      return
+    }
+
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      await onSave?.({ ...form, name: form.name.trim() || t('newClientFallback') })
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="max-w-2xl">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="max-w-2xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">{t('clients')}</p>
             <h2 className="mt-1 text-2xl font-bold text-slate-950">{mode === 'edit' ? t('editClient') : t('createClient')}</h2>
             <p className="mt-1 text-sm text-slate-500">{t('clientFormHelp')}</p>
           </div>
-          <button onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" aria-label={t('close')}>
+          <button disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label={t('close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -60,8 +77,8 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
             />
           </div>
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-            <button type="submit" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">{mode === 'edit' ? t('saveChanges') : t('saveClient')}</button>
+            <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button>
+            <button type="submit" disabled={isSubmitting} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSubmitting ? t('saving') : mode === 'edit' ? t('saveChanges') : t('saveClient')}</button>
           </div>
         </form>
     </ModalShell>

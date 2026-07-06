@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { SelectField } from '../ui/SelectField'
 import { ModalShell } from '../common/ModalShell'
@@ -45,6 +45,8 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
   const [clientMode, setClientMode] = useState('new')
   const [selectedClientId, setSelectedClientId] = useState('')
   const [validationError, setValidationError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
   const isCreateMode = mode === 'create'
 
   const sortedClients = useMemo(() => [...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [clients])
@@ -65,6 +67,8 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     setValidationError('')
 
     if (lead) {
+      setIsSubmitting(false)
+      submitGuardRef.current = false
       setForm({
         ...emptyLead,
         ...lead,
@@ -81,6 +85,8 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     setForm(emptyLead)
     setClientMode(sortedClients.length ? 'existing' : 'new')
     setSelectedClientId('')
+    setIsSubmitting(false)
+    submitGuardRef.current = false
   }, [isOpen, lead, sortedClients])
 
   useEffect(() => {
@@ -122,8 +128,13 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
+
+    if (submitGuardRef.current) {
+      return
+    }
+
     const trimmedName = form.client.trim()
     const trimmedPhone = form.phone.trim()
     const trimmedEmail = form.email.trim()
@@ -162,18 +173,27 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       nextStep: form.nextStep || form.notes || t('followUpWithClient'),
       projectStatus: form.projectStatus || (form.status === 'Won' ? 'Signed' : 'Lead'),
     }
-    onSave(normalized)
+
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      await onSave?.(normalized)
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-3xl">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-3xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.2em] text-blue-600">{t('leads')}</p>
             <h2 className="mt-1 text-2xl font-bold text-slate-950">{mode === 'edit' ? t('editLead') : t('createLead')}</h2>
             <p className="mt-1 text-sm text-slate-500">{t('leadFormHelp')}</p>
           </div>
-          <button onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50" aria-label={t('close')}>
+          <button disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label={t('close')}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -251,8 +271,8 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
           )}
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-            <button type="submit" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700">{mode === 'edit' ? t('saveChanges') : t('saveLead')}</button>
+            <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button>
+            <button type="submit" disabled={isSubmitting} className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSubmitting ? t('saving') : mode === 'edit' ? t('saveChanges') : t('saveLead')}</button>
           </div>
         </form>
     </ModalShell>

@@ -12,6 +12,7 @@ import { tStatus } from '../translations'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import { normalizePortalShareUrl } from '../utils/portal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
@@ -1417,7 +1418,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         <InfoCard title={t('customerPortal')}>
           <p className="text-sm leading-6 text-slate-600">{t('clientPortalCardHelp')}</p>
           <div className="mt-4 min-w-0 overflow-hidden rounded-2xl bg-slate-50 p-3 text-sm font-semibold text-slate-700">
-            <p className="break-all">{portal.shareUrl}</p>
+            <p className="break-all">{normalizePortalShareUrl(portal.shareUrl)}</p>
           </div>
           <div className="mt-4 grid gap-3">
             <button onClick={onOpenPortal} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">
@@ -1868,7 +1869,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         documentType="portalLink"
         customer={{ name: currentLead.client, phone: currentLead.phone, email: currentLead.email }}
         projectTitle={currentLead.projectTitle || currentLead.projectType}
-        portalUrl={portal.shareUrl}
+        portalUrl={normalizePortalShareUrl(portal.shareUrl)}
         onClose={() => setShowPortalLinkModal(false)}
         onSent={() => setShowPortalLinkModal(false)}
         t={t}

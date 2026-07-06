@@ -6,7 +6,6 @@ import { ScrollToTop } from './components/layout/ScrollToTop'
 import { Topbar } from './components/layout/Topbar'
 import { initialLeads } from './data/mockLeads'
 import { mockScheduleEvents } from './data/mockScheduleEvents'
-import { mockInvoices } from './data/mockInvoices'
 import { ScheduleEventModal } from './components/calendar/ScheduleEventModal'
 import { ToastProvider, useToast } from './components/common/ToastProvider'
 import { JobFormModal } from './components/jobs/JobFormModal'
@@ -46,18 +45,20 @@ import { AnalyticsModeProvider } from './contexts/SimpleModeContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
+import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_INVOICES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
 import { getEventsContractorId } from './services/system/eventsRuntimeService'
 import { getProjectsContractorId } from './services/system/projectsRuntimeService'
 import { getSettingsContractorId } from './services/system/settingsRuntimeService'
+import { getInvoicesContractorId } from './services/system/invoicesRuntimeService'
 import { buildDisplayedUserProfile } from './services/system/userProfileRuntimeService'
 import { hasContractData, readLinkedContractDraft, writeLinkedContractDrafts } from './utils/contractLinks'
 import { buildEstimateLookupIds, hasEstimateData, readLinkedEstimateDraft, resolveEstimateTotal, toSafeNumber, writeLinkedEstimateDrafts } from './utils/estimateLinks'
 import { generateContractNumber } from './utils/contractNumber'
 import { generateEstimateNumber } from './utils/estimateNumber'
+import { dedupeInvoiceRecords, hydrateInvoiceRecord } from './utils/invoiceRecords'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 import { createLocalRecordId, dedupeById, findLeadByProjectLookup, resolveLinkedLeadId, resolveLinkedProjectId } from './utils/projectIdentity'
@@ -484,7 +485,9 @@ function ContractorFlowApp() {
   const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads.map(withLeadPipelineStage))
   const [customClients, setCustomClients] = useState([])
   const [scheduleEvents, setScheduleEvents] = useState(USE_SUPABASE_EVENTS ? [] : mockScheduleEvents)
-  const [invoices, setInvoices] = useState(mockInvoices)
+  const [invoiceRecords, setInvoiceRecords] = useState([])
+  const [persistedPayments, setPersistedPayments] = useState([])
+  const [areInvoicesLoaded, setAreInvoicesLoaded] = useState(false)
   const [scheduleModalState, setScheduleModalState] = useState({ isOpen: false, leadId: '', context: 'event', editingEvent: null })
   const [jobModalState, setJobModalState] = useState({ isOpen: false, initialClientId: '', initialClient: null })
   const [isDashboardLeadModalOpen, setIsDashboardLeadModalOpen] = useState(false)
@@ -529,6 +532,7 @@ function ContractorFlowApp() {
   const eventsContractorId = getEventsContractorId({ contractor, company, session })
   const projectsContractorId = getProjectsContractorId({ contractor, company, session })
   const settingsContractorId = getSettingsContractorId({ contractor, company, session })
+  const invoicesContractorId = getInvoicesContractorId({ contractor, company, session })
   const isAwaitingResolvedSettings = Boolean(
     USE_AUTH
       && contractorAccess?.membershipStatus === 'active'
@@ -761,6 +765,76 @@ function ContractorFlowApp() {
   useEffect(() => {
     let isCancelled = false
 
+    const requiresContractorId = USE_SUPABASE || USE_SUPABASE_PAYMENTS
+
+    if (requiresContractorId && !invoicesContractorId) {
+      setPersistedPayments([])
+      return undefined
+    }
+
+    async function loadPersistedPayments() {
+      const response = await dataProvider.payments.list({
+        contractorId: invoicesContractorId,
+        includeArchived: true,
+      })
+
+      if (isCancelled || response?.error || !Array.isArray(response?.data)) {
+        if (!isCancelled) {
+          setPersistedPayments([])
+        }
+        return
+      }
+
+      setPersistedPayments(dedupePayments(response.data))
+    }
+
+    loadPersistedPayments()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [invoicesContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+    const requiresContractorId = USE_SUPABASE || USE_SUPABASE_INVOICES
+
+    if (requiresContractorId && !invoicesContractorId) {
+      setInvoiceRecords([])
+      setAreInvoicesLoaded(false)
+      return undefined
+    }
+
+    async function loadInvoices() {
+      setAreInvoicesLoaded(false)
+
+      const response = await dataProvider.invoices.list({
+        contractorId: invoicesContractorId,
+        includeArchived: true,
+      })
+
+      if (isCancelled) return
+
+      if (response?.error || !Array.isArray(response?.data)) {
+        setInvoiceRecords([])
+        setAreInvoicesLoaded(true)
+        return
+      }
+
+      setInvoiceRecords(dedupeInvoiceRecords(response.data))
+      setAreInvoicesLoaded(true)
+    }
+
+    loadInvoices()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [invoicesContractorId])
+
+  useEffect(() => {
+    let isCancelled = false
+
     if ((!USE_SUPABASE && !USE_SUPABASE_EVENTS) || !eventsContractorId) {
       if (!USE_SUPABASE_EVENTS) {
         setScheduleEvents(mockScheduleEvents)
@@ -797,6 +871,13 @@ function ContractorFlowApp() {
   const clients = useMemo(() => buildClientProfiles(visibleLeads, customClients).filter((client) => !archives.deletedClientIds.includes(client.id)), [visibleLeads, customClients, archives.deletedClientIds])
   const visibleScheduleEvents = useMemo(() => sortScheduleEventRecords(scheduleEvents.filter((event) => !archives.deletedScheduleEventIds.includes(event.id))), [scheduleEvents, archives.deletedScheduleEventIds])
   const activeScheduleEvents = useMemo(() => visibleScheduleEvents.filter((event) => !archives.scheduleEventIds.includes(event.id) && !event.archivedAt), [visibleScheduleEvents, archives.scheduleEventIds])
+  const invoices = useMemo(() => dedupeInvoiceRecords(
+    invoiceRecords.map((invoice) => hydrateInvoiceRecord(invoice, {
+      leads: visibleLeads,
+      payments: persistedPayments,
+      defaultContractorId: invoicesContractorId,
+    }))
+  ), [invoiceRecords, invoicesContractorId, persistedPayments, visibleLeads])
   const mobileTodaySummary = useMemo(() => {
     const todayKey = buildDateKey(new Date())
     const findLeadByAnyId = (...ids) => {
@@ -2769,59 +2850,133 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   function updateInvoice(invoiceId, updates) {
-    setInvoices((current) => current.map((invoice) => {
-      if (invoice.id !== invoiceId) return invoice
-      const nextLineItems = updates.lineItems || invoice.lineItems || []
-      const nextAmount = updates.amount !== undefined ? Number(updates.amount || 0) : nextLineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0) || invoice.amount
-      const next = {
-        ...invoice,
-        ...updates,
-        amount: nextAmount,
-        amountPaid: Number(updates.amountPaid ?? invoice.amountPaid ?? 0),
-        paymentHistory: updates.paymentHistory || invoice.paymentHistory || [],
+    setInvoiceRecords((current) => {
+      const hasExistingInvoice = current.some((invoice) => invoice.id === invoiceId)
+
+      if (!hasExistingInvoice) {
+        const next = {
+          ...updates,
+          id: invoiceId,
+          amount: Number(updates.amount || 0),
+          amountPaid: Number(updates.amountPaid || 0),
+          paymentHistory: updates.paymentHistory || [],
+        }
+
+        return dedupeInvoiceRecords([
+          { ...next, status: getInvoiceStatus(next) },
+          ...current,
+        ])
       }
-      return { ...next, status: getInvoiceStatus(next) }
-    }))
+
+      return current.map((invoice) => {
+        if (invoice.id !== invoiceId) return invoice
+        const nextLineItems = updates.lineItems || invoice.lineItems || []
+        const nextAmount = updates.amount !== undefined ? Number(updates.amount || 0) : nextLineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0) || invoice.amount
+        const next = {
+          ...invoice,
+          ...updates,
+          amount: nextAmount,
+          amountPaid: Number(updates.amountPaid ?? invoice.amountPaid ?? 0),
+          paymentHistory: updates.paymentHistory || invoice.paymentHistory || [],
+        }
+        return { ...next, status: getInvoiceStatus(next) }
+      })
+    })
     showToast(t('invoiceSaved'))
     addNotification('notificationInvoiceSavedTitle', 'notificationInvoiceSavedMessage')
   }
 
   function recordInvoicePayment(invoiceId, payment) {
-    setInvoices((current) => current.map((invoice) => {
+    let invoiceMatch = null
+
+    setInvoiceRecords((current) => current.map((invoice) => {
       if (invoice.id !== invoiceId) return invoice
+      invoiceMatch = invoice
       const amount = Number(payment.amount || 0)
+      const paymentEntry = {
+        id: payment.id || `payment-${Date.now()}`,
+        ...payment,
+        amount,
+      }
       const amountPaid = Math.min(Number(invoice.amount || 0), Number(invoice.amountPaid || 0) + amount)
       const next = {
         ...invoice,
         amountPaid,
         paymentHistory: [
-          { id: `payment-${Date.now()}`, ...payment, amount },
+          paymentEntry,
           ...(invoice.paymentHistory || []),
         ],
       }
       return { ...next, status: getInvoiceStatus(next) }
     }))
+
+    if (payment) {
+      const nextPayment = normalizePaymentRecord({
+        id: payment.id || `payment-${Date.now()}`,
+        ...payment,
+        invoiceId,
+        clientId: invoiceMatch?.clientId || null,
+        projectId: invoiceMatch?.projectId || null,
+        contractId: invoiceMatch?.contractId || null,
+        estimateId: invoiceMatch?.estimateId || null,
+        leadId: invoiceMatch?.leadId || null,
+        contractorId: invoiceMatch?.contractorId || invoicesContractorId || undefined,
+        status: 'Recorded',
+      })
+
+      setPersistedPayments((current) => dedupePayments([nextPayment, ...current]))
+    }
+
     showToast(t('paymentRecorded'))
     addNotification('notificationPaymentRecordedTitle', 'notificationPaymentRecordedMessage')
   }
 
-  function markInvoicePaid(invoiceId) {
-    setInvoices((current) => current.map((invoice) => {
+  function markInvoicePaid(invoiceId, payment = null) {
+    let invoiceMatch = null
+
+    setInvoiceRecords((current) => current.map((invoice) => {
       if (invoice.id !== invoiceId) return invoice
+      invoiceMatch = invoice
       const amount = Number(invoice.amount || 0)
       const alreadyPaid = Number(invoice.amountPaid || 0)
       const remaining = Math.max(amount - alreadyPaid, 0)
+      const paymentEntry = payment || {
+        id: `payment-${Date.now()}`,
+        amount: remaining,
+        date: new Date().toISOString().slice(0, 10),
+        method: 'Other',
+        type: 'Final Payment',
+        notes: 'Marked as paid.',
+      }
       const paymentHistory = remaining > 0
-        ? [{ id: `payment-${Date.now()}`, amount: remaining, date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }, ...(invoice.paymentHistory || [])]
+        ? [paymentEntry, ...(invoice.paymentHistory || [])]
         : invoice.paymentHistory || []
       return { ...invoice, amountPaid: amount, status: 'Paid', paymentHistory }
     }))
+
+    if (payment) {
+      const nextPayment = normalizePaymentRecord({
+        id: payment.id || `payment-${Date.now()}`,
+        ...payment,
+        invoiceId,
+        clientId: invoiceMatch?.clientId || null,
+        projectId: invoiceMatch?.projectId || null,
+        contractId: invoiceMatch?.contractId || null,
+        estimateId: invoiceMatch?.estimateId || null,
+        leadId: invoiceMatch?.leadId || null,
+        contractorId: invoiceMatch?.contractorId || invoicesContractorId || undefined,
+        status: 'Recorded',
+      })
+
+      setPersistedPayments((current) => dedupePayments([nextPayment, ...current]))
+    }
+
     showToast(t('paymentRecorded'))
     addNotification('notificationInvoicePaidTitle', 'notificationInvoicePaidMessage')
   }
 
   function markInvoiceSent(invoiceId) {
-    setInvoices((current) => current.map((invoice) => invoice.id === invoiceId && invoice.status === 'Draft' ? { ...invoice, status: 'Sent' } : invoice))
+    setInvoiceRecords((current) => current.map((invoice) => invoice.id === invoiceId && invoice.status === 'Draft' ? { ...invoice, status: 'Sent' } : invoice))
   }
 
   function createScheduleEvent(event, source = 'event') {
@@ -2991,11 +3146,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={setLanguage} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
-      <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
+      <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
-      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} t={t} />} />
+      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} t={t} appLanguage={language} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />

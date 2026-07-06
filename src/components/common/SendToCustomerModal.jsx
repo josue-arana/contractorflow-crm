@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ModalShell } from './ModalShell'
+import { normalizePortalShareUrl } from '../../utils/portal'
 
 export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t }) {
   const [channel, setChannel] = useState('text')
@@ -12,6 +13,7 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
   const phone = customer.phone || ''
   const email = customer.email || ''
   const typeLabel = t(documentType)
+  const resolvedPortalUrl = normalizePortalShareUrl(portalUrl)
   const messageContent = useMemo(() => {
     const resolvedDocumentStatus = documentLink
       ? t('documentLinkIncluded', { link: documentLink })
@@ -30,7 +32,7 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
       : documentType === 'contract'
         ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
-          ? t('portalSmsMessage', { name: firstName, project: projectTitle, link: portalUrl })
+          ? t('portalSmsMessage', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
           : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue, documentStatus: resolvedDocumentStatus })
 
     const emailBody = documentType === 'estimate'
@@ -38,11 +40,11 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
       : documentType === 'contract'
         ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
-          ? t('portalEmailBody', { name: firstName, project: projectTitle, link: portalUrl })
+          ? t('portalEmailBody', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
           : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate, documentStatus: resolvedDocumentStatus })
 
     return { subject, smsBody, emailBody, resolvedDocumentStatus }
-  }, [amountValue, documentLink, documentType, dueDate, firstName, portalUrl, projectTitle, t])
+  }, [amountValue, documentLink, documentType, dueDate, firstName, projectTitle, resolvedPortalUrl, t])
 
   if (!isOpen) return null
 
@@ -69,7 +71,7 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
         <p className="font-bold text-slate-950">{customer.name || t('customer')}</p>
         <p className="mt-1 text-slate-500">{projectTitle}</p>
         {amountLabel && amountValue && <p className="mt-2 text-slate-700">{amountLabel}: <span className="font-bold">{amountValue}</span></p>}
-        {portalUrl && <p className="mt-2 break-all text-slate-700">{t('shareUrl')}: <span className="font-bold">{portalUrl}</span></p>}
+        {resolvedPortalUrl && <p className="mt-2 break-all text-slate-700">{t('shareUrl')}: <span className="font-bold">{resolvedPortalUrl}</span></p>}
         <p className="mt-2 text-slate-700">{t('documentStatus')}: <span className="font-bold">{messageContent.resolvedDocumentStatus}</span></p>
       </div>
 

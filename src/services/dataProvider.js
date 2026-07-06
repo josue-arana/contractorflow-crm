@@ -19,7 +19,7 @@
 // directly import Supabase or local service modules. That keeps migration to
 // a real backend isolated to this file.
 
-import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
+import { BETA_CONTRACTOR_ID, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_INVOICES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../config/backendConfig'
 
 import clientsLocalService from './local/clientsLocalService'
 import leadsLocalService from './local/leadsLocalService'
@@ -191,6 +191,23 @@ function resolvePaymentsContractorId(primaryValue, fallbackValue) {
 
   if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_PAYMENTS) && BETA_CONTRACTOR_ID) {
     warnDev('[dev] dataProvider.payments did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
+      contractorId: BETA_CONTRACTOR_ID,
+    })
+    return BETA_CONTRACTOR_ID
+  }
+
+  return ''
+}
+
+function resolveInvoicesContractorId(primaryValue, fallbackValue) {
+  const contractorId = readContractorId(primaryValue) || readContractorId(fallbackValue)
+
+  if (contractorId) {
+    return contractorId
+  }
+
+  if (!USE_AUTH && (USE_SUPABASE || USE_SUPABASE_INVOICES) && BETA_CONTRACTOR_ID) {
+    warnDev('[dev] dataProvider.invoices did not receive contractorId from context; falling back to BETA_CONTRACTOR_ID.', {
       contractorId: BETA_CONTRACTOR_ID,
     })
     return BETA_CONTRACTOR_ID
@@ -706,6 +723,93 @@ const contractsDataProvider = {
   },
 }
 
+const invoicesDataProvider = {
+  list: async (options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.list(options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options)
+
+    return invoicesSupabaseService.list({
+      ...options,
+      contractorId,
+    })
+  },
+  getById: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.getById(id, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options)
+
+    return invoicesSupabaseService.getById(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  create: async (invoiceData, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.create(invoiceData, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options, invoiceData)
+
+    return invoicesSupabaseService.create(invoiceData, {
+      ...options,
+      contractorId,
+    })
+  },
+  update: async (id, updates, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.update(id, updates, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options, updates)
+
+    return invoicesSupabaseService.update(id, updates, {
+      ...options,
+      contractorId,
+    })
+  },
+  archive: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.archive(id, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options)
+
+    return invoicesSupabaseService.archive(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  restore: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.restore(id, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options)
+
+    return invoicesSupabaseService.restore(id, {
+      ...options,
+      contractorId,
+    })
+  },
+  deletePermanently: async (id, options = {}) => {
+    if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
+      return invoicesLocalService.deletePermanently(id, options)
+    }
+
+    const contractorId = resolveInvoicesContractorId(options)
+
+    return invoicesSupabaseService.deletePermanently(id, {
+      ...options,
+      contractorId,
+    })
+  },
+}
+
 const paymentsDataProvider = {
   list: async (options = {}) => {
     if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
@@ -889,6 +993,7 @@ export const dataProvider = {
   projects: projectsDataProvider,
   estimates: estimatesDataProvider,
   contracts: contractsDataProvider,
+  invoices: invoicesDataProvider,
   payments: paymentsDataProvider,
   events: eventsDataProvider,
   settings: settingsDataProvider,

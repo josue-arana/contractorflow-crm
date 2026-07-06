@@ -1,7 +1,30 @@
-import { USE_SUPABASE } from '../../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_INVOICES } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { generateInvoiceNumber, getInvoiceDisplayNumber } from '../../utils/invoiceNumber'
 
 const TABLE_NAME = 'invoices'
+const INVOICE_TABLE_COLUMNS = new Set([
+  'contractor_id',
+  'client_id',
+  'project_id',
+  'contract_id',
+  'invoice_number',
+  'title',
+  'description',
+  'line_items',
+  'subtotal',
+  'tax_amount',
+  'total_amount',
+  'amount_paid',
+  'status',
+  'issue_date',
+  'due_date',
+  'sent_at',
+  'paid_at',
+  'created_at',
+  'updated_at',
+  'archived_at',
+])
 
 const uiToDbStatusMap = {
   Draft: 'draft',
@@ -65,6 +88,13 @@ function normalizeError(error, fallbackMessage) {
     details: error?.details || null,
     code: error?.code || null,
   }
+}
+
+function createMissingRowError(operationName, details = null) {
+  return createErrorResult(
+    `Supabase invoices.${operationName} did not return the persisted invoice row. Check RLS, schema compatibility, and required invoice identity metadata before treating this save as successful.`,
+    details
+  )
 }
 
 function readSingleRow(data) {
@@ -170,6 +200,11 @@ function formatDisplayDate(value) {
 }
 
 function serializeDescription(invoice = {}) {
+  // The current invoices table intentionally stores several UI-only identity and
+  // hydration fields inside description because there are no first-class columns
+  // for them yet. Keep this payload backward compatible so refresh/login
+  // hydration preserves lead/estimate links, customer labels, display dates,
+  // notes, payment terms, and payment history.
   const descriptionText = readField(invoice, ['description'])
   const notes = readField(invoice, ['notes'])
   const paymentTerms = readField(invoice, ['paymentTerms', 'payment_terms'])
@@ -177,6 +212,8 @@ function serializeDescription(invoice = {}) {
   const displayDueDate = readField(invoice, ['dueDate', 'displayDueDate', 'display_due_date'])
   const displayIssueDate = readField(invoice, ['issueDate', 'displayIssueDate', 'display_issue_date'])
   const leadId = readField(invoice, ['leadId', 'lead_id'])
+  const estimateId = readField(invoice, ['estimateId', 'estimate_id'])
+  const clientName = readField(invoice, ['client', 'clientName', 'customerName'])
 
   const hasStructuredFields = [
     notes,
@@ -185,6 +222,8 @@ function serializeDescription(invoice = {}) {
     displayDueDate,
     displayIssueDate,
     leadId,
+    estimateId,
+    clientName,
   ].some((value) => value !== undefined)
 
   if (!hasStructuredFields) {
@@ -200,6 +239,8 @@ function serializeDescription(invoice = {}) {
     displayDueDate: displayDueDate || '',
     displayIssueDate: displayIssueDate || '',
     leadId: leadId || null,
+    estimateId: estimateId || null,
+    clientName: clientName || '',
   })
 }
 
@@ -212,6 +253,8 @@ function parseDescription(description) {
     displayDueDate: '',
     displayIssueDate: '',
     leadId: null,
+    estimateId: null,
+    clientName: '',
   }
 
   if (!description) return fallback
@@ -231,10 +274,56 @@ function parseDescription(description) {
       displayDueDate: parsed.displayDueDate || '',
       displayIssueDate: parsed.displayIssueDate || '',
       leadId: parsed.leadId || null,
+      estimateId: parsed.estimateId || null,
+      clientName: parsed.clientName || '',
     }
   } catch {
     return fallback
   }
+}
+
+function validateDescriptionIdentityPayload(invoice = {}, payload = {}) {
+  const structuredIdentityEntries = [
+    ['leadId', readField(invoice, ['leadId', 'lead_id'])],
+    ['estimateId', readField(invoice, ['estimateId', 'estimate_id'])],
+    ['clientName', readField(invoice, ['client', 'clientName', 'customerName'])],
+  ].filter(([, value]) => value !== undefined && value !== null && value !== '')
+
+  if (structuredIdentityEntries.length === 0) {
+    return null
+  }
+
+  if (typeof payload.description !== 'string' || !payload.description.trim()) {
+    return createErrorResult(
+      'Supabase invoices payload is missing the structured description required to preserve invoice identity metadata.',
+      {
+        structuredIdentityEntries,
+        payload,
+      }
+    )
+  }
+
+  return null
+}
+
+function validateInvoicePayload(operationName, invoice = {}, payload = {}) {
+  const unsupportedColumns = Object.keys(payload).filter((key) => !INVOICE_TABLE_COLUMNS.has(key))
+
+  if (unsupportedColumns.length > 0) {
+    return createErrorResult(
+      `Supabase invoices.${operationName} attempted to write unsupported invoices columns: ${unsupportedColumns.join(', ')}.`,
+      { payload }
+    )
+  }
+
+  if (operationName === 'create' && !payload.invoice_number) {
+    return createErrorResult('Supabase invoices.create requires invoice_number before saving.', {
+      invoice,
+      payload,
+    })
+  }
+
+  return validateDescriptionIdentityPayload(invoice, payload)
 }
 
 function applyStatusDates(payload, invoice = {}) {
@@ -272,6 +361,7 @@ function toAppInvoice(row) {
     projectId: row?.project_id || null,
     contractId: row?.contract_id || null,
     leadId: parsedDescription.leadId || null,
+    estimateId: parsedDescription.estimateId || null,
     number: row?.invoice_number || '',
     invoiceNumber: row?.invoice_number || '',
     title: row?.title || 'Invoice',
@@ -297,8 +387,51 @@ function toAppInvoice(row) {
     archivedAt: row?.archived_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
-    client: '',
+    client: parsedDescription.clientName || '',
+    clientName: parsedDescription.clientName || '',
+    customerName: parsedDescription.clientName || '',
   }
+}
+
+async function invoiceNumberExists(contractorId, invoiceNumber, excludeId = '') {
+  const existingRecords = await supabaseClient.request(TABLE_NAME, {
+    method: 'GET',
+    query: buildContractorQuery(contractorId, {
+      select: 'id,invoice_number',
+      invoice_number: `eq.${invoiceNumber}`,
+      limit: '1',
+    }),
+  })
+
+  const row = readSingleRow(existingRecords)
+
+  if (!row) return false
+  if (excludeId && row.id === excludeId) return false
+  return true
+}
+
+async function ensureUniqueInvoiceNumber(contractorId, invoice = {}, { excludeId = '' } = {}) {
+  const existingNumber = readField(invoice, ['number', 'invoiceNumber', 'invoice_number'])
+
+  if (existingNumber) {
+    return getInvoiceDisplayNumber(invoice, invoice, readField(invoice, ['createdAt', 'created_at', 'issueDate', 'issue_date']) || new Date())
+  }
+
+  let attempt = 0
+  let nextNumber = generateInvoiceNumber({
+    ...invoice,
+    id: invoice?.id || `invoice-${Date.now()}-0`,
+  }, new Date())
+
+  while (await invoiceNumberExists(contractorId, nextNumber, excludeId)) {
+    nextNumber = generateInvoiceNumber({
+      ...invoice,
+      id: invoice?.id || `invoice-${Date.now()}-${attempt}`,
+    }, new Date())
+    attempt += 1
+  }
+
+  return nextNumber
 }
 
 function toSupabasePayload(contractorId, invoice = {}, { isCreate = false } = {}) {
@@ -407,8 +540,8 @@ function handleMissingContractorId(methodName) {
   return createErrorResult('contractorId is required for invoice operations.')
 }
 
-export async function list({ contractorId, includeArchived = false, status, clientId, projectId } = {}) {
-  if (!USE_SUPABASE) {
+export async function list({ contractorId, includeArchived = false, status, clientId, projectId, contractId } = {}) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', [])
   }
 
@@ -438,6 +571,10 @@ export async function list({ contractorId, includeArchived = false, status, clie
       query.project_id = `eq.${projectId}`
     }
 
+    if (contractId) {
+      query.contract_id = `eq.${contractId}`
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'GET',
       query,
@@ -458,7 +595,7 @@ export async function list({ contractorId, includeArchived = false, status, clie
 }
 
 export async function getById(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false')
   }
 
@@ -493,7 +630,7 @@ export async function getById(id, { contractorId } = {}) {
 }
 
 export async function create(invoiceData, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', invoiceData ?? null)
   }
 
@@ -502,13 +639,35 @@ export async function create(invoiceData, { contractorId } = {}) {
   }
 
   try {
+    const invoiceNumber = await ensureUniqueInvoiceNumber(contractorId, invoiceData)
+    const payload = toSupabasePayload(contractorId, {
+      ...invoiceData,
+      number: invoiceNumber,
+      invoiceNumber,
+    }, { isCreate: true })
+    const payloadValidation = validateInvoicePayload('create', invoiceData, payload)
+
+    if (payloadValidation) {
+      return payloadValidation
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'POST',
-      body: toSupabasePayload(contractorId, invoiceData, { isCreate: true }),
+      body: payload,
     })
 
+    const row = readSingleRow(data)
+
+    if (!row?.id) {
+      return createMissingRowError('create', {
+        invoiceData,
+        contractorId,
+        payload,
+      })
+    }
+
     return {
-      data: toAppInvoice(readSingleRow(data)),
+      data: toAppInvoice(row),
       error: null,
       skipped: false,
     }
@@ -522,7 +681,7 @@ export async function create(invoiceData, { contractorId } = {}) {
 }
 
 export async function update(id, updates, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', { id, ...(updates || {}) })
   }
 
@@ -538,6 +697,12 @@ export async function update(id, updates, { contractorId } = {}) {
 
     delete payload.contractor_id
 
+    const payloadValidation = validateInvoicePayload('update', updates, payload)
+
+    if (payloadValidation) {
+      return payloadValidation
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'PATCH',
       query: buildContractorQuery(contractorId, {
@@ -546,8 +711,18 @@ export async function update(id, updates, { contractorId } = {}) {
       body: payload,
     })
 
+    const row = readSingleRow(data)
+
+    if (!row?.id) {
+      return createMissingRowError('update', {
+        id,
+        contractorId,
+        payload,
+      })
+    }
+
     return {
-      data: toAppInvoice(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: toAppInvoice(row),
       error: null,
       skipped: false,
     }
@@ -561,7 +736,7 @@ export async function update(id, updates, { contractorId } = {}) {
 }
 
 export async function archive(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', { id, archived: true })
   }
 
@@ -571,19 +746,36 @@ export async function archive(id, { contractorId } = {}) {
 
   try {
     const archivedAt = new Date().toISOString()
+    const payload = {
+      archived_at: archivedAt,
+      updated_at: archivedAt,
+    }
+    const payloadValidation = validateInvoicePayload('archive', { id }, payload)
+
+    if (payloadValidation) {
+      return payloadValidation
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'PATCH',
       query: buildContractorQuery(contractorId, {
         id: `eq.${id}`,
       }),
-      body: {
-        archived_at: archivedAt,
-        updated_at: archivedAt,
-      },
+      body: payload,
     })
 
+    const row = readSingleRow(data)
+
+    if (!row?.id) {
+      return createMissingRowError('archive', {
+        id,
+        contractorId,
+        payload,
+      })
+    }
+
     return {
-      data: toAppInvoice(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: archivedAt, updated_at: archivedAt }),
+      data: toAppInvoice(row),
       error: null,
       skipped: false,
     }
@@ -597,7 +789,7 @@ export async function archive(id, { contractorId } = {}) {
 }
 
 export async function restore(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', { id, archived: false })
   }
 
@@ -607,19 +799,36 @@ export async function restore(id, { contractorId } = {}) {
 
   try {
     const restoredAt = new Date().toISOString()
+    const payload = {
+      archived_at: null,
+      updated_at: restoredAt,
+    }
+    const payloadValidation = validateInvoicePayload('restore', { id }, payload)
+
+    if (payloadValidation) {
+      return payloadValidation
+    }
+
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'PATCH',
       query: buildContractorQuery(contractorId, {
         id: `eq.${id}`,
       }),
-      body: {
-        archived_at: null,
-        updated_at: restoredAt,
-      },
+      body: payload,
     })
 
+    const row = readSingleRow(data)
+
+    if (!row?.id) {
+      return createMissingRowError('restore', {
+        id,
+        contractorId,
+        payload,
+      })
+    }
+
     return {
-      data: toAppInvoice(readSingleRow(data) || { id, contractor_id: contractorId, archived_at: null, updated_at: restoredAt }),
+      data: toAppInvoice(row),
       error: null,
       skipped: false,
     }
@@ -633,7 +842,7 @@ export async function restore(id, { contractorId } = {}) {
 }
 
 export async function deletePermanently(id, { contractorId } = {}) {
-  if (!USE_SUPABASE) {
+  if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', { id, deleted: true })
   }
 
@@ -651,8 +860,15 @@ export async function deletePermanently(id, { contractorId } = {}) {
 
     const row = readSingleRow(data)
 
+    if (!row?.id) {
+      return createMissingRowError('deletePermanently', {
+        id,
+        contractorId,
+      })
+    }
+
     return {
-      data: row ? toAppInvoice(row) : { id, deleted: true },
+      data: toAppInvoice(row),
       error: null,
       skipped: false,
     }

@@ -1,3 +1,28 @@
+const LEGACY_PORTAL_HOSTS = ['contractorflow.app', 'www.contractorflow.app']
+const PORTAL_HOST = 'contractorflowcrm.netlify.app'
+
+export function normalizePortalShareUrl(shareUrl = '') {
+  const value = String(shareUrl || '').trim()
+  if (!value) return ''
+
+  const normalizedValue = value.startsWith('http://') || value.startsWith('https://')
+    ? value
+    : `https://${value.replace(/^\/+/, '')}`
+
+  try {
+    const parsedUrl = new URL(normalizedValue)
+    if (LEGACY_PORTAL_HOSTS.includes(parsedUrl.hostname)) {
+      parsedUrl.protocol = 'https:'
+      parsedUrl.hostname = PORTAL_HOST
+    }
+    return parsedUrl.toString()
+  } catch {
+    return normalizedValue
+      .replace(/^https?:\/\/(www\.)?contractorflow\.app/i, `https://${PORTAL_HOST}`)
+      .replace(/^(www\.)?contractorflow\.app/i, `https://${PORTAL_HOST}`)
+  }
+}
+
 export function extractPortalRouteIdFromShareUrl(shareUrl = '') {
   if (!shareUrl || typeof shareUrl !== 'string') return ''
 
@@ -44,7 +69,7 @@ export function getPortalData(lead) {
   const otherPaymentsTotal = Number(sourcePortal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)) || 0
 
   return {
-    shareUrl: sourcePortal?.shareUrl || (portalRouteId ? `https://contractorflow.app/portal/${portalRouteId}` : ''),
+    shareUrl: normalizePortalShareUrl(sourcePortal?.shareUrl || (portalRouteId ? `https://${PORTAL_HOST}/portal/${portalRouteId}` : '')),
     percentComplete: Number(sourcePortal?.percentComplete ?? 0) || 0,
     contractAmount: Number(sourcePortal?.contractAmount ?? fallbackContract) || 0,
     depositRequired,

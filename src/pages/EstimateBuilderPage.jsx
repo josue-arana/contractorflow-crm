@@ -90,6 +90,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const hasSavedLineItems = savedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
   const [scope, setScope] = useState(readEstimateScopeText(savedEstimate))
   const [total, setTotal] = useState(Number(savedEstimate.total ?? lead.value ?? 0))
+  const [totalInput, setTotalInput] = useState(() => formatAmountInputValue(savedEstimate.total ?? lead.value ?? 0))
   const [materialsIncluded, setMaterialsIncluded] = useState(defaultMaterialsIncluded)
   const [paymentTerms, setPaymentTerms] = useState(savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
   const [estimateLanguage, setEstimateLanguage] = useState(savedEstimate.estimateLanguage || 'match')
@@ -98,6 +99,8 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [isEditing, setIsEditing] = useState(true)
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false)
+  const estimateSaveGuardRef = useRef(false)
   const [lineItemAmountInputs, setLineItemAmountInputs] = useState(() => (
     (hasSavedLineItems ? savedLineItems : [
       { name: t('laborAndProjectSetup'), amount: Math.round(Number(lead.value || 0) * 0.35), materialsIncluded: defaultMaterialsIncluded },
@@ -120,6 +123,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     const nextHasSavedLineItems = nextSavedLineItems.some((item) => Number(item?.amount || 0) > 0 || String(item?.name || '').trim())
     setScope(readEstimateScopeText(nextSavedEstimate))
     setTotal(Number(nextSavedEstimate.total ?? lead.value ?? 0))
+    setTotalInput(formatAmountInputValue(nextSavedEstimate.total ?? lead.value ?? 0))
     setMaterialsIncluded(nextDefaultMaterialsIncluded)
     setPaymentTerms(nextSavedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'))
     setEstimateLanguage(nextSavedEstimate.estimateLanguage || 'match')
@@ -193,13 +197,41 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     }
   }
 
-  async function saveEstimate() {
-    const result = await onSaveEstimate?.(getEstimatePayload())
-    if (!result) {
+  async function persistEstimate(overrides = {}, { closeSendModal = false, stopEditing = false } = {}) {
+    if (estimateSaveGuardRef.current) {
       return null
     }
 
-    setIsEditing(false)
+    estimateSaveGuardRef.current = true
+    setIsSavingEstimate(true)
+
+    try {
+      const result = await onSaveEstimate?.({
+        ...getEstimatePayload(),
+        ...overrides,
+      })
+
+      if (result) {
+        if (stopEditing) {
+          setIsEditing(false)
+        }
+        if (closeSendModal) {
+          setShowSendModal(false)
+        }
+      }
+
+      return result
+    } finally {
+      estimateSaveGuardRef.current = false
+      setIsSavingEstimate(false)
+    }
+  }
+
+  async function saveEstimate() {
+    const result = await persistEstimate({}, { stopEditing: true })
+    if (!result) {
+      return null
+    }
     return result
   }
 
@@ -258,6 +290,27 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     const numericValue = Number(normalizedValue)
     updateLineItem(index, 'amount', Number.isFinite(numericValue) ? numericValue : 0)
     setLineItemAmountInputs((items) => items.map((item, itemIndex) => itemIndex === index ? formatAmountInputValue(numericValue) : item))
+  }
+
+  function handleSimpleTotalInput(rawValue) {
+    const sanitizedValue = sanitizeAmountInput(rawValue)
+    setTotalInput(sanitizedValue)
+    setTotal(sanitizedValue === '' ? 0 : Number(sanitizedValue))
+  }
+
+  function handleSimpleTotalBlur() {
+    const normalizedValue = sanitizeAmountInput(totalInput)
+
+    if (normalizedValue === '' || normalizedValue === '0' || normalizedValue === '0.') {
+      setTotal(0)
+      setTotalInput('')
+      return
+    }
+
+    const numericValue = Number(normalizedValue)
+    const safeValue = Number.isFinite(numericValue) ? numericValue : 0
+    setTotal(safeValue)
+    setTotalInput(formatAmountInputValue(safeValue))
   }
 
   function insertBulletIntoTextarea(textarea, currentValue, onUpdate) {
@@ -498,7 +551,14 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
                   {isEditing ? (
                     <div>
                       <label className="mb-2 block text-sm font-bold text-slate-700">{t('totalPrice')}</label>
-                      <input type="number" value={total} onChange={(event) => setTotal(Number(event.target.value))} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-lg font-bold outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 shadow-sm ring-1 ring-slate-100">
+                        <div className="flex items-center justify-between gap-3">
+                          <input type="text" inputMode="decimal" value={totalInput} onChange={(event) => handleSimpleTotalInput(event.target.value)} onBlur={handleSimpleTotalBlur} className="min-w-0 flex-1 bg-transparent text-lg font-bold text-slate-900 outline-none focus:outline-none" />
+                          <div className="shrink-0 rounded-xl bg-white px-3 py-2 text-right text-sm font-bold text-slate-900 ring-1 ring-slate-200">
+                            {currency.format(estimateTotal)}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="rounded-2xl bg-slate-50 px-4 py-4 text-lg font-bold text-slate-900">{currency.format(estimateTotal)}</div>
@@ -537,7 +597,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
           )}
           {isEditing && (
-            <button onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('saveEstimate')}</button>
+            <button disabled={isSavingEstimate} onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isSavingEstimate ? t('saving') : t('saveEstimate')}</button>
           )}
           <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
@@ -556,11 +616,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
       <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
-        await onSendEstimate?.({
-          ...getEstimatePayload(),
-          status: 'Sent',
-        })
-        setShowSendModal(false)
+        await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
       }} t={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">

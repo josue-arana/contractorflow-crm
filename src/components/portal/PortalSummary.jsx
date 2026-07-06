@@ -11,6 +11,7 @@ import { getContractDisplayNumber } from '../../utils/contractNumber'
 import { getEstimateDisplayNumber } from '../../utils/estimateNumber'
 import { downloadContractPdf } from '../../utils/contractPdf'
 import { downloadEstimatePdf } from '../../utils/estimatePdf'
+import { createTranslator } from '../../translations'
 import { tStatus } from '../../translations'
 
 function EmptyState({ message }) {
@@ -117,6 +118,29 @@ function formatDisplayDate(value) {
     day: 'numeric',
     year: 'numeric',
   })
+}
+
+function normalizeStatusValue(status = '') {
+  const rawValue = String(status || '').trim()
+  if (!rawValue) return ''
+
+  const token = rawValue.split('.').filter(Boolean).pop() || rawValue
+  return token
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function formatCustomerFacingDocumentStatus(status = '', documentType = '', t = (key) => key) {
+  const normalizedStatus = normalizeStatusValue(status)
+  if (!normalizedStatus) return t('notAdded')
+
+  if (normalizedStatus === 'Sent') {
+    if (documentType === 'estimate') return t('estimateSent')
+    if (documentType === 'contract') return t('contractSent')
+    if (documentType === 'invoice') return t('invoiceSent')
+  }
+
+  return tStatus(t, normalizedStatus)
 }
 
 function getPortalPhotoDisplayTitle(photo = {}, t = (key) => key) {
@@ -255,6 +279,10 @@ export function PortalSummary({
   const previewLead = useMemo(() => buildPreviewLead(project, client), [client, project])
   const estimateNumber = estimate ? getEstimateDisplayNumber(estimate, project) : ''
   const contractNumber = contract ? getContractDisplayNumber(contract, project) : ''
+  const contractOutputLanguage = contract?.contractLanguage && contract.contractLanguage !== 'match' ? contract.contractLanguage : null
+  const contractDocumentT = useMemo(() => (
+    contractOutputLanguage ? createTranslator(contractOutputLanguage) : t
+  ), [contractOutputLanguage, t])
   const estimatePreviewProps = useMemo(() => ({
     company,
     lead: previewLead,
@@ -272,11 +300,11 @@ export function PortalSummary({
     lead: previewLead,
     contractNumber,
     contractDate: contract?.signedDate || formatDisplayDate(contract?.updatedAt || contract?.updated_at || new Date()),
-    notesAndTermsItems: buildContractNotesAndTermsItems(contract, t),
+    notesAndTermsItems: buildContractNotesAndTermsItems(contract, contractDocumentT),
     scope: contract?.scope || contract?.scopeOfWork || estimate?.summary || '',
     total: Number(contract?.total ?? contract?.totalAmount ?? contract?.contractAmount ?? 0),
-    t,
-  }), [company, contract, contractNumber, estimate?.summary, previewLead, t])
+    t: contractDocumentT,
+  }), [company, contract, contractDocumentT, contractNumber, estimate?.summary, previewLead])
 
   async function handleDownloadEstimate() {
     if (!estimatePreviewRef.current) return
@@ -318,13 +346,13 @@ export function PortalSummary({
         lead: previewLead,
         scope: contractPreviewProps.scope,
         paymentTerms: contract?.paymentTerms || t('contractTermsText'),
-        materials: contract?.materials || t('materialsText'),
+        materials: contract?.materials || contractDocumentT('materialsText'),
         timeline: contract?.timeline || '',
-        changeOrders: contract?.changeOrders || t('changeOrdersText'),
-        clientResponsibilities: contract?.clientResponsibilities || t('clientResponsibilitiesText'),
-        warrantyDisclaimer: contract?.warrantyDisclaimer || t('warrantyDisclaimerText'),
+        changeOrders: contract?.changeOrders || contractDocumentT('changeOrdersText'),
+        clientResponsibilities: contract?.clientResponsibilities || contractDocumentT('clientResponsibilitiesText'),
+        warrantyDisclaimer: contract?.warrantyDisclaimer || contractDocumentT('warrantyDisclaimerText'),
         total: contractPreviewProps.total,
-        t,
+        t: contractDocumentT,
       })
       showToast(t('contractPdfGenerated'))
     } catch (error) {
@@ -420,7 +448,7 @@ export function PortalSummary({
                   title={t('estimate')}
                   details={[
                     { label: t('number'), value: formatValue(estimateNumber, t('notAdded')) },
-                    { label: t('status'), value: formatValue(tStatus(t, estimate?.status), t('notAdded')) },
+                    { label: t('status'), value: formatCustomerFacingDocumentStatus(estimate?.status, 'estimate', t) },
                     { label: t('estimateAmount'), value: formatCurrencyValue(estimate?.total ?? estimate?.totalAmount ?? estimate?.amount, t('notAdded')) },
                   ]}
                   primaryAction={(
@@ -443,7 +471,7 @@ export function PortalSummary({
                   title={t('contract')}
                   details={[
                     { label: t('number'), value: formatValue(contractNumber, t('notAdded')) },
-                    { label: t('status'), value: formatValue(tStatus(t, contract?.status), t('notAdded')) },
+                    { label: t('status'), value: formatCustomerFacingDocumentStatus(contract?.status, 'contract', t) },
                     { label: t('signedDate'), value: formatValue(contract?.signedDate, t('notAdded')) },
                   ]}
                   primaryAction={(

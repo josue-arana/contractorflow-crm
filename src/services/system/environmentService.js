@@ -1,7 +1,34 @@
 import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 
+const CANONICAL_APP_ORIGIN = 'https://contractorflowcrm.netlify.app'
+const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1'])
+
 function readEnvValue(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeAppOrigin(origin = '') {
+  const value = readEnvValue(origin).replace(/\/$/, '')
+  if (!value) return ''
+
+  try {
+    const parsedUrl = new URL(value)
+    if (LOCALHOST_HOSTS.has(parsedUrl.hostname)) {
+      return parsedUrl.origin
+    }
+
+    if (parsedUrl.hostname === 'contractorflowcrm.netlify.app') {
+      return CANONICAL_APP_ORIGIN
+    }
+
+    if (parsedUrl.hostname === 'contractorflow.app' || parsedUrl.hostname === 'www.contractorflow.app') {
+      return CANONICAL_APP_ORIGIN
+    }
+
+    return parsedUrl.origin
+  } catch {
+    return value
+  }
 }
 
 export function getSupabaseEnvironmentConfig() {
@@ -15,14 +42,14 @@ export function getAuthRedirectUrl() {
   const explicitRedirectUrl = readEnvValue(import.meta.env.VITE_AUTH_REDIRECT_URL)
 
   if (explicitRedirectUrl) {
-    return explicitRedirectUrl.replace(/\/$/, '')
+    return normalizeAppOrigin(explicitRedirectUrl) || CANONICAL_APP_ORIGIN
   }
 
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin.replace(/\/$/, '')
+    return normalizeAppOrigin(window.location.origin) || CANONICAL_APP_ORIGIN
   }
 
-  return 'http://localhost:5174'
+  return import.meta.env.DEV ? 'http://localhost:5174' : CANONICAL_APP_ORIGIN
 }
 
 export function getEnvironmentStatus() {
