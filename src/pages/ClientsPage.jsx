@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Archive, DollarSign, MoreVertical, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -27,11 +27,13 @@ function isClientArchived(client, archivedClientIds = []) {
   )
 }
 
-export function ClientsPage({ leads, customClients = [], archivedClientIds = [], onOpenClient, onCreateClient, onArchiveClient, onRestoreClient, onDeleteClient, t }) {
+export function ClientsPage({ leads, customClients = [], archivedClientIds = [], onOpenClient, onCreateClient, onArchiveClient, onRestoreClient, onDeleteClient, language = 'en', t }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [activeClientActionId, setActiveClientActionId] = useState('')
+  const clientActionGuardRef = useRef(false)
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
@@ -70,29 +72,51 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     setConfirmAction({ mode: 'delete', client })
   }
 
+  async function runSingleFlightClientAction(clientId, task) {
+    if (clientActionGuardRef.current) {
+      return false
+    }
+
+    clientActionGuardRef.current = true
+    setActiveClientActionId(clientId)
+
+    try {
+      const result = await task()
+      return result ?? true
+    } finally {
+      clientActionGuardRef.current = false
+      setActiveClientActionId('')
+    }
+  }
+
   async function runConfirmAction() {
     if (!confirmAction) return
-    try {
-      if (confirmAction.mode === 'archive') {
-        const response = await dataProvider.clients.archive(confirmAction.client.id, { contractorId })
-        if (response?.error) {
-          showToast(response.error.message || t('archiveFailed'), 'error')
-          return
+    await runSingleFlightClientAction(confirmAction.client.id, async () => {
+      try {
+        if (confirmAction.mode === 'archive') {
+          const response = await dataProvider.clients.archive(confirmAction.client.id, { contractorId })
+          if (response?.error) {
+            showToast(response.error.message || t('archiveFailed'), 'error')
+            return false
+          }
+          onArchiveClient(confirmAction.client.id, response?.data)
         }
-        onArchiveClient(confirmAction.client.id, response?.data)
-      }
-      if (confirmAction.mode === 'delete') {
-        const response = await dataProvider.clients.deletePermanently(confirmAction.client.id, { contractorId })
-        if (response?.error) {
-          showToast(response.error.message || t('deleteFailed'), 'error')
-          return
+        if (confirmAction.mode === 'delete') {
+          const response = await dataProvider.clients.deletePermanently(confirmAction.client.id, { contractorId })
+          if (response?.error) {
+            showToast(response.error.message || t('deleteFailed'), 'error')
+            return false
+          }
+          onDeleteClient(confirmAction.client.id)
         }
-        onDeleteClient(confirmAction.client.id)
+      } catch (err) {
+        showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
+        return false
+      } finally {
+        setConfirmAction(null)
       }
-    } catch (err) {
-      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
-    }
-    setConfirmAction(null)
+      return true
+    })
   }
 
   function openClientProfile(clientId) {
@@ -107,32 +131,39 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   }
 
   async function restoreClient(clientId) {
-    try {
-      const response = await dataProvider.clients.restore(clientId, { contractorId })
-      if (response?.error) {
-        showToast(response.error.message || t('restoreFailed'), 'error')
-        return
+    await runSingleFlightClientAction(clientId, async () => {
+      try {
+        const response = await dataProvider.clients.restore(clientId, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('restoreFailed'), 'error')
+          return false
+        }
+        onRestoreClient(clientId, response?.data)
+      } catch (err) {
+        showToast(err?.message || t('restoreFailed'), 'error')
+        return false
       }
-      onRestoreClient(clientId, response?.data)
-    } catch (err) {
-      showToast(err?.message || t('restoreFailed'), 'error')
-    }
+      return true
+    })
   }
 
   function renderClientActions(client, compact = false) {
     const archived = isClientArchived(client, archivedClientIds)
+    const isClientActionPending = activeClientActionId === client.id
     const moreMenuItems = archived
       ? [
           {
             id: 'restore-client',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
+            disabled: isClientActionPending,
             onClick: () => restoreClient(client.id),
           },
           {
             id: 'delete-client',
             label: t('deletePermanently'),
             icon: <Trash2 className="mr-2 h-4 w-4" />,
+            disabled: isClientActionPending,
             onClick: () => confirmDelete(client),
             className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
           },
@@ -142,6 +173,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
             id: 'archive-client',
             label: t('archive'),
             icon: <Archive className="mr-2 h-4 w-4" />,
+            disabled: isClientActionPending,
             onClick: () => confirmArchive(client),
             className: archiveMenuItemClasses,
           },
@@ -157,11 +189,12 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
       return (
         <div className={actionLayoutClasses}>
           <button
+            disabled={isClientActionPending}
             onClick={(event) => {
               event.stopPropagation()
               openClientProfile(client.id)
             }}
-            className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600"
           >
             {t('viewClient')}
           </button>
@@ -171,6 +204,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
             showChevron={!compact}
             buttonClassName={moreButtonClasses}
             items={moreMenuItems}
+            buttonDisabled={isClientActionPending}
           />
         </div>
       )
@@ -179,11 +213,12 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
     return (
       <div className={actionLayoutClasses}>
         <button
+          disabled={isClientActionPending}
           onClick={(event) => {
             event.stopPropagation()
             openClientProfile(client.id)
           }}
-          className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600"
         >
           {t('viewClient')}
         </button>
@@ -193,6 +228,7 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
           showChevron={!compact}
           buttonClassName={moreButtonClasses}
           items={moreMenuItems}
+          buttonDisabled={isClientActionPending}
         />
       </div>
     )
@@ -306,12 +342,13 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
       <ClientFormModal
         isOpen={isCreateOpen}
         mode="create"
+        defaultPreferredLanguage={language}
         onClose={() => setIsCreateOpen(false)}
         onSave={async (client) => {
           let nextClient = client
 
           try {
-            const response = await dataProvider.clients.create(client)
+            const response = await dataProvider.clients.create(client, { contractorId })
             if (response?.data && !response?.error) {
               nextClient = response.data
             }

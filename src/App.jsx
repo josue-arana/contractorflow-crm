@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
@@ -13,6 +13,7 @@ import { LeadFormModal } from './components/leads/LeadFormModal'
 import dataProvider from './services/dataProvider'
 import { readLeadPipelineStage, writeLeadPipelineStage } from './services/local/leadPipelineStorage'
 import { clearEstimateDraft } from './services/local/estimateDraftStorage'
+import { readStoredCustomClients, readStoredLeads, readStoredUserProfiles, writeStoredCustomClients, writeStoredLeads, writeStoredUserProfiles } from './services/local/runtimeEntityStorage'
 import { useClientsBootstrap } from './hooks/useClientsBootstrap'
 import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
@@ -59,6 +60,7 @@ import { buildEstimateLookupIds, hasEstimateData, readLinkedEstimateDraft, resol
 import { generateContractNumber } from './utils/contractNumber'
 import { generateEstimateNumber } from './utils/estimateNumber'
 import { dedupeInvoiceRecords, hydrateInvoiceRecord } from './utils/invoiceRecords'
+import { normalizeClientPreferredLanguageFields, normalizeLeadClientLanguageFields, normalizeSupportedLanguage, resolvePreferredClientLanguage } from './utils/language'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 import { createLocalRecordId, dedupeById, findLeadByProjectLookup, resolveLinkedLeadId, resolveLinkedProjectId } from './utils/projectIdentity'
@@ -190,6 +192,7 @@ function buildProjectFromLead(lead, projectId = '', linkedEstimate = null) {
     customerName: clientName,
     phone: lead?.phone || '',
     email: lead?.email || '',
+    clientLanguage: lead?.clientLanguage || '',
     title: projectTitle,
     projectTitle,
     projectType,
@@ -448,6 +451,21 @@ function normalizeComparableText(value) {
   return String(value || '').trim().toLowerCase()
 }
 
+function normalizeUserProfileDraft(profile = {}, fallbackLanguage = 'en') {
+  return {
+    ...profile,
+    preferredLanguage: normalizeSupportedLanguage(profile?.preferredLanguage, fallbackLanguage),
+  }
+}
+
+function normalizeLeadLanguageRecord(lead = {}, fallbackLanguage = '') {
+  return normalizeLeadClientLanguageFields(lead, fallbackLanguage)
+}
+
+function normalizeClientLanguageRecord(client = {}, fallbackLanguage = '') {
+  return normalizeClientPreferredLanguageFields(client, fallbackLanguage)
+}
+
 function logLeadDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
 
@@ -482,8 +500,16 @@ function App() {
 }
 
 function ContractorFlowApp() {
-  const [leads, setLeads] = useState(USE_SUPABASE_LEADS ? [] : initialLeads.map(withLeadPipelineStage))
-  const [customClients, setCustomClients] = useState([])
+  const [leads, setLeads] = useState(() => (
+    USE_SUPABASE_LEADS
+      ? []
+      : readStoredLeads(initialLeads.map(withLeadPipelineStage)).map((lead) => normalizeLeadLanguageRecord(lead))
+  ))
+  const [customClients, setCustomClients] = useState(() => (
+    USE_SUPABASE_CLIENTS
+      ? []
+      : readStoredCustomClients([]).map((client) => normalizeClientLanguageRecord(client))
+  ))
   const [scheduleEvents, setScheduleEvents] = useState(USE_SUPABASE_EVENTS ? [] : mockScheduleEvents)
   const [invoiceRecords, setInvoiceRecords] = useState([])
   const [persistedPayments, setPersistedPayments] = useState([])
@@ -507,8 +533,20 @@ function ContractorFlowApp() {
   const [persistedEstimates, setPersistedEstimates] = useState([])
   const [persistedContracts, setPersistedContracts] = useState([])
   const [notifications, setNotifications] = useState(initialNotifications)
-  const [userProfilesByUserId, setUserProfilesByUserId] = useState({
-    'mock-user': defaultUserProfile,
+  const contractEnsureGuardRef = useRef(new Map())
+  const [userProfilesByUserId, setUserProfilesByUserId] = useState(() => {
+    const storedProfiles = readStoredUserProfiles({})
+    const normalizedProfiles = Object.fromEntries(
+      Object.entries(storedProfiles).map(([profileKey, profile]) => [profileKey, normalizeUserProfileDraft(profile)])
+    )
+
+    return {
+      ...normalizedProfiles,
+      'mock-user': normalizeUserProfileDraft({
+        ...defaultUserProfile,
+        ...(normalizedProfiles['mock-user'] || {}),
+      }),
+    }
   })
   const t = useMemo(() => createTranslator(language), [language])
   const portalT = useMemo(() => createTranslator(portalLanguage), [portalLanguage])
@@ -545,6 +583,53 @@ function ContractorFlowApp() {
   const mainLayoutClassName = isMobileClientProfileRoute
     ? 'px-0 py-0 lg:px-8 lg:py-6'
     : 'px-4 py-6 sm:px-6 lg:px-8'
+
+  async function syncStoredLanguageSettings(nextAppLanguage = language) {
+    const normalizedAppLanguage = normalizeSupportedLanguage(nextAppLanguage, language)
+
+    if (USE_SUPABASE_SETTINGS && (!settingsContractorId || contractorAccess?.membershipStatus !== 'active')) {
+      return
+    }
+
+    try {
+      const response = await dataProvider?.settings?.updateSettings?.(
+        {
+          ...companySettings,
+          appLanguage: normalizedAppLanguage,
+          portal: {
+            ...(companySettings?.portal || {}),
+            defaultLanguage: normalizeSupportedLanguage(portalLanguage, companySettings?.portal?.defaultLanguage || 'en'),
+          },
+        },
+        USE_SUPABASE_SETTINGS
+          ? { contractorId: settingsContractorId }
+          : {}
+      )
+
+      if (response?.error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] App language persistence failed.', response.error)
+        }
+        return
+      }
+
+      if (response?.data) {
+        setCompanySettings(createDefaultCompanySettings(response.data))
+      }
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] App language persistence threw unexpectedly.', error)
+      }
+    }
+  }
+
+  function handleAppLanguageChange(nextLanguage) {
+    const normalizedLanguage = normalizeSupportedLanguage(nextLanguage, language)
+    setLanguage(normalizedLanguage)
+    void syncStoredLanguageSettings(normalizedLanguage)
+  }
 
   function upsertPersistedEstimateRecord(estimateRecord) {
     if (!hasEstimateData(estimateRecord)) return
@@ -620,19 +705,48 @@ function ContractorFlowApp() {
 
   useEffect(() => {
     setUserProfilesByUserId((current) => {
-      if (current[activeUserProfileKey]) {
+      const existingProfile = current[activeUserProfileKey]
+      const normalizedLanguage = normalizeSupportedLanguage(language, 'en')
+
+      if (existingProfile?.preferredLanguage === normalizedLanguage) {
         return current
       }
 
       return {
         ...current,
         [activeUserProfileKey]: {
-          preferredLanguage: language,
-          timezone: 'America/New_York',
+          ...(existingProfile || {}),
+          preferredLanguage: normalizedLanguage,
+          timezone: existingProfile?.timezone || 'America/New_York',
         },
       }
     })
   }, [activeUserProfileKey, language])
+
+  useEffect(() => {
+    writeStoredUserProfiles(userProfilesByUserId)
+  }, [userProfilesByUserId])
+
+  useEffect(() => {
+    if (USE_SUPABASE_LEADS) return
+    writeStoredLeads(leads)
+  }, [leads])
+
+  useEffect(() => {
+    if (USE_SUPABASE_CLIENTS) return
+    writeStoredCustomClients(customClients)
+  }, [customClients])
+
+  useEffect(() => {
+    setCompanySettings((current) => createDefaultCompanySettings({
+      ...(current || {}),
+      appLanguage: normalizeSupportedLanguage(language, current?.appLanguage || 'en'),
+      portal: {
+        ...(current?.portal || {}),
+        defaultLanguage: normalizeSupportedLanguage(portalLanguage, current?.portal?.defaultLanguage || 'en'),
+      },
+    }))
+  }, [language, portalLanguage])
 
   useEffect(() => {
     if (!USE_AUTH || contractorAccess?.membershipStatus !== 'active' || !settingsContractorId) {
@@ -679,6 +793,12 @@ function ContractorFlowApp() {
 
       if (response?.data) {
         setCompanySettings(createDefaultCompanySettings(response.data))
+        if (response.data.appLanguage) {
+          setLanguage(normalizeSupportedLanguage(response.data.appLanguage, 'en'))
+        }
+        if (response.data.portal?.defaultLanguage) {
+          setPortalLanguage(normalizeSupportedLanguage(response.data.portal.defaultLanguage, 'en'))
+        }
       }
     }
 
@@ -1148,7 +1268,10 @@ function ContractorFlowApp() {
   function upsertLeadState(leadRecord) {
     if (!leadRecord) return null
 
-    const normalizedLeadRecord = normalizeLeadTitleFields(leadRecord)
+    const normalizedLeadRecord = normalizeLeadLanguageRecord(
+      normalizeLeadTitleFields(leadRecord),
+      leadRecord?.clientLanguage || language
+    )
     const id = normalizedLeadRecord.id || `lead-${Date.now()}`
     const linkedEstimate = hasEstimateData(normalizedLeadRecord?.portal?.estimate)
       ? normalizedLeadRecord.portal.estimate
@@ -1219,6 +1342,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       customerName: clientName || t('newClientFallback'),
       phone: job?.phone || clientRecord?.phone || '',
       email: job?.email || clientRecord?.email || '',
+      clientLanguage: job?.clientLanguage || clientRecord?.preferredLanguage || '',
       address,
       location: job?.location || address,
       projectTitle: job?.projectTitle || job?.title || job?.projectType || t('jobs'),
@@ -1277,9 +1401,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     if (!clientRecord?.id) return
 
     setCustomClients((current) => {
+      const normalizedClientRecord = normalizeClientLanguageRecord(clientRecord)
       const existing = current.find((item) => item.id === clientRecord.id)
-      if (existing) return current.map((item) => (item.id === clientRecord.id ? { ...item, ...clientRecord, id: clientRecord.id } : item))
-      return [clientRecord, ...current]
+      if (existing) return current.map((item) => (item.id === clientRecord.id ? { ...item, ...normalizedClientRecord, id: clientRecord.id } : item))
+      return [normalizedClientRecord, ...current]
     })
   }
 
@@ -1336,6 +1461,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     }
 
     const fallbackClientId = getClientSlug(clientName) || `client-${Date.now()}`
+    const resolvedClientLanguage = resolvePreferredClientLanguage({
+      lead: leadRecord,
+      userLanguage: language,
+    })
     const clientDraft = {
       id: fallbackClientId,
       name: clientName,
@@ -1343,6 +1472,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       phone: leadRecord?.phone || '',
       email: leadRecord?.email || '',
       address: leadRecord?.address || leadRecord?.location || '',
+      preferredLanguage: resolvedClientLanguage,
     }
 
     try {
@@ -1388,16 +1518,282 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     }
   }
 
+  async function ensureProjectForLeadConversion(sourceLead, { leadId = sourceLead?.id, estimateRecord = null, silent = false, successToastKey = 'jobCreated' } = {}) {
+    const linkedClientRecord = await ensureClientForLeadConversion(sourceLead)
+    const linkedClientId = linkedClientRecord?.id || sourceLead?.clientId || sourceLead?.client_id || null
+    const requiresClientLink = Boolean(String(sourceLead?.client || sourceLead?.clientName || sourceLead?.customerName || '').trim())
+    const requiresPersistedProjectId = USE_SUPABASE || USE_SUPABASE_PROJECTS
+
+    if (requiresClientLink && !linkedClientId) {
+      logLeadConversionDevError('[dev] Lead conversion stopped because no client could be linked.', null, {
+        leadId,
+        sourceLead,
+      })
+      return null
+    }
+
+    const existingProjectId = sourceLead.projectId || sourceLead.project_id || ''
+    const fallbackProjectId = !requiresPersistedProjectId ? (existingProjectId || leadId) : ''
+    const sourceEstimate = hasEstimateData(estimateRecord)
+      ? estimateRecord
+      : hasEstimateData(sourceLead?.portal?.estimate)
+        ? sourceLead.portal.estimate
+        : readLinkedEstimateDraft(sourceLead || leadId, leadId)
+    const projectDraft = buildProjectFromLead({
+      ...sourceLead,
+      ...(linkedClientId ? { clientId: linkedClientId, client_id: linkedClientId } : {}),
+      client: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.client,
+      clientName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.clientName || sourceLead?.client,
+      customerName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.customerName || sourceLead?.client,
+    }, fallbackProjectId, sourceEstimate)
+    let linkedProject = existingProjectId && (!requiresPersistedProjectId || isUuid(existingProjectId))
+      ? { id: existingProjectId }
+      : null
+    let reusedExistingProject = Boolean(linkedProject)
+
+    if (!linkedProject && (USE_SUPABASE || USE_SUPABASE_PROJECTS)) {
+      try {
+        const existingProjectResponse = await dataProvider?.projects?.list?.({
+          contractorId: projectsContractorId,
+          leadId,
+          includeArchived: true,
+        })
+
+        if (existingProjectResponse?.error) {
+          showToast(existingProjectResponse.error.message || t('jobCreateFailed'), 'error')
+          logLeadConversionDevError('[dev] Failed to look up an existing project before lead conversion.', existingProjectResponse.error, {
+            leadId,
+          })
+          return null
+        }
+
+        if (existingProjectResponse?.data?.[0]) {
+          linkedProject = existingProjectResponse.data[0]
+          reusedExistingProject = true
+        }
+      } catch (error) {
+        showToast(error?.message || t('jobCreateFailed'), 'error')
+        logLeadConversionDevError('[dev] Existing project lookup threw before lead conversion.', error, {
+          leadId,
+        })
+        return null
+      }
+    }
+
+    if (!linkedProject) {
+      try {
+        const projectResponse = await dataProvider?.projects?.create?.(projectDraft, {
+          contractorId: projectsContractorId,
+        })
+
+        if (projectResponse?.error) {
+          showToast(projectResponse.error.message || t('jobCreateFailed'), 'error')
+          logLeadConversionDevError('[dev] Failed to create project during lead conversion.', projectResponse.error, {
+            leadId,
+            projectDraft,
+          })
+          return null
+        }
+
+        linkedProject = projectResponse?.data || projectDraft
+      } catch (error) {
+        showToast(error?.message || t('jobCreateFailed'), 'error')
+        logLeadConversionDevError('[dev] Project creation threw during lead conversion.', error, {
+          leadId,
+          projectDraft,
+        })
+        return null
+      }
+    }
+
+    const linkedProjectId = linkedProject?.id || fallbackProjectId
+    const estimateTotal = resolveEstimateTotal(sourceLead, sourceEstimate)
+    let linkedEstimateId = sourceEstimate?.id || sourceLead?.estimateId || null
+    let persistedProjectEstimate = sourceEstimate || null
+
+    if (!linkedProjectId || (requiresPersistedProjectId && !isUuid(linkedProjectId))) {
+      showToast(t('contractRequiresRealProject'), 'error')
+      logLeadConversionDevError('[dev] Lead conversion did not receive a real persisted project id.', null, {
+        leadId,
+        linkedProject,
+      })
+      return null
+    }
+
+    if (sourceEstimate) {
+      const linkedEstimate = {
+        ...sourceEstimate,
+        id: sourceEstimate?.id || null,
+        leadId,
+        projectId: linkedProjectId,
+        project_id: linkedProjectId,
+        clientId: linkedClientId || sourceEstimate?.clientId || sourceEstimate?.client_id || null,
+        client_id: linkedClientId || sourceEstimate?.clientId || sourceEstimate?.client_id || null,
+        projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || sourceEstimate?.projectTitle || 'Estimate',
+        total: resolveEstimateTotal(sourceLead, sourceEstimate),
+      }
+      writeLinkedEstimateDrafts([leadId, linkedProjectId, linkedEstimate.id], linkedEstimate)
+
+      try {
+        const estimateResponse = sourceEstimate?.id
+          ? await dataProvider?.estimates?.update?.(sourceEstimate.id, linkedEstimate, { contractorId: projectsContractorId })
+          : await dataProvider?.estimates?.create?.(linkedEstimate, { contractorId: projectsContractorId })
+
+        if (estimateResponse?.error) {
+          showToast(estimateResponse.error.message || t('estimateLinkToProjectFailed'), 'error')
+          logLeadConversionDevError('[dev] Failed to link estimate to the new project during lead conversion.', estimateResponse.error, {
+            leadId,
+            projectId: linkedProjectId,
+            estimate: linkedEstimate,
+          })
+          return null
+        }
+
+        const persistedEstimate = {
+          ...linkedEstimate,
+          ...(estimateResponse?.data || {}),
+          id: estimateResponse?.data?.id || linkedEstimate.id,
+        }
+
+        linkedEstimateId = persistedEstimate.id || linkedEstimateId
+        persistedProjectEstimate = persistedEstimate
+        writeLinkedEstimateDrafts([leadId, linkedProjectId, persistedEstimate.id], persistedEstimate)
+      } catch (error) {
+        if (!sourceEstimate?.id || USE_SUPABASE_PROJECTS) {
+          showToast(error?.message || t('estimateLinkToProjectFailed'), 'error')
+          logLeadConversionDevError('[dev] Estimate linkage threw during lead conversion.', error, {
+            leadId,
+            projectId: linkedProjectId,
+            estimate: linkedEstimate,
+          })
+          return null
+        }
+      }
+    }
+
+    try {
+      await dataProvider?.projects?.update?.(linkedProjectId, {
+        leadId,
+        clientId: linkedClientId,
+        projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || projectDraft.projectTitle,
+        projectType: sourceLead?.projectType || sourceLead?.projectTitle || projectDraft.projectType,
+        value: estimateTotal,
+        estimatedValue: estimateTotal,
+        contractValue: estimateTotal,
+        source: sourceLead?.source || 'Direct Job',
+        priority: sourceLead?.priority || 'Medium',
+        startDate: sourceLead?.startDate || sourceLead?.portal?.startDate || '',
+      }, {
+        contractorId: projectsContractorId,
+      })
+    } catch (error) {
+      logLeadConversionDevError('[dev] Failed to sync project fields during lead conversion.', error, {
+        leadId,
+        projectId: linkedProjectId,
+      })
+    }
+
+    const nextLead = withLeadPipelineStage(buildLeadPipelineTransition({
+      ...sourceLead,
+      projectId: linkedProjectId,
+      project_id: linkedProjectId,
+      clientId: linkedClientId,
+      client_id: linkedClientId,
+      estimateId: linkedEstimateId,
+      value: estimateTotal,
+      estimatedValue: estimateTotal,
+      projectStatus: 'Scheduled',
+    }, leadPipelineStages.CONVERTED_TO_JOB))
+
+    let responseData = null
+
+    try {
+      const response = await dataProvider?.leads?.update?.(leadId, {
+        projectId: linkedProjectId,
+        clientId: linkedClientId,
+        estimateId: linkedEstimateId,
+        value: estimateTotal,
+        estimatedValue: estimateTotal,
+        status: nextLead.status,
+        leadPipelineStage: nextLead.leadPipelineStage,
+      }, {
+        contractorId: leadsContractorId,
+      })
+
+      if (response?.error) {
+        showToast(response.error.message || t('leadLinkToJobFailed'), 'error')
+        logLeadConversionDevError('[dev] Lead conversion could not link the new project to the lead.', response.error, {
+          leadId,
+          projectId: linkedProjectId,
+        })
+        return null
+      }
+
+      responseData = response?.data || null
+    } catch (error) {
+      showToast(error?.message || t('leadLinkToJobFailed'), 'error')
+      logLeadConversionDevError('[dev] Lead update threw after project creation during conversion.', error, {
+        leadId,
+        projectId: linkedProjectId,
+      })
+      return null
+    }
+
+    writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
+    const persistedLead = withLeadPipelineStage({
+      ...sourceLead,
+      ...(responseData || {}),
+      ...nextLead,
+      id: leadId,
+      projectId: linkedProjectId,
+      project_id: linkedProjectId,
+      clientId: linkedClientId,
+      client_id: linkedClientId,
+      estimateId: linkedEstimateId,
+      value: estimateTotal,
+      estimatedValue: estimateTotal,
+      projectStatus: 'Scheduled',
+      archivedAt: null,
+      archived_at: null,
+      isArchived: false,
+      portal: {
+        ...(sourceLead?.portal || {}),
+        ...(persistedProjectEstimate ? { estimate: { ...persistedProjectEstimate, leadId, projectId: linkedProjectId, project_id: linkedProjectId, total: estimateTotal } } : {}),
+      },
+    })
+
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
+
+    if (!silent) {
+      showToast(reusedExistingProject ? t('leadAlreadyConvertedToJob') : t(successToastKey))
+    }
+
+    return {
+      persistedLead,
+      linkedProject,
+      linkedProjectId,
+      linkedClientRecord,
+      linkedEstimate: persistedProjectEstimate,
+      linkedEstimateId,
+      reusedExistingProject,
+    }
+  }
+
   async function saveLeadRecord(leadDraft) {
     try {
+      const normalizedLeadDraft = normalizeLeadLanguageRecord(leadDraft, language)
       let clientId = leadDraft.clientId || ''
 
-      if (USE_SUPABASE_LEADS && leadDraft.clientMode === 'new' && leadDraft.client?.trim()) {
+      if (USE_SUPABASE_LEADS && normalizedLeadDraft.clientMode === 'new' && normalizedLeadDraft.client?.trim()) {
         const clientResponse = await dataProvider?.clients?.create?.({
-          name: leadDraft.client.trim(),
-          phone: leadDraft.phone || '',
-          email: leadDraft.email || '',
-          address: leadDraft.address || leadDraft.location || '',
+          name: normalizedLeadDraft.client.trim(),
+          phone: normalizedLeadDraft.phone || '',
+          email: normalizedLeadDraft.email || '',
+          address: normalizedLeadDraft.address || normalizedLeadDraft.location || '',
+          preferredLanguage: resolvePreferredClientLanguage({
+            lead: normalizedLeadDraft,
+            userLanguage: language,
+          }),
         }, {
           contractorId: clientsContractorId,
         })
@@ -1405,7 +1801,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         if (clientResponse?.error) {
           showToast(clientResponse.error.message || t('leadSaveFailed'), 'error')
           logLeadDevError('[dev] Failed to create client during lead creation.', clientResponse.error, {
-            leadDraft,
+            leadDraft: normalizedLeadDraft,
           })
           return null
         }
@@ -1414,7 +1810,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
           const error = new Error('Client creation did not return a valid uuid.')
           showToast(t('leadSaveFailed'), 'error')
           logLeadDevError('[dev] Client creation during lead save returned an invalid id.', error, {
-            leadDraft,
+            leadDraft: normalizedLeadDraft,
             clientResponse,
           })
           return null
@@ -1425,8 +1821,8 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       }
 
       const response = await dataProvider?.leads?.create?.({
-        ...leadDraft,
-        leadPipelineStage: leadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD,
+        ...normalizedLeadDraft,
+        leadPipelineStage: normalizedLeadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD,
         ...(clientId ? { clientId } : {}),
       }, {
         contractorId: leadsContractorId,
@@ -1435,12 +1831,19 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       if (response?.error) {
         showToast(response.error.message || t('leadSaveFailed'), 'error')
         logLeadDevError('[dev] Failed to create lead.', response.error, {
-          leadDraft,
+          leadDraft: normalizedLeadDraft,
         })
         return null
       }
 
-      const persistedLead = response?.data || { ...leadDraft, leadPipelineStage: leadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD, ...(clientId ? { clientId } : {}) }
+      const persistedLead = normalizeLeadLanguageRecord(
+        response?.data || {
+          ...normalizedLeadDraft,
+          leadPipelineStage: normalizedLeadDraft.leadPipelineStage || leadPipelineStages.NEW_LEAD,
+          ...(clientId ? { clientId } : {}),
+        },
+        language
+      )
       createLead(persistedLead)
       return persistedLead
     } catch (err) {
@@ -1495,6 +1898,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       ...(existingLead || {}),
       ...(updates || {}),
     })
+    const normalizedLanguageUpdates = normalizeLeadLanguageRecord(
+      normalizedUpdates,
+      existingLead?.clientLanguage || language
+    )
     const linkedEstimate = hasEstimateData(updates?.portal?.estimate)
       ? updates.portal.estimate
       : hasEstimateData(existingLead?.portal?.estimate)
@@ -1508,15 +1915,15 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       }, linkedEstimate, toSafeNumber(existingLead?.value))
     const nextLead = withLeadPipelineStage({
       ...(existingLead || {}),
-      ...normalizedUpdates,
+      ...normalizedLanguageUpdates,
       id: leadId,
       value: resolvedValue,
-      estimatedValue: normalizedUpdates.estimatedValue !== undefined
-        ? toSafeNumber(normalizedUpdates.estimatedValue)
+      estimatedValue: normalizedLanguageUpdates.estimatedValue !== undefined
+        ? toSafeNumber(normalizedLanguageUpdates.estimatedValue)
         : resolveEstimateTotal({ estimatedValue: existingLead?.estimatedValue }, linkedEstimate, resolvedValue),
       portal: {
         ...(existingLead?.portal || {}),
-        ...(normalizedUpdates.portal || {}),
+        ...(normalizedLanguageUpdates.portal || {}),
         ...(linkedEstimate ? { estimate: linkedEstimate } : {}),
       },
     })
@@ -1530,13 +1937,14 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   function createClient(client) {
-    const id = client.id || getClientSlug(client.name) || `client-${Date.now()}`
+    const normalizedClient = normalizeClientLanguageRecord(client, language)
+    const id = normalizedClient.id || getClientSlug(normalizedClient.name) || `client-${Date.now()}`
     updateArchiveList('deletedClientIds', id, 'remove')
     updateArchiveList('clientIds', id, 'remove')
     setCustomClients((current) => {
       const existing = current.find((item) => item.id === id)
-      if (existing) return current.map((item) => (item.id === id ? { ...item, ...client, id } : item))
-      return [{ id, ...client }, ...current]
+      if (existing) return current.map((item) => (item.id === id ? { ...item, ...normalizedClient, id } : item))
+      return [{ id, ...normalizedClient }, ...current]
     })
     showToast(t('clientCreated'))
     addNotification('notificationClientCreatedTitle', 'notificationClientCreatedMessage')
@@ -1545,12 +1953,16 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   function updateClient(clientId, updates) {
     setCustomClients((current) => {
       const existing = current.find((item) => item.id === clientId)
-      if (existing) return current.map((item) => (item.id === clientId ? { ...item, ...updates, id: clientId } : item))
-      return [{ id: clientId, ...updates }, ...current]
+      const normalizedClient = normalizeClientLanguageRecord({
+        ...(existing || {}),
+        ...(updates || {}),
+      }, existing?.preferredLanguage || language)
+      if (existing) return current.map((item) => (item.id === clientId ? { ...item, ...normalizedClient, id: clientId } : item))
+      return [{ id: clientId, ...normalizedClient }, ...current]
     })
 
     setLeads((current) => current.map((lead) => {
-      const leadClientId = getClientSlug(lead.client)
+      const leadClientId = lead.clientId || lead.client_id || getClientSlug(lead.client)
       if (leadClientId !== clientId) return lead
       return {
         ...lead,
@@ -1651,247 +2063,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     }
 
     if (targetStage === leadPipelineStages.CONVERTED_TO_JOB) {
-      const linkedClientRecord = await ensureClientForLeadConversion(sourceLead)
-      const linkedClientId = linkedClientRecord?.id || sourceLead?.clientId || sourceLead?.client_id || null
-      const requiresClientLink = Boolean(String(sourceLead?.client || sourceLead?.clientName || sourceLead?.customerName || '').trim())
-
-      if (requiresClientLink && !linkedClientId) {
-        logLeadConversionDevError('[dev] Lead conversion stopped because no client could be linked.', null, {
-          leadId,
-          sourceLead,
-        })
-        return null
-      }
-
-      const existingProjectId = sourceLead.projectId || sourceLead.project_id || ''
-      const fallbackProjectId = existingProjectId || (USE_SUPABASE_PROJECTS ? '' : leadId)
-      const sourceEstimate = hasEstimateData(sourceLead?.portal?.estimate)
-        ? sourceLead.portal.estimate
-        : readLinkedEstimateDraft(sourceLead || leadId, leadId)
-      const projectDraft = buildProjectFromLead({
-        ...sourceLead,
-        ...(linkedClientId ? { clientId: linkedClientId, client_id: linkedClientId } : {}),
-        client: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.client,
-        clientName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.clientName || sourceLead?.client,
-        customerName: linkedClientRecord?.displayName || linkedClientRecord?.name || sourceLead?.customerName || sourceLead?.client,
-      }, fallbackProjectId, sourceEstimate)
-      let linkedProject = existingProjectId ? { id: existingProjectId } : null
-      let reusedExistingProject = Boolean(existingProjectId)
-
-      if (!linkedProject && (USE_SUPABASE || USE_SUPABASE_PROJECTS)) {
-        try {
-          const existingProjectResponse = await dataProvider?.projects?.list?.({
-            contractorId: projectsContractorId,
-            leadId,
-            includeArchived: true,
-          })
-
-          if (existingProjectResponse?.error) {
-            showToast(existingProjectResponse.error.message || t('jobCreateFailed'), 'error')
-            logLeadConversionDevError('[dev] Failed to look up an existing project before lead conversion.', existingProjectResponse.error, {
-              leadId,
-            })
-            return null
-          }
-
-          if (existingProjectResponse?.data?.[0]) {
-            linkedProject = existingProjectResponse.data[0]
-            reusedExistingProject = true
-          }
-        } catch (error) {
-          showToast(error?.message || t('jobCreateFailed'), 'error')
-          logLeadConversionDevError('[dev] Existing project lookup threw before lead conversion.', error, {
-            leadId,
-          })
-          return null
-        }
-      }
-
-      if (!linkedProject) {
-        try {
-          const projectResponse = await dataProvider?.projects?.create?.(projectDraft, {
-            contractorId: projectsContractorId,
-          })
-
-          if (projectResponse?.error) {
-            showToast(projectResponse.error.message || t('jobCreateFailed'), 'error')
-            logLeadConversionDevError('[dev] Failed to create project during lead conversion.', projectResponse.error, {
-              leadId,
-              projectDraft,
-            })
-            return null
-          }
-
-          linkedProject = projectResponse?.data || projectDraft
-        } catch (error) {
-          showToast(error?.message || t('jobCreateFailed'), 'error')
-          logLeadConversionDevError('[dev] Project creation threw during lead conversion.', error, {
-            leadId,
-            projectDraft,
-          })
-          return null
-        }
-      }
-
-      const linkedProjectId = linkedProject?.id || fallbackProjectId
-      const estimateTotal = resolveEstimateTotal(sourceLead, sourceEstimate)
-      let linkedEstimateId = sourceEstimate?.id || sourceLead?.estimateId || null
-      let persistedProjectEstimate = sourceEstimate || null
-
-      if (!linkedProjectId) {
-        showToast(t('jobCreateFailed'), 'error')
-        logLeadConversionDevError('[dev] Lead conversion did not receive a project id.', null, {
-          leadId,
-          linkedProject,
-        })
-        return null
-      }
-
-      if (sourceEstimate) {
-        const linkedEstimate = {
-          ...sourceEstimate,
-          id: sourceEstimate?.id || null,
-          leadId,
-          projectId: linkedProjectId,
-          clientId: linkedClientId || sourceEstimate?.clientId || sourceEstimate?.client_id || null,
-          projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || sourceEstimate?.projectTitle || 'Estimate',
-          total: resolveEstimateTotal(sourceLead, sourceEstimate),
-        }
-        writeLinkedEstimateDrafts([leadId, linkedProjectId, linkedEstimate.id], linkedEstimate)
-
-        try {
-          const estimateResponse = sourceEstimate?.id
-            ? await dataProvider?.estimates?.update?.(sourceEstimate.id, linkedEstimate, { contractorId: projectsContractorId })
-            : await dataProvider?.estimates?.create?.(linkedEstimate, { contractorId: projectsContractorId })
-
-          if (estimateResponse?.error) {
-            showToast(estimateResponse.error.message || t('estimateLinkToProjectFailed'), 'error')
-            logLeadConversionDevError('[dev] Failed to link estimate to the new project during lead conversion.', estimateResponse.error, {
-              leadId,
-              projectId: linkedProjectId,
-              estimate: linkedEstimate,
-            })
-            return null
-          }
-
-          const persistedEstimate = {
-            ...linkedEstimate,
-            ...(estimateResponse?.data || {}),
-            id: estimateResponse?.data?.id || linkedEstimate.id,
-          }
-
-          linkedEstimateId = persistedEstimate.id || linkedEstimateId
-          persistedProjectEstimate = persistedEstimate
-          writeLinkedEstimateDrafts([leadId, linkedProjectId, persistedEstimate.id], persistedEstimate)
-        } catch (error) {
-          if (!sourceEstimate?.id || USE_SUPABASE_PROJECTS) {
-            showToast(error?.message || t('estimateLinkToProjectFailed'), 'error')
-            logLeadConversionDevError('[dev] Estimate linkage threw during lead conversion.', error, {
-              leadId,
-              projectId: linkedProjectId,
-              estimate: linkedEstimate,
-            })
-            return null
-          }
-        }
-      }
-
-      try {
-        await dataProvider?.projects?.update?.(linkedProjectId, {
-          leadId,
-          clientId: linkedClientId,
-          projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || projectDraft.projectTitle,
-          projectType: sourceLead?.projectType || sourceLead?.projectTitle || projectDraft.projectType,
-          value: estimateTotal,
-          estimatedValue: estimateTotal,
-          contractValue: estimateTotal,
-          source: sourceLead?.source || 'Direct Job',
-          priority: sourceLead?.priority || 'Medium',
-          startDate: sourceLead?.startDate || sourceLead?.portal?.startDate || '',
-        }, {
-          contractorId: projectsContractorId,
-        })
-      } catch (error) {
-        logLeadConversionDevError('[dev] Failed to sync project fields during lead conversion.', error, {
-          leadId,
-          projectId: linkedProjectId,
-        })
-      }
-
-      const nextLead = withLeadPipelineStage(buildLeadPipelineTransition({
-        ...sourceLead,
-        projectId: linkedProjectId,
-        project_id: linkedProjectId,
-        estimateId: linkedEstimateId,
-        value: estimateTotal,
-        estimatedValue: estimateTotal,
-        projectStatus: 'Scheduled',
-      }, targetStage))
-
-      let responseData = null
-
-      try {
-        const response = await dataProvider?.leads?.update?.(leadId, {
-          projectId: linkedProjectId,
-          clientId: linkedClientId,
-          estimateId: linkedEstimateId,
-          value: estimateTotal,
-          estimatedValue: estimateTotal,
-          status: nextLead.status,
-          leadPipelineStage: nextLead.leadPipelineStage,
-        }, {
-          contractorId: leadsContractorId,
-        })
-
-        if (response?.error) {
-          showToast(response.error.message || t('leadLinkToJobFailed'), 'error')
-          logLeadConversionDevError('[dev] Lead conversion could not link the new project to the lead.', response.error, {
-            leadId,
-            projectId: linkedProjectId,
-          })
-          return null
-        }
-
-        responseData = response?.data || null
-      } catch (error) {
-        showToast(error?.message || t('leadLinkToJobFailed'), 'error')
-        logLeadConversionDevError('[dev] Lead update threw after project creation during conversion.', error, {
-          leadId,
-          projectId: linkedProjectId,
-        })
-        return null
-      }
-
-      writeLeadPipelineStage(leadId, nextLead.leadPipelineStage)
-      const persistedLead = withLeadPipelineStage({
-        ...sourceLead,
-        ...(responseData || {}),
-        ...nextLead,
-        id: leadId,
-        projectId: linkedProjectId,
-        project_id: linkedProjectId,
-        clientId: linkedClientId,
-        client_id: linkedClientId,
-        estimateId: linkedEstimateId,
-        value: estimateTotal,
-        estimatedValue: estimateTotal,
-        projectStatus: 'Scheduled',
-        archivedAt: null,
-        archived_at: null,
-        isArchived: false,
-        portal: {
-          ...(sourceLead?.portal || {}),
-          ...(persistedProjectEstimate ? { estimate: { ...persistedProjectEstimate, leadId, projectId: linkedProjectId, total: estimateTotal } } : {}),
-        },
+      const conversionResult = await ensureProjectForLeadConversion(sourceLead, {
+        leadId,
+        silent,
       })
-
-      setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
-
-      if (!silent) {
-        showToast(reusedExistingProject ? t('leadAlreadyConvertedToJob') : t('jobCreated'))
-      }
-
-      return persistedLead
+      return conversionResult?.persistedLead || null
     }
 
     const nextLead = withLeadPipelineStage(buildLeadPipelineTransition(sourceLead, targetStage))
@@ -2611,107 +2787,141 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   async function ensureContractForLead(leadId, estimateInput = null) {
-    const sourceLead = findLeadByProjectLookup(leads, leadId)
-
-    if (!sourceLead) {
-      return null
+    const existingContractPromise = contractEnsureGuardRef.current.get(leadId)
+    if (existingContractPromise) {
+      return existingContractPromise
     }
 
-    const baseEstimate = hasEstimateData(estimateInput)
-      ? estimateInput
-      : hasEstimateData(sourceLead?.portal?.estimate)
-        ? sourceLead.portal.estimate
-        : readLinkedEstimateDraft(sourceLead, leadId)
+    const contractPromise = (async () => {
+      const sourceLead = findLeadByProjectLookup(leads, leadId)
 
-    const persistedEstimate = hasEstimateData(baseEstimate)
-      ? await saveEstimate(leadId, {
-          ...baseEstimate,
-          status: 'Converted to Contract',
-          projectId: resolvePersistedProjectLink(baseEstimate, sourceLead),
-          clientId: baseEstimate?.clientId || sourceLead?.clientId || sourceLead?.client_id || null,
-        })
-      : null
-
-    const estimateRecord = persistedEstimate || baseEstimate || null
-    const relatedProjectId = resolvePersistedProjectLink(estimateRecord, sourceLead)
-    const existingContract = await findExistingLinkedContract({
-      sourceLead,
-      estimateRecord,
-      projectId: relatedProjectId,
-      leadId,
-    })
-
-    if (hasContractData(existingContract)) {
-      const updatedExistingContract = {
-        ...existingContract,
-        estimateId: existingContract.estimateId || estimateRecord?.id || null,
-        projectId: existingContract.projectId || relatedProjectId || null,
-        clientId: existingContract.clientId || sourceLead?.clientId || sourceLead?.client_id || estimateRecord?.clientId || null,
-      }
-
-      if (existingContract.id && (
-        updatedExistingContract.estimateId !== existingContract.estimateId
-        || updatedExistingContract.projectId !== existingContract.projectId
-        || updatedExistingContract.clientId !== existingContract.clientId
-      )) {
-        try {
-          await dataProvider.contracts.update(existingContract.id, updatedExistingContract, {
-            contractorId: projectsContractorId,
-          })
-        } catch {
-          // Keep the local state updated even if the normalization patch fails.
-        }
-      }
-
-      syncLeadContractState(leadId, updatedExistingContract, estimateRecord)
-      return updatedExistingContract
-    }
-
-    const contractAmount = resolveEstimateTotal(sourceLead, estimateRecord, toSafeNumber(sourceLead?.value))
-    const nextContractId = createLocalRecordId('contract')
-    const contractPayload = {
-      id: nextContractId,
-      leadId: sourceLead?.id || leadId,
-      contractorId: projectsContractorId,
-      clientId: sourceLead?.clientId || sourceLead?.client_id || estimateRecord?.clientId || null,
-      projectId: relatedProjectId,
-      project_id: relatedProjectId,
-      estimateId: estimateRecord?.id || sourceLead?.estimateId || null,
-      projectTitle: sourceLead?.projectTitle || sourceLead?.projectType || estimateRecord?.projectTitle || 'Contract',
-      title: sourceLead?.projectTitle || sourceLead?.projectType || estimateRecord?.projectTitle || 'Contract',
-      number: generateContractNumber({
-        ...sourceLead,
-        id: nextContractId,
-        projectId: relatedProjectId || sourceLead?.projectId || sourceLead?.project_id || undefined,
-      }),
-      scope: estimateRecord?.summary || sourceLead?.portal?.contract?.scope || `${t('scopeOfWork')} - ${sourceLead?.projectType || sourceLead?.projectTitle || t('projectScope')}.`,
-      paymentTerms: estimateRecord?.paymentTerms || companySettings?.defaults?.paymentTerms || '',
-      total: contractAmount,
-      status: 'Draft',
-      updatedAt: new Date().toISOString(),
-    }
-
-    try {
-      const response = await dataProvider.contracts.create(contractPayload, {
-        contractorId: projectsContractorId,
-      })
-
-      if (response?.error) {
-        showToast(response.error.message || t('contractSaveFailed'), 'error')
+      if (!sourceLead) {
         return null
       }
 
-      const persistedContract = {
-        ...contractPayload,
-        ...(response?.data || {}),
+      const baseEstimate = hasEstimateData(estimateInput)
+        ? estimateInput
+        : hasEstimateData(sourceLead?.portal?.estimate)
+          ? sourceLead.portal.estimate
+          : readLinkedEstimateDraft(sourceLead, leadId)
+
+      const persistedEstimate = hasEstimateData(baseEstimate)
+        ? await saveEstimate(leadId, {
+            ...baseEstimate,
+            status: 'Converted to Contract',
+            projectId: resolvePersistedProjectLink(baseEstimate, sourceLead),
+            clientId: baseEstimate?.clientId || sourceLead?.clientId || sourceLead?.client_id || null,
+          })
+        : null
+
+      const estimateRecord = persistedEstimate || baseEstimate || null
+      const conversionResult = await ensureProjectForLeadConversion(sourceLead, {
+        leadId,
+        estimateRecord,
+        silent: true,
+      })
+
+      if (!conversionResult?.linkedProjectId) {
+        showToast(t('contractRequiresRealProject'), 'error')
+        return null
       }
 
-      syncLeadContractState(leadId, persistedContract, estimateRecord)
-      showToast(t('contractSaved'))
-      return persistedContract
-    } catch (error) {
-      showToast(error?.message || t('contractSaveFailed'), 'error')
-      return null
+      const refreshedLead = conversionResult.persistedLead || findLeadByProjectLookup(leads, leadId) || sourceLead
+      const linkedEstimateRecord = conversionResult.linkedEstimate || estimateRecord
+      const relatedProjectId = conversionResult.linkedProjectId || resolvePersistedProjectLink(linkedEstimateRecord, refreshedLead)
+      const existingContract = await findExistingLinkedContract({
+        sourceLead: refreshedLead,
+        estimateRecord: linkedEstimateRecord,
+        projectId: relatedProjectId,
+        leadId,
+      })
+
+      if (hasContractData(existingContract)) {
+        const updatedExistingContract = {
+          ...existingContract,
+          estimateId: existingContract.estimateId || linkedEstimateRecord?.id || null,
+          projectId: existingContract.projectId || relatedProjectId || null,
+          project_id: existingContract.project_id || relatedProjectId || null,
+          clientId: existingContract.clientId || refreshedLead?.clientId || refreshedLead?.client_id || linkedEstimateRecord?.clientId || null,
+        }
+
+        if (existingContract.id && (
+          updatedExistingContract.estimateId !== existingContract.estimateId
+          || updatedExistingContract.projectId !== existingContract.projectId
+          || updatedExistingContract.clientId !== existingContract.clientId
+        )) {
+          try {
+            const updateResponse = await dataProvider.contracts.update(existingContract.id, updatedExistingContract, {
+              contractorId: projectsContractorId,
+            })
+            if (!updateResponse?.error && updateResponse?.data) {
+              Object.assign(updatedExistingContract, updateResponse.data)
+            }
+          } catch {
+            // Keep the local state updated even if the normalization patch fails.
+          }
+        }
+
+        syncLeadContractState(leadId, updatedExistingContract, linkedEstimateRecord)
+        return updatedExistingContract
+      }
+
+      const contractAmount = resolveEstimateTotal(refreshedLead, linkedEstimateRecord, toSafeNumber(refreshedLead?.value))
+      const nextContractId = createLocalRecordId('contract')
+      const contractPayload = {
+        id: nextContractId,
+        leadId: refreshedLead?.id || leadId,
+        contractorId: projectsContractorId,
+        clientId: conversionResult.linkedClientRecord?.id || refreshedLead?.clientId || refreshedLead?.client_id || linkedEstimateRecord?.clientId || null,
+        projectId: relatedProjectId,
+        project_id: relatedProjectId,
+        estimateId: linkedEstimateRecord?.id || refreshedLead?.estimateId || null,
+        projectTitle: refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || 'Contract',
+        title: refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || 'Contract',
+        number: generateContractNumber({
+          ...refreshedLead,
+          id: nextContractId,
+          projectId: relatedProjectId || refreshedLead?.projectId || refreshedLead?.project_id || undefined,
+        }),
+        scope: linkedEstimateRecord?.summary || refreshedLead?.portal?.contract?.scope || `${t('scopeOfWork')} - ${refreshedLead?.projectType || refreshedLead?.projectTitle || t('projectScope')}.`,
+        paymentTerms: linkedEstimateRecord?.paymentTerms || companySettings?.defaults?.paymentTerms || '',
+        total: contractAmount,
+        status: 'Draft',
+        updatedAt: new Date().toISOString(),
+      }
+
+      try {
+        const response = await dataProvider.contracts.create(contractPayload, {
+          contractorId: projectsContractorId,
+        })
+
+        if (response?.error) {
+          showToast(response.error.message || t('contractSaveFailed'), 'error')
+          return null
+        }
+
+        const persistedContract = {
+          ...contractPayload,
+          ...(response?.data || {}),
+        }
+
+        syncLeadContractState(leadId, persistedContract, linkedEstimateRecord)
+        showToast(t('contractSaved'))
+        return persistedContract
+      } catch (error) {
+        showToast(error?.message || t('contractSaveFailed'), 'error')
+        return null
+      }
+    })()
+
+    contractEnsureGuardRef.current.set(leadId, contractPromise)
+
+    try {
+      return await contractPromise
+    } finally {
+      if (contractEnsureGuardRef.current.get(leadId) === contractPromise) {
+        contractEnsureGuardRef.current.delete(leadId)
+      }
     }
   }
 
@@ -3080,15 +3290,16 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     setSidebarOpen(false)
   }
 
-  function openContractForLead(leadId) {
+  function openContractForLead(leadId, options = {}) {
     const matchingLead = findLeadByProjectLookup(visibleLeads, leadId)
-    const routeId = resolveLinkedProjectId(matchingLead, leadId)
+    const routeId = options.projectId || resolveLinkedProjectId(matchingLead, leadId)
+    const routeLeadId = options.leadId || matchingLead?.id || leadId
 
     navigate(`/projects/${routeId}/contract`, {
       state: {
-        source: 'project',
-        projectId: routeId,
-        leadId: matchingLead?.id || leadId,
+        source: options.source || 'project',
+        projectId: options.projectId || routeId,
+        leadId: routeLeadId,
       },
     })
     setSidebarOpen(false)
@@ -3137,19 +3348,19 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     <Routes>
       <Route path={appRoutes.root} element={dashboardPage} />
       <Route path={appRoutes.dashboard} element={dashboardPage} />
-      <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewLead={openLead} onCreateLead={saveLeadRecord} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
-      <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} t={t} />} />
-      <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} estimates={persistedEstimates} contracts={persistedContracts} archivedIds={archives.leadIds} onOpenEstimate={openEstimateForLead} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId) }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} />} />
+      <Route path={appRoutes.leads} element={<LeadsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewLead={openLead} onCreateLead={saveLeadRecord} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} language={language} t={t} />} />
+      <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} language={language} t={t} />} />
+      <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} estimates={persistedEstimates} contracts={persistedContracts} archivedIds={archives.leadIds} onOpenEstimate={openEstimateForLead} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} contracts={persistedContracts} onViewContract={openContractForLead} t={t} />} />
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
       <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
-      <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} t={t} />} />
-      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={setLanguage} t={t} />} />
+      <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} t={t} />} />
+      <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={handleAppLanguageChange} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
-      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} t={t} />} />
-      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
+      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
+      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} t={t} appLanguage={language} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
@@ -3250,18 +3461,20 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
             <Topbar
               onMenuClick={() => setSidebarOpen(true)}
               language={language}
-              setLanguage={setLanguage}
+              setLanguage={handleAppLanguageChange}
               t={t}
               notifications={notifications}
               onMarkAllNotificationsRead={markAllNotificationsRead}
               onClearNotifications={clearNotifications}
               userProfile={userProfile}
               onSaveUserProfile={(nextProfile) => {
+                const normalizedLanguage = normalizeSupportedLanguage(nextProfile?.preferredLanguage, language)
+                handleAppLanguageChange(normalizedLanguage)
                 setUserProfilesByUserId((current) => ({
                   ...current,
                   [activeUserProfileKey]: {
                     ...(current[activeUserProfileKey] || {}),
-                    ...nextProfile,
+                    ...normalizeUserProfileDraft(nextProfile, normalizedLanguage),
                   },
                 }))
               }}
@@ -3273,7 +3486,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
 
           <main className={mainLayoutClassName}>{routeElements}</main>
         </div>
-        <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
+        <LeadFormModal isOpen={isDashboardLeadModalOpen} mode="create" clients={clients} defaultClientLanguage={language} onClose={() => setIsDashboardLeadModalOpen(false)} onSave={createLeadFromDashboard} t={t} />
         <JobFormModal
           isOpen={jobModalState.isOpen}
           clients={clients}
@@ -3327,7 +3540,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   )
 }
 
-function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], archivedIds = [], archivedScheduleEventIds = [], onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, language, t }) {
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = findLeadByProjectLookup(leads, projectId)
@@ -3359,12 +3572,13 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onArchiveProject={() => onArchiveProject(leadRecordId)}
       onRestoreProject={() => onRestoreProject(leadRecordId)}
       onDeleteProject={() => onDeleteProject(leadRecordId)}
+      language={language}
       t={t}
     />
   )
 }
 
-function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, onDuplicateLead, onConvertLeadToJob, onTransitionLeadStage, onUpdateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
+function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, onDuplicateLead, onConvertLeadToJob, onTransitionLeadStage, onUpdateLead, onArchiveLead, onRestoreLead, onDeleteLead, language, t }) {
   const { id } = useParams()
   const lead = leads.find((item) => item.id === id)
 
@@ -3382,6 +3596,7 @@ function LeadRoute({ leads, clients, archivedIds = [], onBack, onOpenProject, on
       onArchiveLead={onArchiveLead}
       onRestoreLead={onRestoreLead}
       onDeleteLead={onDeleteLead}
+      language={language}
       t={t}
     />
   )

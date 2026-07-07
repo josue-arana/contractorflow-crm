@@ -131,6 +131,8 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [isEditing, setIsEditing] = useState(true)
   const [isSavingEstimate, setIsSavingEstimate] = useState(false)
   const estimateSaveGuardRef = useRef(false)
+  const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
+  const estimateConvertGuardRef = useRef(false)
   const [lineItemAmountInputs, setLineItemAmountInputs] = useState(initialDraftState.lineItemAmountInputs)
   const [lineItems, setLineItems] = useState(initialDraftState.lineItems)
   const draftOwnerKey = useMemo(
@@ -202,6 +204,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
   const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
+  const isEstimateActionPending = isSavingEstimate || isConvertingEstimate
   const estimateOutputLanguage = estimateLanguage === 'match' ? appLanguage : estimateLanguage
   const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
   const previewEstimateNumber = formatEstimateDisplayNumber(
@@ -290,6 +293,27 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       return null
     }
     return result
+  }
+
+  async function handleConvertToContract() {
+    if (hasLinkedContract) {
+      onOpenContract?.()
+      return null
+    }
+
+    if (estimateConvertGuardRef.current) {
+      return null
+    }
+
+    estimateConvertGuardRef.current = true
+    setIsConvertingEstimate(true)
+
+    try {
+      return await onConvert?.(getEstimatePayload())
+    } finally {
+      estimateConvertGuardRef.current = false
+      setIsConvertingEstimate(false)
+    }
   }
 
   function updateLineItem(index, field, value) {
@@ -661,7 +685,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:self-start">
           <EstimatePreviewCard {...estimatePreviewProps} />
           {!isEditing && (
-            <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
+            <button disabled={isEstimateActionPending} onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('editEstimate')}</button>
           )}
           {isEditing && (
             <button disabled={isSavingEstimate} onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isSavingEstimate ? t('saving') : t('saveEstimate')}</button>
@@ -669,21 +693,22 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
           <button onClick={handleDownloadPdf} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('downloadPdf')}</button>
-          <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-          <button onClick={() => (hasLinkedContract ? onOpenContract?.() : onConvert?.(getEstimatePayload()))} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
+          <button disabled={isEstimateActionPending} onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
+          <button disabled={isEstimateActionPending} onClick={handleConvertToContract} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isConvertingEstimate ? t('saving') : hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
           {isArchived ? (
             <>
-              <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
-              <button onClick={() => setConfirmAction({ mode: 'delete' })} className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
+              <button disabled={isEstimateActionPending} onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
+              <button disabled={isEstimateActionPending} onClick={() => setConfirmAction({ mode: 'delete' })} className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
             </>
           ) : (
-            <button onClick={() => setConfirmAction({ mode: 'archive' })} className={`w-full ${archivePanelButtonClasses}`}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
+            <button disabled={isEstimateActionPending} onClick={() => setConfirmAction({ mode: 'archive' })} className={`w-full ${archivePanelButtonClasses} ${isEstimateActionPending ? 'cursor-not-allowed opacity-60' : ''}`.trim()}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
           )}
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
       <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
-        await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
+        const result = await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
+        return Boolean(result)
       }} t={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">

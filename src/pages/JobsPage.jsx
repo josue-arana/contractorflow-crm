@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, BriefcaseBusiness, CalendarDays, CheckCircle2, DollarSign, MoreVertical, Trash2, Undo2, Zap } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
@@ -60,6 +60,8 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
   const [confirmAction, setConfirmAction] = useState(null)
   const [projects, setProjects] = useState([])
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
+  const [activeJobActionId, setActiveJobActionId] = useState('')
+  const jobActionGuardRef = useRef(false)
   const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
@@ -205,60 +207,89 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
     setConfirmAction({ mode: 'delete', job })
   }
 
+  async function runSingleFlightJobAction(jobId, task) {
+    if (jobActionGuardRef.current) {
+      return false
+    }
+
+    jobActionGuardRef.current = true
+    setActiveJobActionId(jobId)
+
+    try {
+      const result = await task()
+      return result ?? true
+    } finally {
+      jobActionGuardRef.current = false
+      setActiveJobActionId('')
+    }
+  }
+
   async function runConfirmAction() {
     if (!confirmAction) return
-    try {
-      if (confirmAction.mode === 'archive') {
-        await dataProvider?.projects?.archive?.(confirmAction.job.id, { contractorId })
-        if (USE_SUPABASE_PROJECTS) {
-          setProjects((current) => current.map((project) => (
-            project.id === confirmAction.job.id
-              ? { ...project, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
-              : project
-          )))
+    await runSingleFlightJobAction(confirmAction.job.id, async () => {
+      try {
+        if (confirmAction.mode === 'archive') {
+          await dataProvider?.projects?.archive?.(confirmAction.job.id, { contractorId })
+          if (USE_SUPABASE_PROJECTS) {
+            setProjects((current) => current.map((project) => (
+              project.id === confirmAction.job.id
+                ? { ...project, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
+                : project
+            )))
+          }
+          onArchiveJob(confirmAction.job.id)
         }
-        onArchiveJob(confirmAction.job.id)
-      }
-      if (confirmAction.mode === 'delete') {
-        await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id, { contractorId })
-        if (USE_SUPABASE_PROJECTS) {
-          setProjects((current) => current.filter((project) => project.id !== confirmAction.job.id))
+        if (confirmAction.mode === 'delete') {
+          await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id, { contractorId })
+          if (USE_SUPABASE_PROJECTS) {
+            setProjects((current) => current.filter((project) => project.id !== confirmAction.job.id))
+          }
+          onDeleteJob(confirmAction.job.id)
         }
-        onDeleteJob(confirmAction.job.id)
+      } catch (err) {
+        return false
+      } finally {
+        setConfirmAction(null)
       }
-    } catch (err) {
-      // ignore in local mode
-    }
-    setConfirmAction(null)
+      return true
+    })
   }
 
   function renderJobActions(job, compact = false) {
     const isArchived = isArchivedJob(job)
+    const isJobActionPending = activeJobActionId === job.id
     const moreMenuItems = isArchived
       ? [
           {
             id: 'restore-job',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
+            disabled: isJobActionPending,
             onClick: async (event) => {
               event.stopPropagation()
-              try {
-                await dataProvider?.projects?.restore?.(job.id, { contractorId })
-                if (USE_SUPABASE_PROJECTS) {
-                  setProjects((current) => current.map((project) => (
-                    project.id === job.id
-                      ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
-                      : project
-                  )))
+              await runSingleFlightJobAction(job.id, async () => {
+                try {
+                  await dataProvider?.projects?.restore?.(job.id, { contractorId })
+                  if (USE_SUPABASE_PROJECTS) {
+                    setProjects((current) => current.map((project) => (
+                      project.id === job.id
+                        ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
+                        : project
+                    )))
+                  }
+                } catch (err) {
+                  return false
                 }
-              } catch (err) {}
-              onRestoreJob(job.id)
+                onRestoreJob(job.id)
+                return true
+              })
             },
           },
           {
             id: 'delete-job',
             label: t('deletePermanently'),
             icon: <Trash2 className="mr-2 h-4 w-4" />,
+            disabled: isJobActionPending,
             onClick: () => confirmDelete(job),
             className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
           },
@@ -268,6 +299,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
             id: 'archive-job',
             label: t('archive'),
             icon: <Archive className="mr-2 h-4 w-4" />,
+            disabled: isJobActionPending,
             onClick: () => confirmArchive(job),
             className: archiveMenuItemClasses,
           },
@@ -280,26 +312,28 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
+          <button disabled={isJobActionPending} onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewJob')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
             showChevron={!compact}
             buttonClassName={moreButtonClasses}
             items={moreMenuItems}
+            buttonDisabled={isJobActionPending}
           />
         </div>
       )
     }
     return (
       <div className={actionLayoutClasses}>
-        <button onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewJob')}</button>
+        <button disabled={isJobActionPending} onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewJob')}</button>
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
           showChevron={!compact}
           buttonClassName={moreButtonClasses}
           items={moreMenuItems}
+          buttonDisabled={isJobActionPending}
         />
       </div>
     )

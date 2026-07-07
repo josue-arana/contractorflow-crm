@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowLeft, BriefcaseBusiness, ClipboardList, Copy, Edit3, Trash2, Undo2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
@@ -57,6 +57,7 @@ function createSafeLead(lead, fallbackId = '') {
     email: lead.email || '',
     address: lead.address || lead.location || '',
     location: lead.location || lead.address || '',
+    clientLanguage: lead.clientLanguage || lead.preferredLanguage || lead.preferred_language || lead.language || '',
     title: lead.title || projectTitle,
     projectTitle,
     projectType,
@@ -101,6 +102,7 @@ export function LeadDetailPage({
   onArchiveLead,
   onRestoreLead,
   onDeleteLead,
+  language = 'en',
   t,
 }) {
   const { id } = useParams()
@@ -115,7 +117,9 @@ export function LeadDetailPage({
   const [hasLoaded, setHasLoaded] = useState(!USE_SUPABASE_LEADS)
   const [isEditOpen, setIsEditOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [isLeadActionSubmitting, setIsLeadActionSubmitting] = useState(false)
   const [estimateRecord, setEstimateRecord] = useState(() => readLinkedEstimateDraft(lead || leadId, leadId || lead?.id || ''))
+  const leadActionGuardRef = useRef(false)
   const mergedLead = useMemo(() => {
     const baseLead = USE_SUPABASE_LEADS ? record : (record || lead)
 
@@ -321,18 +325,37 @@ export function LeadDetailPage({
   }
 
   async function handleWorkflowTransition(targetStage) {
-    const nextLead = await onTransitionLeadStage?.(currentLead.id, targetStage)
-
-    if (!nextLead) {
+    if (leadActionGuardRef.current) {
       return null
     }
 
-    const safeLead = createSafeLead(nextLead, currentLead.id)
-    setRecord(safeLead)
-    return safeLead
+    leadActionGuardRef.current = true
+    setIsLeadActionSubmitting(true)
+
+    try {
+      const nextLead = await onTransitionLeadStage?.(currentLead.id, targetStage)
+
+      if (!nextLead) {
+        return null
+      }
+
+      const safeLead = createSafeLead(nextLead, currentLead.id)
+      setRecord(safeLead)
+      return safeLead
+    } finally {
+      leadActionGuardRef.current = false
+      setIsLeadActionSubmitting(false)
+    }
   }
 
   async function handleRestoreArchivedLead() {
+    if (leadActionGuardRef.current) {
+      return
+    }
+
+    leadActionGuardRef.current = true
+    setIsLeadActionSubmitting(true)
+
     try {
       const response = await dataProvider.leads.restore(currentLead.id, { contractorId })
       if (response?.error) {
@@ -351,6 +374,9 @@ export function LeadDetailPage({
     } catch (error) {
       showToast(error?.message || t('restoreFailed'), 'error')
       logLeadDetailDevError('[dev] LeadDetailPage failed to restore lead.', error, { leadId: currentLead.id })
+    } finally {
+      leadActionGuardRef.current = false
+      setIsLeadActionSubmitting(false)
     }
   }
 
@@ -363,15 +389,27 @@ export function LeadDetailPage({
   }
 
   async function handleConvertLeadToJob() {
-    const nextLead = await onConvertLeadToJob?.(currentLead.id)
-
-    if (!nextLead) {
+    if (leadActionGuardRef.current) {
       return null
     }
 
-    const safeLead = createSafeLead(nextLead, currentLead.id)
-    setRecord(safeLead)
-    return safeLead
+    leadActionGuardRef.current = true
+    setIsLeadActionSubmitting(true)
+
+    try {
+      const nextLead = await onConvertLeadToJob?.(currentLead.id)
+
+      if (!nextLead) {
+        return null
+      }
+
+      const safeLead = createSafeLead(nextLead, currentLead.id)
+      setRecord(safeLead)
+      return safeLead
+    } finally {
+      leadActionGuardRef.current = false
+      setIsLeadActionSubmitting(false)
+    }
   }
 
   async function handlePrimaryAction() {
@@ -467,6 +505,7 @@ export function LeadDetailPage({
           id: 'mark-estimate-sent',
           label: t('markEstimateSent'),
           icon: <ClipboardList className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: () => handleWorkflowTransition(leadPipelineStages.ESTIMATE_SENT),
         }
       : null,
@@ -475,6 +514,7 @@ export function LeadDetailPage({
           id: 'mark-follow-up-complete',
           label: t('markFollowUpComplete'),
           icon: <ClipboardList className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: () => handleWorkflowTransition(leadPipelineStages.FOLLOW_UP),
         }
       : null,
@@ -483,6 +523,7 @@ export function LeadDetailPage({
           id: 'mark-estimate-approved',
           label: t('markEstimateApproved'),
           icon: <ClipboardList className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: () => handleWorkflowTransition(leadPipelineStages.ESTIMATE_APPROVED),
         }
       : null,
@@ -491,6 +532,7 @@ export function LeadDetailPage({
           id: 'convert-to-job',
           label: t('convertToJob'),
           icon: <BriefcaseBusiness className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: async () => {
             const nextLead = await handleConvertLeadToJob()
             if (nextLead) {
@@ -504,6 +546,7 @@ export function LeadDetailPage({
           id: 'schedule-job',
           label: t('scheduleJob'),
           icon: <BriefcaseBusiness className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: async () => {
             const nextLead = await handleConvertLeadToJob()
             if (nextLead) {
@@ -533,6 +576,7 @@ export function LeadDetailPage({
           id: 'restore-lead',
           label: t('restoreLead'),
           icon: <Undo2 className="mr-2 h-4 w-4" />,
+          disabled: isLeadActionSubmitting,
           onClick: () => {
             if (isArchived) {
               handleRestoreArchivedLead()
@@ -594,17 +638,17 @@ export function LeadDetailPage({
           <p className="mt-1 text-sm text-slate-500">{t('leadActionsHelp')}</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <button onClick={handlePrimaryAction} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
+          <button disabled={isLeadActionSubmitting} onClick={handlePrimaryAction} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">
             {primaryActionIcon}
-            {t(primaryAction.labelKey)}
+            {isLeadActionSubmitting ? t('saving') : t(primaryAction.labelKey)}
           </button>
-          <button onClick={() => setIsEditOpen(true)} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm">
+          <button disabled={isLeadActionSubmitting} onClick={() => setIsEditOpen(true)} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
             <Edit3 className="h-4 w-4" /> {t('editLead')}
           </button>
-          <ActionMenu label={t('more')} items={moreMenuItems} />
+          <ActionMenu label={t('more')} items={moreMenuItems} buttonDisabled={isLeadActionSubmitting} />
         </div>
         {isArchived && (
-          <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
+          <button disabled={isLeadActionSubmitting} onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
             <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
           </button>
         )}
@@ -644,6 +688,7 @@ export function LeadDetailPage({
         mode="edit"
         lead={currentLead}
         clients={clients}
+        defaultClientLanguage={language}
         onClose={() => setIsEditOpen(false)}
         onSave={handleSaveLead}
         t={t}

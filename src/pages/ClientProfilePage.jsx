@@ -1092,12 +1092,13 @@ function renderMobileAccountSummary() {
         isOpen={isEditOpen}
         mode="edit"
         client={client}
+        defaultPreferredLanguage={language}
         onClose={() => setIsEditOpen(false)}
         onSave={async (updatedClient) => {
           let nextClient = updatedClient
 
           try {
-            const response = await dataProvider.clients.update(client.id, updatedClient)
+            const response = await dataProvider.clients.update(client.id, updatedClient, { contractorId: contractorRuntimeId })
             if (response?.data && !response?.error) {
               nextClient = response.data
             }

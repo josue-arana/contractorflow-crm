@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ModalShell } from './ModalShell'
 import { normalizePortalShareUrl } from '../../utils/portal'
 
 export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t }) {
   const [channel, setChannel] = useState('text')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const submitGuardRef = useRef(false)
 
   useEffect(() => {
-    if (isOpen) setChannel('text')
+    if (isOpen) {
+      setChannel('text')
+      setIsSubmitting(false)
+      submitGuardRef.current = false
+    }
   }, [isOpen])
 
   const firstName = (customer.name || '').split(' ')[0] || t('customer')
@@ -48,19 +54,55 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
 
   if (!isOpen) return null
 
-  function sendText() {
+  async function sendText() {
+    if (submitGuardRef.current) {
+      return
+    }
+
     const separator = /Android/i.test(navigator.userAgent) ? '?' : '&'
-    onSent?.('text')
-    window.location.href = `sms:${encodeURIComponent(phone)}${separator}body=${encodeURIComponent(messageContent.smsBody)}`
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      const result = await onSent?.('text')
+
+      if (result === false) {
+        return
+      }
+
+      onClose?.()
+      window.location.href = `sms:${encodeURIComponent(phone)}${separator}body=${encodeURIComponent(messageContent.smsBody)}`
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
-  function sendEmail() {
-    onSent?.('email')
-    window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(messageContent.subject)}&body=${encodeURIComponent(messageContent.emailBody)}`
+  async function sendEmail() {
+    if (submitGuardRef.current) {
+      return
+    }
+
+    submitGuardRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      const result = await onSent?.('email')
+
+      if (result === false) {
+        return
+      }
+
+      onClose?.()
+      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(messageContent.subject)}&body=${encodeURIComponent(messageContent.emailBody)}`
+    } finally {
+      submitGuardRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-lg">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-lg">
       <div className="mb-5 rounded-2xl bg-blue-50 p-4 text-blue-900">
         <p className="text-xs font-bold uppercase tracking-wide text-blue-500">{t('sendToCustomer')}</p>
         <h2 className="mt-1 text-xl font-bold">{t('sendDocumentToCustomer', { document: typeLabel })}</h2>
@@ -78,15 +120,17 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={() => setChannel('text')}
-          className={`rounded-2xl px-4 py-3 text-sm font-bold ${channel === 'text' ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+          className={`rounded-2xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 ${channel === 'text' ? 'bg-slate-950 text-white disabled:bg-slate-700' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
         >
           {t('textMessage')}
         </button>
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={() => setChannel('email')}
-          className={`rounded-2xl px-4 py-3 text-sm font-bold ${channel === 'email' ? 'bg-slate-950 text-white' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+          className={`rounded-2xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 ${channel === 'email' ? 'bg-slate-950 text-white disabled:bg-slate-700' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
         >
           {t('email')}
         </button>
@@ -108,23 +152,23 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <button
           type="button"
-          disabled={!phone || channel !== 'text'}
+          disabled={isSubmitting || !phone || channel !== 'text'}
           onClick={sendText}
           className="rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          {phone ? t('sendTextNow') : t('noPhoneOnFile')}
+          {isSubmitting && channel === 'text' ? t('saving') : phone ? t('sendTextNow') : t('noPhoneOnFile')}
         </button>
         <button
           type="button"
-          disabled={!email || channel !== 'email'}
+          disabled={isSubmitting || !email || channel !== 'email'}
           onClick={sendEmail}
           className="rounded-2xl border border-slate-200 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
         >
-          {email ? t('sendEmailNow') : t('noEmailOnFile')}
+          {isSubmitting && channel === 'email' ? t('saving') : email ? t('sendEmailNow') : t('noEmailOnFile')}
         </button>
       </div>
 
-      <button onClick={onClose} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">
+      <button disabled={isSubmitting} onClick={onClose} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
         {t('cancel')}
       </button>
     </ModalShell>

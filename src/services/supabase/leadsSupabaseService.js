@@ -2,6 +2,7 @@ import { USE_SUPABASE, USE_SUPABASE_LEADS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
 import { readLeadPipelineStage } from '../local/leadPipelineStorage'
 import { getLeadPipelineStage } from '../../utils/leadPipeline'
+import { normalizeSupportedLanguage, normalizeSupportedLanguageOrEmpty } from '../../utils/language'
 
 const TABLE_NAME = 'leads'
 
@@ -91,10 +92,15 @@ function createErrorResult(message, details = null, code = null) {
 }
 
 function normalizeError(error, fallbackMessage) {
+  if (extractMissingColumnName(error) === 'client_language') {
+    return createClientLanguageSetupError(error)
+  }
+
   return {
     message: error?.message || fallbackMessage,
     details: error?.details || null,
     code: error?.code || null,
+    status: error?.status || null,
   }
 }
 
@@ -146,6 +152,39 @@ function hasOwnField(object, fieldName) {
   return Boolean(object) && Object.prototype.hasOwnProperty.call(object, fieldName)
 }
 
+function extractMissingColumnName(error) {
+  const message = [
+    error?.message,
+    error?.details,
+    error?.raw?.message,
+    error?.raw?.details,
+    error?.raw?.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const quotedColumnMatch = message.match(/'([^']+)' column/)
+  if (quotedColumnMatch?.[1]) {
+    return quotedColumnMatch[1]
+  }
+
+  const alternateColumnMatch = message.match(/column ['"]?([^'" ]+)['"]?/)
+  if (alternateColumnMatch?.[1]) {
+    return alternateColumnMatch[1]
+  }
+
+  return null
+}
+
+function createClientLanguageSetupError(error) {
+  return {
+    message: 'Lead client language is not set up in Supabase. Run the leads client_language migration before saving or loading lead language preferences.',
+    details: error?.details || error?.raw?.details || error?.raw || null,
+    code: 'LEADS_CLIENT_LANGUAGE_COLUMN_MISSING',
+    status: error?.status || null,
+  }
+}
+
 export function mapLeadRowToUiLead(row) {
   const archivedAt = row?.archived_at || null
   const clientName = row?.name || 'Unknown Client'
@@ -173,6 +212,7 @@ export function mapLeadRowToUiLead(row) {
     value: estimatedValue,
     estimatedValue,
     source: row?.source || '',
+    clientLanguage: normalizeSupportedLanguageOrEmpty(row?.client_language),
     priority: mapPriorityToUi(row?.priority),
     notes: row?.notes || '',
     nextStep: '',
@@ -205,6 +245,10 @@ export function mapUiLeadToLeadRow(contractorId, lead = {}) {
     address: lead.address || lead.location || null,
     service_type: projectTitle,
     source: lead.source || null,
+    client_language: normalizeSupportedLanguage(
+      lead.clientLanguage || lead.preferredLanguage || lead.preferred_language || lead.language,
+      'en'
+    ),
     estimated_value: toNumber(lead.value ?? lead.estimated_value),
     status: mapStatusToDb(lead.status),
     priority: mapPriorityToDb(lead.priority),
@@ -261,6 +305,18 @@ function mapUiLeadUpdatesToLeadRow(updates = {}) {
 
   if (hasOwnField(updates, 'source')) {
     payload.source = updates.source || null
+  }
+
+  if (
+    hasOwnField(updates, 'clientLanguage')
+    || hasOwnField(updates, 'preferredLanguage')
+    || hasOwnField(updates, 'preferred_language')
+    || hasOwnField(updates, 'language')
+  ) {
+    payload.client_language = normalizeSupportedLanguage(
+      updates.clientLanguage || updates.preferredLanguage || updates.preferred_language || updates.language,
+      'en'
+    )
   }
 
   if (hasOwnField(updates, 'value') || hasOwnField(updates, 'estimatedValue') || hasOwnField(updates, 'estimated_value')) {
@@ -455,7 +511,7 @@ export async function update(id, updates, { contractorId } = {}) {
     })
 
     return {
-      data: mapLeadRowToUiLead(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: mapLeadRowToUiLead(readSingleRow(data) || { id, contractor_id: contractorId, ...(updates || {}), ...payload }),
       error: null,
       skipped: false,
     }

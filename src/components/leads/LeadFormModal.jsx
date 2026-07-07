@@ -3,9 +3,11 @@ import { X } from 'lucide-react'
 import { SelectField } from '../ui/SelectField'
 import { ModalShell } from '../common/ModalShell'
 import { tStatus } from '../../translations'
+import { buildLanguageOptions, normalizeSupportedLanguage, resolvePreferredClientLanguage } from '../../utils/language'
 
 const emptyLead = {
   client: '',
+  clientLanguage: '',
   phone: '',
   email: '',
   address: '',
@@ -40,7 +42,7 @@ function normalizeValue(value) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onClose, onSave, t }) {
+export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], defaultClientLanguage = 'en', onClose, onSave, t }) {
   const [form, setForm] = useState(emptyLead)
   const [clientMode, setClientMode] = useState('new')
   const [selectedClientId, setSelectedClientId] = useState('')
@@ -50,6 +52,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
   const isCreateMode = mode === 'create'
 
   const sortedClients = useMemo(() => [...clients].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [clients])
+  const languageOptions = useMemo(() => buildLanguageOptions(t), [t])
 
   function clearClientFields() {
     setForm((current) => ({
@@ -72,6 +75,10 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       setForm({
         ...emptyLead,
         ...lead,
+        clientLanguage: resolvePreferredClientLanguage({
+          lead,
+          userLanguage: defaultClientLanguage,
+        }),
         projectTitle: lead.projectTitle || lead.title || '',
         projectType: lead.projectType || '',
         value: lead.value || '',
@@ -82,12 +89,15 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       return
     }
 
-    setForm(emptyLead)
+    setForm({
+      ...emptyLead,
+      clientLanguage: normalizeSupportedLanguage(defaultClientLanguage, 'en'),
+    })
     setClientMode(sortedClients.length ? 'existing' : 'new')
     setSelectedClientId('')
     setIsSubmitting(false)
     submitGuardRef.current = false
-  }, [isOpen, lead, sortedClients])
+  }, [defaultClientLanguage, isOpen, lead, sortedClients])
 
   useEffect(() => {
     if (!isCreateMode || clientMode !== 'existing' || !selectedClientId) return
@@ -101,8 +111,12 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       email: client.email || '',
       address: client.address || '',
       location: client.address || current.location || '',
+      clientLanguage: resolvePreferredClientLanguage({
+        client,
+        userLanguage: defaultClientLanguage,
+      }),
     }))
-  }, [clientMode, isCreateMode, selectedClientId, sortedClients])
+  }, [clientMode, defaultClientLanguage, isCreateMode, selectedClientId, sortedClients])
 
   if (!isOpen) return null
 
@@ -117,6 +131,12 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
     setClientMode(nextMode)
     setSelectedClientId('')
     clearClientFields()
+    if (nextMode === 'new') {
+      setForm((current) => ({
+        ...current,
+        clientLanguage: normalizeSupportedLanguage(defaultClientLanguage, 'en'),
+      }))
+    }
   }
 
   function handleSelectedClientChange(nextClientId) {
@@ -160,6 +180,7 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
       : ''
     const normalized = {
       ...form,
+      clientLanguage: normalizeSupportedLanguage(form.clientLanguage, defaultClientLanguage),
       client: trimmedName || t('newClientFallback'),
       title: projectTitle,
       clientMode,
@@ -229,6 +250,13 @@ export function LeadFormModal({ isOpen, mode = 'create', lead, clients = [], onC
             </div>
             <TextField label={t('address')} value={form.address} onChange={(value) => updateField('address', value)} />
             <TextField label={t('projectTitle')} value={form.projectTitle} onChange={(value) => updateField('projectTitle', value)} required />
+            <div className="sm:col-span-2">
+              <label className="mb-2 block text-sm font-bold text-slate-700">{t('clientLanguage')}</label>
+              <p className="mb-3 text-xs text-slate-500">{t('clientLanguageHelp')}</p>
+              <SelectField value={normalizeSupportedLanguage(form.clientLanguage, defaultClientLanguage)} onChange={(event) => updateField('clientLanguage', event.target.value)}>
+                {languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </SelectField>
+            </div>
             <div>
               <label className="mb-2 block text-sm font-bold text-slate-700">{t('priority')}</label>
               <SelectField value={form.priority} onChange={(event) => updateField('priority', event.target.value)}>

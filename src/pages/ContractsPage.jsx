@@ -72,7 +72,7 @@ function buildContractEditorState({ lead, portal, savedContract, estimate, t }) 
   }
 }
 
-export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettings, onBack, onSaveContract, onMarkSigned, onMarkUnsigned }) {
+export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettings, onBack, backLabel, onSaveContract, onMarkSigned, onMarkUnsigned }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
@@ -257,7 +257,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
 
   async function saveContract() {
     const payload = getContractPayload()
-    await persistContract(payload, {
+    return persistContract(payload, {
       errorKey: 'contractSaveFailed',
       stopEditing: true,
       onPersist: async (persistedContract) => {
@@ -268,7 +268,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
 
   async function markSent() {
     const payload = getContractPayload({ status: 'Sent' })
-    await persistContract(payload, {
+    return persistContract(payload, {
       errorKey: 'contractSaveFailed',
       onPersist: async (persistedContract) => {
         await onSaveContract?.(persistedContract)
@@ -279,7 +279,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
   async function markSigned() {
     const today = new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
     const payload = getContractPayload({ status: 'Signed', signedDate: savedContract.signedDate || today })
-    await persistContract(payload, {
+    return persistContract(payload, {
       errorKey: 'contractSignFailed',
       stopEditing: true,
       resetEditingState: true,
@@ -299,33 +299,21 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
       signedBy: '',
       signed_by: '',
     })
-
-    try {
-      const existing = savedContract || {}
-
-      const response = existing && existing.id
-        ? await dataProvider.contracts.update(existing.id, payload, { contractorId })
-        : await dataProvider.contracts.create(payload, { contractorId })
-
-      if (response?.error) {
-        showToast(response.error.message || t('contractUpdateFailed'), 'error')
-        return
-      }
-
-      onMarkUnsigned?.({
-        ...payload,
-        ...(response?.data || {}),
-        status: 'Draft',
-        signed: false,
-        signedDate: '',
-        signedAt: null,
-        signedBy: '',
-      })
-      setIsEditing(false)
-    } catch (err) {
-      console.warn('Mark unsigned via dataProvider failed', err)
-      showToast(err?.message || t('contractUpdateFailed'), 'error')
-    }
+    return persistContract(payload, {
+      errorKey: 'contractUpdateFailed',
+      stopEditing: true,
+      resetEditingState: true,
+      onPersist: async (persistedContract) => {
+        await onMarkUnsigned?.({
+          ...persistedContract,
+          status: 'Draft',
+          signed: false,
+          signedDate: '',
+          signedAt: null,
+          signedBy: '',
+        })
+      },
+    })
   }
 
   function cancelEditing() {
@@ -354,6 +342,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
           id: 'mark-contract-unsigned',
           label: t('markAsUnsigned'),
           onClick: markUnsigned,
+          disabled: isSavingContract,
           className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
         }
       : null,
@@ -361,7 +350,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('backToProjectWorkspace')}</button>
+      <button onClick={onBack} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {backLabel || t('backToProjectWorkspace')}</button>
       <section className="rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl sm:p-6">
         <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('contractPreview')}</p>
         <h1 className="mt-2 text-3xl font-bold">{lead.projectTitle || lead.projectType}</h1>
@@ -388,8 +377,8 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
           <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           {!isSigned ? <button disabled={isSavingContract} onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">{isSavingContract ? t('saving') : t('markAsSigned')}</button> : <div className="hidden xl:block" />}
-          <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">{t('sendToCustomer')}</button>
-          <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} />
+          <button disabled={isSavingContract} onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
+          <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} buttonDisabled={isSavingContract} />
         </div>
         <ContractDocument
           isEditing={isEditing}
@@ -417,12 +406,12 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
           t={t}
         />
         {isEditing ? (
-          <button onClick={cancelEditing} className="mt-4 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('cancelEditing')}</button>
+          <button disabled={isSavingContract} onClick={cancelEditing} className="mt-4 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60">{t('cancelEditing')}</button>
         ) : null}
       </section>
       <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
-        await markSent()
-        setShowSendModal(false)
+        const result = await markSent()
+        return Boolean(result)
       }} t={t} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
         <div className="rounded-3xl bg-white text-slate-950">
@@ -512,8 +501,31 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   const { contractor, company, session } = useAuth()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const projectId = location.state?.projectId || id || leadId
+  const contractSource = location.state?.source || 'project'
+  const sourceLeadId = location.state?.leadId || null
   const lead = findLeadByProjectLookup(leads, projectId)
   const [loadedContract, setLoadedContract] = useState(null)
+  const backLabel = contractSource === 'estimate' ? t('backToEstimateBuilder') : t('backToProjectWorkspace')
+
+  function handleBack() {
+    if (contractSource === 'estimate' && projectId) {
+      navigate(`/projects/${projectId}/estimate`, {
+        state: {
+          source: 'project',
+          projectId,
+          leadId: sourceLeadId || lead?.id || null,
+        },
+      })
+      return
+    }
+
+    if (projectId) {
+      navigate(`/projects/${projectId}`)
+      return
+    }
+
+    navigate('/dashboard')
+  }
 
   useEffect(() => {
     let isCancelled = false
@@ -595,7 +607,8 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
       t={t}
       appLanguage={appLanguage}
       companySettings={companySettings}
-      onBack={() => navigate(`/projects/${projectId}`)}
+      onBack={handleBack}
+      backLabel={backLabel}
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
       onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
       onMarkUnsigned={(contract) => onMarkContractUnsigned?.(lead.id, contract)}
