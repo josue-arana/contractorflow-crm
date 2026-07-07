@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ModalShell } from './ModalShell'
 import { normalizePortalShareUrl } from '../../utils/portal'
 
-export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t }) {
+export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t, contentT = t }) {
   const [channel, setChannel] = useState('text')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitGuardRef = useRef(false)
@@ -15,42 +15,42 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
     }
   }, [isOpen])
 
-  const firstName = (customer.name || '').split(' ')[0] || t('customer')
+  const firstName = (customer.name || '').split(' ')[0] || contentT('customer')
   const phone = customer.phone || ''
   const email = customer.email || ''
   const typeLabel = t(documentType)
   const resolvedPortalUrl = normalizePortalShareUrl(portalUrl)
   const messageContent = useMemo(() => {
     const resolvedDocumentStatus = documentLink
-      ? t('documentLinkIncluded', { link: documentLink })
-      : t('documentLinkUnavailable')
+      ? contentT('documentLinkIncluded', { link: documentLink })
+      : contentT('documentLinkUnavailable')
 
     const subject = documentType === 'estimate'
-      ? t('sendEstimateSubject', { project: projectTitle })
+      ? contentT('sendEstimateSubject', { project: projectTitle })
       : documentType === 'contract'
-        ? t('sendContractSubject', { project: projectTitle })
+        ? contentT('sendContractSubject', { project: projectTitle })
         : documentType === 'portalLink'
-          ? t('sendPortalSubject', { project: projectTitle })
-          : t('sendInvoiceSubject', { project: projectTitle })
+          ? contentT('sendPortalSubject', { project: projectTitle })
+          : contentT('sendInvoiceSubject', { project: projectTitle })
 
     const smsBody = documentType === 'estimate'
-      ? t('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
+      ? contentT('estimateSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
       : documentType === 'contract'
-        ? t('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
+        ? contentT('contractSmsMessage', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
-          ? t('portalSmsMessage', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
-          : t('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue, documentStatus: resolvedDocumentStatus })
+          ? contentT('portalSmsMessage', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
+          : contentT('invoiceSmsMessage', { name: firstName, project: projectTitle, amount: amountValue, dueDate, documentStatus: resolvedDocumentStatus })
 
     const emailBody = documentType === 'estimate'
-      ? t('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
+      ? contentT('estimateEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
       : documentType === 'contract'
-        ? t('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
+        ? contentT('contractEmailBody', { name: firstName, project: projectTitle, total: amountValue, documentStatus: resolvedDocumentStatus })
         : documentType === 'portalLink'
-          ? t('portalEmailBody', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
-          : t('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate, documentStatus: resolvedDocumentStatus })
+          ? contentT('portalEmailBody', { name: firstName, project: projectTitle, link: resolvedPortalUrl })
+          : contentT('invoiceEmailBody', { name: firstName, project: projectTitle, amount: amountValue, dueDate, documentStatus: resolvedDocumentStatus })
 
     return { subject, smsBody, emailBody, resolvedDocumentStatus }
-  }, [amountValue, documentLink, documentType, dueDate, firstName, projectTitle, resolvedPortalUrl, t])
+  }, [amountValue, contentT, documentLink, documentType, dueDate, firstName, projectTitle, resolvedPortalUrl])
 
   if (!isOpen) return null
 

@@ -19,6 +19,8 @@ import { formatContractDisplayNumber, generateContractNumber } from '../utils/co
 import { printDocumentElement } from '../utils/printDocument'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { createTranslator } from '../translations'
+import { findRelatedClient } from '../utils/clients'
+import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
 function formatContractDate(value, language = 'en') {
   const locale = language === 'es' ? 'es-ES' : 'en-US'
@@ -72,7 +74,7 @@ function buildContractEditorState({ lead, portal, savedContract, estimate, t }) 
   }
 }
 
-export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettings, onBack, backLabel, onSaveContract, onMarkSigned, onMarkUnsigned }) {
+export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage = 'en', companySettings, onBack, backLabel, onSaveContract, onMarkSigned, onMarkUnsigned }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
@@ -85,8 +87,15 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
   const [isEditing, setIsEditing] = useState(false)
   const [isSavingContract, setIsSavingContract] = useState(false)
   const contractSaveGuardRef = useRef(false)
-  const [contractLanguage, setContractLanguage] = useState(savedContract.contractLanguage || 'match')
-  const contractOutputLanguage = contractLanguage === 'match' ? appLanguage : contractLanguage
+  const [contractLanguage, setContractLanguage] = useState(
+    normalizeDocumentLanguageOverride(savedContract.contractLanguage || estimate?.estimateLanguage)
+  )
+  const contractOutputLanguage = resolveClientFacingLanguage({
+    documentLanguage: contractLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  })
   const contractT = useMemo(() => createTranslator(contractOutputLanguage), [contractOutputLanguage])
   const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t: contractT })
   const [scope, setScope] = useState(editorState.scope)
@@ -146,8 +155,8 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
   }
 
   useEffect(() => {
-    setContractLanguage(savedContract.contractLanguage || 'match')
-  }, [savedContract.contractLanguage, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate])
+    setContractLanguage(normalizeDocumentLanguageOverride(savedContract.contractLanguage || estimate?.estimateLanguage))
+  }, [estimate?.estimateLanguage, savedContract.contractLanguage, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate])
 
   useEffect(() => {
     if (!isEditing) {
@@ -168,7 +177,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
       title: savedContract.title || lead.projectTitle || lead.projectType || 'Contract',
       status: savedContract.status || 'Draft',
       signedDate: savedContract.signedDate || '',
-      contractLanguage,
+      contractLanguage: contractLanguage || '',
       scope,
       paymentTerms,
       materials,
@@ -362,7 +371,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
           <p className="mt-2 text-sm leading-6 text-slate-500">{t('contractLanguageHelp')}</p>
           <div className="mt-3 max-w-sm">
             <SelectField value={contractLanguage} onChange={(event) => setContractLanguage(event.target.value)} className="bg-white">
-              <option value="match">{t('matchAppLanguage')}</option>
+              <option value="">{t('matchAppLanguage')}</option>
               <option value="en">{t('english')}</option>
               <option value="es">{t('spanish')}</option>
             </SelectField>
@@ -412,7 +421,7 @@ export function ContractPreviewPage({ lead, t, appLanguage = 'en', companySettin
       <SendToCustomerModal isOpen={showSendModal} documentType="contract" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('projectTotal')} amountValue={currency.format(contractTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
         const result = await markSent()
         return Boolean(result)
-      }} t={t} />
+      }} t={t} contentT={contractT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
         <div className="rounded-3xl bg-white text-slate-950">
           <ContractPdfTemplate {...contractPreviewProps} />
@@ -494,7 +503,7 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
   )
 }
 
-export function ContractRoute({ companySettings, leads, onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t, appLanguage = 'en' }) {
+export function ContractRoute({ companySettings, leads, clients = [], onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -591,6 +600,8 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
     )
   }
 
+  const clientRecord = findRelatedClient(clients, lead || {})
+
   const mergedLead = loadedContract
     ? {
         ...lead,
@@ -604,6 +615,7 @@ export function ContractRoute({ companySettings, leads, onSaveContract, onMarkCo
   return (
     <ContractPreviewPage
       lead={mergedLead}
+      clientRecord={clientRecord}
       t={t}
       appLanguage={appLanguage}
       companySettings={companySettings}

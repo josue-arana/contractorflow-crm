@@ -5,7 +5,7 @@ import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
-import { tStatus } from '../translations'
+import { createTranslator, tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import ActionMenu from '../components/common/ActionMenu'
@@ -17,6 +17,8 @@ import { getInvoicesContractorId } from '../services/system/invoicesRuntimeServi
 import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
 import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
+import { findRelatedClient } from '../utils/clients'
+import { getLanguageLocale, resolveClientFacingLanguage } from '../utils/language'
 
 const invoiceFilters = ['All', 'Archived', 'Draft', 'Sent', 'Paid', 'Overdue', 'Canceled']
 
@@ -24,7 +26,22 @@ function remainingBalance(invoice) {
   return Math.max((invoice.amount || 0) - (invoice.amountPaid || 0), 0)
 }
 
-export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, onInvoiceSent, t }) {
+function formatLocalizedInvoiceDate(value, language = 'en') {
+  if (!value) return ''
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(getLanguageLocale(language), {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+export function InvoicesPage({ leads, clients = [], invoices: invoiceRecords = [], archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, onInvoiceSent, t, appLanguage = 'en' }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [sendInvoice, setSendInvoice] = useState(null)
@@ -44,6 +61,25 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
       remainingBalance: remainingBalance(invoice),
     }
   }), [invoiceRecords, leads, t, deletedIds])
+  const sendInvoiceLead = useMemo(
+    () => (sendInvoice ? findRelatedLeadForInvoice(leads, sendInvoice) : null),
+    [leads, sendInvoice]
+  )
+  const sendInvoiceClient = useMemo(
+    () => (sendInvoice ? findRelatedClient(clients, sendInvoiceLead || sendInvoice) : null),
+    [clients, sendInvoice, sendInvoiceLead]
+  )
+  const sendInvoiceLanguage = useMemo(() => resolveClientFacingLanguage({
+    documentLanguage: sendInvoice?.invoiceLanguage,
+    client: sendInvoiceClient,
+    lead: sendInvoiceLead,
+    appLanguage,
+  }), [appLanguage, sendInvoice?.invoiceLanguage, sendInvoiceClient, sendInvoiceLead])
+  const sendInvoiceT = useMemo(() => createTranslator(sendInvoiceLanguage), [sendInvoiceLanguage])
+  const sendInvoiceDueDate = useMemo(
+    () => formatLocalizedInvoiceDate(sendInvoice?.dueDate, sendInvoiceLanguage),
+    [sendInvoice?.dueDate, sendInvoiceLanguage]
+  )
 
   const activeInvoices = invoices.filter((invoice) => !archivedIds.includes(invoice.id))
   const filteredInvoices = selectedFilter === 'All'
@@ -294,13 +330,13 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         documentType="invoice"
         customer={{
           name: sendInvoice?.client,
-          phone: findRelatedLeadForInvoice(leads, sendInvoice || {})?.phone,
-          email: findRelatedLeadForInvoice(leads, sendInvoice || {})?.email,
+          phone: sendInvoiceLead?.phone,
+          email: sendInvoiceLead?.email,
         }}
         projectTitle={sendInvoice?.projectTitle || ''}
         amountLabel={t('amountDue')}
         amountValue={currency.format(sendInvoice?.remainingBalance ?? 0)}
-        dueDate={sendInvoice?.dueDate || ''}
+        dueDate={sendInvoiceDueDate}
         onClose={() => setSendInvoice(null)}
         onSent={async () => {
           return runSingleFlightInvoiceAction(sendInvoice.id, async () => {
@@ -319,6 +355,7 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
           })
         }}
         t={t}
+        contentT={sendInvoiceT}
       />
     </div>
   )

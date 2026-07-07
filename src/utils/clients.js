@@ -8,6 +8,27 @@ export function getClientSlug(name = '') {
     .replace(/^-+|-+$/g, '')
 }
 
+export function findRelatedClient(clients = [], record = {}) {
+  const recordClientId = String(record?.clientId || record?.client_id || '').trim()
+  const recordClientSlug = getClientSlug(
+    record?.client || record?.clientName || record?.customerName || record?.name || record?.displayName || ''
+  )
+
+  if (!recordClientId && !recordClientSlug) {
+    return null
+  }
+
+  return clients.find((client) => {
+    const clientId = String(client?.id || '').trim()
+    const clientSlug = getClientSlug(client?.name || client?.displayName || clientId)
+
+    return Boolean(
+      (recordClientId && clientId && clientId === recordClientId)
+      || (recordClientSlug && clientSlug === recordClientSlug)
+    )
+  }) || null
+}
+
 export function buildClientProfiles(leads = [], customClients = []) {
   const clientMap = new Map()
   const slugToClientId = new Map()

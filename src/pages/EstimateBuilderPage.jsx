@@ -21,6 +21,8 @@ import { downloadEstimatePdf } from '../utils/estimatePdf'
 import { printDocumentElement } from '../utils/printDocument'
 import { createTranslator } from '../translations'
 import { findLeadByProjectLookup } from '../utils/projectIdentity'
+import { findRelatedClient } from '../utils/clients'
+import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -97,14 +99,14 @@ function buildEstimateDraftState({ savedEstimate = {}, lead, companySettings, t 
     totalInput: formatAmountInputValue(savedEstimate.total ?? lead?.value ?? 0),
     materialsIncluded: defaultMaterialsIncluded,
     paymentTerms: savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'),
-    estimateLanguage: savedEstimate.estimateLanguage || 'match',
+    estimateLanguage: normalizeDocumentLanguageOverride(savedEstimate.estimateLanguage),
     pricingMode: hasSavedLineItems ? detailedPricingMode : simplePricingMode,
     lineItems: hasSavedLineItems ? savedLineItems : defaultLineItems,
     lineItemAmountInputs: (hasSavedLineItems ? savedLineItems : defaultLineItems).map((item) => formatAmountInputValue(item.amount)),
   }
 }
 
-export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const scopeTextareaRef = useRef(null)
@@ -114,9 +116,16 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const lastInitializedOwnerKeyRef = useRef('')
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+  const draftEstimateOutputLanguage = useMemo(() => resolveClientFacingLanguage({
+    documentLanguage: savedEstimate?.estimateLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  }), [appLanguage, clientRecord, lead, savedEstimate?.estimateLanguage])
+  const draftEstimateT = useMemo(() => createTranslator(draftEstimateOutputLanguage), [draftEstimateOutputLanguage])
   const initialDraftState = useMemo(
-    () => buildEstimateDraftState({ savedEstimate, lead, companySettings, t }),
-    [companySettings, lead, savedEstimate, t]
+    () => buildEstimateDraftState({ savedEstimate, lead, companySettings, t: draftEstimateT }),
+    [companySettings, draftEstimateT, lead, savedEstimate]
   )
   const [scope, setScope] = useState(initialDraftState.scope)
   const [total, setTotal] = useState(initialDraftState.total)
@@ -155,18 +164,18 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     lineItems: Array.isArray(savedEstimate?.lineItems) ? savedEstimate.lineItems : [],
     companyMaterialsIncluded: companySettings?.defaults?.materialsIncluded ?? null,
     companyPaymentTerms: companySettings?.defaults?.paymentTerms || '',
-    defaultPaymentTermsLabel: t('defaultPaymentTerms'),
-    defaultLaborLabel: t('laborAndProjectSetup'),
-    defaultMaterialsLabel: t('materialsAndFinishWork'),
+    defaultPaymentTermsLabel: draftEstimateT('defaultPaymentTerms'),
+    defaultLaborLabel: draftEstimateT('laborAndProjectSetup'),
+    defaultMaterialsLabel: draftEstimateT('materialsAndFinishWork'),
   }), [
     companySettings?.defaults?.materialsIncluded,
     companySettings?.defaults?.paymentTerms,
+    draftEstimateT,
     lead?.id,
     lead?.projectId,
     lead?.project_id,
     lead?.value,
     savedEstimate,
-    t,
   ])
 
   function markDraftDirty() {
@@ -185,7 +194,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       return
     }
 
-    const nextDraftState = buildEstimateDraftState({ savedEstimate, lead, companySettings, t })
+    const nextDraftState = buildEstimateDraftState({ savedEstimate, lead, companySettings, t: draftEstimateT })
     setScope(nextDraftState.scope)
     setTotal(nextDraftState.total)
     setTotalInput(nextDraftState.totalInput)
@@ -199,13 +208,18 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     lastInitializedSourceKeyRef.current = draftSourceKey
     lastInitializedOwnerKeyRef.current = draftOwnerKey
     draftDirtyRef.current = false
-  }, [companySettings, draftOwnerKey, draftSourceKey, lead, savedEstimate, t])
+  }, [companySettings, draftEstimateT, draftOwnerKey, draftSourceKey, lead, savedEstimate])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
   const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
   const isEstimateActionPending = isSavingEstimate || isConvertingEstimate
-  const estimateOutputLanguage = estimateLanguage === 'match' ? appLanguage : estimateLanguage
+  const estimateOutputLanguage = resolveClientFacingLanguage({
+    documentLanguage: estimateLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  })
   const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
   const previewEstimateNumber = formatEstimateDisplayNumber(
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
@@ -238,8 +252,9 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     paymentTerms,
     total: estimateTotal,
     lineItems: isDetailedPricing ? lineItems : [],
+    language: estimateOutputLanguage,
     t: estimateT,
-  }), [companySettings?.company, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateDate, previewEstimateNumber, scope])
+  }), [companySettings?.company, estimateOutputLanguage, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateDate, previewEstimateNumber, scope])
 
   function getEstimatePayload() {
     return {
@@ -250,7 +265,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       lineItems: isDetailedPricing ? lineItems : [],
       materialsIncluded,
       paymentTerms,
-      estimateLanguage,
+      estimateLanguage: estimateLanguage || '',
       pricingMode,
       updatedAt: new Date().toISOString(),
       status: 'Draft',
@@ -498,7 +513,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             <div className="space-y-3">
               <p className="text-sm leading-6 text-slate-500">{t('estimateLanguageHelp')}</p>
               <SelectField value={estimateLanguage} onChange={(event) => { markDraftDirty(); setEstimateLanguage(event.target.value) }} className="bg-slate-50">
-                <option value="match">{t('matchAppLanguage')}</option>
+                <option value="">{t('matchAppLanguage')}</option>
                 <option value="en">{t('english')}</option>
                 <option value="es">{t('spanish')}</option>
               </SelectField>
@@ -706,10 +721,10 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         </aside>
       </div>
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
         const result = await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
         return Boolean(result)
-      }} t={estimateT} />
+      }} t={t} contentT={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">
           <div className="p-3 sm:p-4">
@@ -816,7 +831,7 @@ function ScaledEstimatePreview({ children }) {
   )
 }
 
-export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
+export function EstimateBuilderRoute({ companySettings, leads, clients = [], archivedIds = [], onSaveEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -939,6 +954,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     )
   }
 
+  const clientRecord = findRelatedClient(clients, lead || {})
+
   const mergedLead = loadedEstimate
     ? {
         ...lead,
@@ -954,6 +971,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
   return (
     <EstimateBuilderPage
       lead={mergedLead}
+      clientRecord={clientRecord}
       t={t}
       appLanguage={appLanguage}
       companySettings={companySettings}

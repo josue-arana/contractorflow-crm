@@ -141,6 +141,7 @@ function buildLegacyTermsText(sections = {}) {
 
 function serializeTerms(contract = {}) {
   const termsText = readField(contract, ['terms'])
+  const contractLanguage = readField(contract, ['contractLanguage'])
   const sections = {
     materials: readField(contract, ['materials']),
     timeline: readField(contract, ['timeline']),
@@ -150,6 +151,7 @@ function serializeTerms(contract = {}) {
   }
 
   const hasStructuredSections = Object.values(sections).some((value) => value !== undefined)
+    || contractLanguage !== undefined
 
   if (!hasStructuredSections) {
     return termsText === undefined ? undefined : termsText || null
@@ -158,6 +160,7 @@ function serializeTerms(contract = {}) {
   return JSON.stringify({
     version: 1,
     summary: termsText || buildLegacyTermsText(sections),
+    contractLanguage: contractLanguage || '',
     sections: {
       materials: sections.materials || '',
       timeline: sections.timeline || '',
@@ -176,6 +179,7 @@ function parseTerms(terms) {
     changeOrders: '',
     clientResponsibilities: '',
     warrantyDisclaimer: '',
+    contractLanguage: '',
   }
 
   if (!terms) return fallback
@@ -194,6 +198,7 @@ function parseTerms(terms) {
       changeOrders: parsed.sections?.changeOrders || '',
       clientResponsibilities: parsed.sections?.clientResponsibilities || '',
       warrantyDisclaimer: parsed.sections?.warrantyDisclaimer || '',
+      contractLanguage: parsed.contractLanguage || '',
     }
   } catch {
     return fallback
@@ -243,6 +248,7 @@ function toAppContract(row) {
     scopeOfWork: row?.scope_of_work || '',
     terms: parsedTerms.termsText,
     paymentTerms: row?.payment_terms || '',
+    contractLanguage: parsedTerms.contractLanguage || '',
     materials: parsedTerms.materials,
     timeline: parsedTerms.timeline,
     changeOrders: parsedTerms.changeOrders,
