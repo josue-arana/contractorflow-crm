@@ -1,5 +1,6 @@
 import { USE_SUPABASE, USE_SUPABASE_CONTRACTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { normalizeContractWorkBreakdown } from '../../utils/contractDocument'
 
 const TABLE_NAME = 'contracts'
 
@@ -141,6 +142,9 @@ function buildLegacyTermsText(sections = {}) {
 
 function serializeTerms(contract = {}) {
   const termsText = readField(contract, ['terms'])
+  const contractLanguage = readField(contract, ['contractLanguage'])
+  const acceptanceLegalText = readField(contract, ['acceptanceLegalText'])
+  const workBreakdown = normalizeContractWorkBreakdown(readField(contract, ['workBreakdown']) || [])
   const sections = {
     materials: readField(contract, ['materials']),
     timeline: readField(contract, ['timeline']),
@@ -150,6 +154,9 @@ function serializeTerms(contract = {}) {
   }
 
   const hasStructuredSections = Object.values(sections).some((value) => value !== undefined)
+    || contractLanguage !== undefined
+    || acceptanceLegalText !== undefined
+    || workBreakdown.length > 0
 
   if (!hasStructuredSections) {
     return termsText === undefined ? undefined : termsText || null
@@ -158,6 +165,9 @@ function serializeTerms(contract = {}) {
   return JSON.stringify({
     version: 1,
     summary: termsText || buildLegacyTermsText(sections),
+    contractLanguage: contractLanguage || '',
+    acceptanceLegalText: acceptanceLegalText || '',
+    workBreakdown,
     sections: {
       materials: sections.materials || '',
       timeline: sections.timeline || '',
@@ -176,6 +186,9 @@ function parseTerms(terms) {
     changeOrders: '',
     clientResponsibilities: '',
     warrantyDisclaimer: '',
+    contractLanguage: '',
+    acceptanceLegalText: '',
+    workBreakdown: [],
   }
 
   if (!terms) return fallback
@@ -194,6 +207,9 @@ function parseTerms(terms) {
       changeOrders: parsed.sections?.changeOrders || '',
       clientResponsibilities: parsed.sections?.clientResponsibilities || '',
       warrantyDisclaimer: parsed.sections?.warrantyDisclaimer || '',
+      contractLanguage: parsed.contractLanguage || '',
+      acceptanceLegalText: parsed.acceptanceLegalText || '',
+      workBreakdown: normalizeContractWorkBreakdown(parsed.workBreakdown || []),
     }
   } catch {
     return fallback
@@ -243,6 +259,9 @@ function toAppContract(row) {
     scopeOfWork: row?.scope_of_work || '',
     terms: parsedTerms.termsText,
     paymentTerms: row?.payment_terms || '',
+    contractLanguage: parsedTerms.contractLanguage || '',
+    acceptanceLegalText: parsedTerms.acceptanceLegalText || '',
+    workBreakdown: normalizeContractWorkBreakdown(parsedTerms.workBreakdown || []),
     materials: parsedTerms.materials,
     timeline: parsedTerms.timeline,
     changeOrders: parsedTerms.changeOrders,

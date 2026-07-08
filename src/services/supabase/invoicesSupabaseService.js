@@ -214,6 +214,7 @@ function serializeDescription(invoice = {}) {
   const leadId = readField(invoice, ['leadId', 'lead_id'])
   const estimateId = readField(invoice, ['estimateId', 'estimate_id'])
   const clientName = readField(invoice, ['client', 'clientName', 'customerName'])
+  const invoiceLanguage = readField(invoice, ['invoiceLanguage'])
 
   const hasStructuredFields = [
     notes,
@@ -224,6 +225,7 @@ function serializeDescription(invoice = {}) {
     leadId,
     estimateId,
     clientName,
+    invoiceLanguage,
   ].some((value) => value !== undefined)
 
   if (!hasStructuredFields) {
@@ -241,6 +243,7 @@ function serializeDescription(invoice = {}) {
     leadId: leadId || null,
     estimateId: estimateId || null,
     clientName: clientName || '',
+    invoiceLanguage: invoiceLanguage || '',
   })
 }
 
@@ -255,6 +258,7 @@ function parseDescription(description) {
     leadId: null,
     estimateId: null,
     clientName: '',
+    invoiceLanguage: '',
   }
 
   if (!description) return fallback
@@ -276,6 +280,7 @@ function parseDescription(description) {
       leadId: parsed.leadId || null,
       estimateId: parsed.estimateId || null,
       clientName: parsed.clientName || '',
+      invoiceLanguage: parsed.invoiceLanguage || '',
     }
   } catch {
     return fallback
@@ -369,6 +374,7 @@ function toAppInvoice(row) {
     description: parsedDescription.summary,
     notes: parsedDescription.notes,
     paymentTerms: parsedDescription.paymentTerms,
+    invoiceLanguage: parsedDescription.invoiceLanguage || '',
     lineItems,
     subtotal: toNumber(row?.subtotal),
     taxAmount: toNumber(row?.tax_amount),

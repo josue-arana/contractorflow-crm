@@ -1,26 +1,41 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { ModalShell } from '../common/ModalShell'
+import { buildLanguageOptions, normalizeSupportedLanguage, resolvePreferredClientLanguage } from '../../utils/language'
 
 const emptyClient = {
   name: '',
   phone: '',
   email: '',
   address: '',
+  preferredLanguage: '',
   notes: '',
 }
 
-export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSave, t }) {
+export function ClientFormModal({ isOpen, mode = 'create', client, defaultPreferredLanguage = 'en', onClose, onSave, t }) {
   const [form, setForm] = useState(emptyClient)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitGuardRef = useRef(false)
+  const languageOptions = buildLanguageOptions(t)
 
   useEffect(() => {
     if (!isOpen) return
     setIsSubmitting(false)
     submitGuardRef.current = false
-    setForm(client ? { ...emptyClient, ...client } : emptyClient)
-  }, [isOpen, client])
+    setForm(client
+      ? {
+          ...emptyClient,
+          ...client,
+          preferredLanguage: resolvePreferredClientLanguage({
+            client,
+            userLanguage: defaultPreferredLanguage,
+          }),
+        }
+      : {
+          ...emptyClient,
+          preferredLanguage: normalizeSupportedLanguage(defaultPreferredLanguage, 'en'),
+        })
+  }, [client, defaultPreferredLanguage, isOpen])
 
   if (!isOpen) return null
 
@@ -39,7 +54,11 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
     setIsSubmitting(true)
 
     try {
-      await onSave?.({ ...form, name: form.name.trim() || t('newClientFallback') })
+      await onSave?.({
+        ...form,
+        name: form.name.trim() || t('newClientFallback'),
+        preferredLanguage: normalizeSupportedLanguage(form.preferredLanguage, defaultPreferredLanguage),
+      })
     } finally {
       submitGuardRef.current = false
       setIsSubmitting(false)
@@ -65,6 +84,17 @@ export function ClientFormModal({ isOpen, mode = 'create', client, onClose, onSa
             <TextField label={t('phone')} value={form.phone} onChange={(value) => updateField('phone', value)} />
             <TextField label={t('email')} value={form.email} onChange={(value) => updateField('email', value)} type="email" />
             <TextField label={t('address')} value={form.address} onChange={(value) => updateField('address', value)} />
+            <label className="block sm:col-span-2">
+              <span className="mb-2 block text-sm font-bold text-slate-700">{t('clientLanguage')}</span>
+              <p className="mb-3 text-xs text-slate-500">{t('clientLanguageHelp')}</p>
+              <select
+                value={normalizeSupportedLanguage(form.preferredLanguage, defaultPreferredLanguage)}
+                onChange={(event) => updateField('preferredLanguage', event.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+              >
+                {languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
           </section>
           <div>
             <label className="mb-2 block text-sm font-bold text-slate-700">{t('notes')}</label>

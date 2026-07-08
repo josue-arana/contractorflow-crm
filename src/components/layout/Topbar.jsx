@@ -10,6 +10,7 @@ import { LanguageToggleButton } from '../common/LanguageToggleButton'
 import { ModalShell } from '../common/ModalShell'
 import { AccountMenu } from './AccountMenu'
 import { NotificationCenter } from './NotificationCenter'
+import { buildLanguageOptions, normalizeSupportedLanguage } from '../../utils/language'
 
 export function Topbar({
   onMenuClick,
@@ -34,6 +35,7 @@ export function Topbar({
   const [profileDraft, setProfileDraft] = useState(userProfile)
   const [isSigningOut, setIsSigningOut] = useState(false)
   const unreadCount = notifications.filter((notification) => !notification.read).length
+  const languageOptions = buildLanguageOptions(t)
   const quickAddItems = [
     {
       id: 'addLead',
@@ -52,6 +54,14 @@ export function Topbar({
   useEffect(() => {
     setProfileDraft(userProfile)
   }, [userProfile])
+
+  useEffect(() => {
+    setProfileDraft((current) => (
+      current
+        ? { ...current, preferredLanguage: normalizeSupportedLanguage(language, current.preferredLanguage || 'en') }
+        : current
+    ))
+  }, [language])
 
   function openNotifications() {
     setIsNotificationsOpen(true)
@@ -75,7 +85,10 @@ export function Topbar({
   }
 
   function saveProfile() {
-    onSaveUserProfile(profileDraft)
+    onSaveUserProfile({
+      ...profileDraft,
+      preferredLanguage: normalizeSupportedLanguage(profileDraft?.preferredLanguage, language),
+    })
     closeAccountScreen()
   }
 
@@ -200,8 +213,7 @@ export function Topbar({
           <label className="block sm:col-span-2">
             <span className="text-xs font-bold uppercase tracking-wide text-slate-500">{t('preferredLanguage')}</span>
             <select value={profileDraft?.preferredLanguage || language} onChange={(event) => setProfileDraft((current) => ({ ...current, preferredLanguage: event.target.value }))} className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-slate-400">
-              <option value="en">🇺🇸 {t('english')}</option>
-              <option value="es">🇪🇸 {t('spanish')}</option>
+              {languageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
         </div>
@@ -218,8 +230,15 @@ export function Topbar({
         </div>
         <p className="mt-2 text-sm text-slate-500">{t('languageHelp')}</p>
         <div className="mt-5 grid gap-3">
-          <button onClick={() => { setLanguage('en'); closeAccountScreen() }} className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold ${language === 'en' ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>🇺🇸 {t('english')}</button>
-          <button onClick={() => { setLanguage('es'); closeAccountScreen() }} className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold ${language === 'es' ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>🇪🇸 {t('spanish')}</button>
+          {languageOptions.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => { setLanguage(option.value); closeAccountScreen() }}
+              className={`rounded-2xl border px-4 py-3 text-left text-sm font-bold ${language === option.value ? 'border-slate-950 bg-slate-950 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+            >
+              {option.label}
+            </button>
+          ))}
         </div>
       </ModalShell>
 

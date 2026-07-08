@@ -16,7 +16,7 @@ import { normalizePortalShareUrl } from '../utils/portal'
 import { RecordPaymentModal } from '../components/common/RecordPaymentModal'
 import { PhotoUploadModal } from '../components/common/PhotoUploadModal'
 import { useToast } from '../components/common/ToastProvider'
-import { USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
+import { USE_SUPABASE, USE_SUPABASE_EVENTS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS } from '../config/backendConfig'
 import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
 import dataProvider from '../services/dataProvider'
@@ -194,6 +194,25 @@ function resolvePersistedProjectId(project = {}) {
   return project?.projectId || project?.project_id || null
 }
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function isUuid(value) {
+  return uuidPattern.test(String(value || '').trim())
+}
+
+function getFriendlyPaymentSaveErrorMessage(t, errorMessage = '') {
+  const normalizedMessage = String(errorMessage || '').toLowerCase()
+
+  if (
+    normalizedMessage.includes('payments_project_id_fkey')
+    || (normalizedMessage.includes('foreign key constraint') && normalizedMessage.includes('project_id'))
+  ) {
+    return t('projectRequiredBeforePayment')
+  }
+
+  return errorMessage || t('paymentSaveFailed')
+}
+
 function getPaymentTypeLabelKey(payment = {}) {
   const paymentTypeKey = payment?.paymentTypeKey || normalizePaymentRecord(payment).paymentTypeKey
 
@@ -365,7 +384,7 @@ class ProjectDetailErrorBoundary extends Component {
   }
 }
 
-function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, t }) {
+function ProjectDetailPageContent({ lead, companySettings, clients = [], scheduleEvents = [], archivedScheduleEventIds = [], isArchived = false, onBack, onOpenPortal, onOpenContract, onConvertEstimate, onUpdateLead, onRecordPayment, onUpdatePayment, onDeletePayment, onUploadPhotos, onScheduleEvent, onEditScheduleEvent, onExportEvent, onArchiveScheduleEvent, onRestoreScheduleEvent, onDeleteScheduleEvent, onArchiveProject, onRestoreProject, onDeleteProject, language = 'en', t }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -524,6 +543,26 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       return buildSafePortal(currentLead)
     }
   }, [currentLead, projectId])
+  const requiresPersistedProjectLink = USE_SUPABASE || USE_SUPABASE_PROJECTS || USE_SUPABASE_PAYMENTS
+  const persistedProjectId = useMemo(() => {
+    const projectCandidates = [
+      project?.id,
+      resolvePersistedProjectId(project),
+      baseProject?.id,
+      resolvePersistedProjectId(baseProject),
+      currentLead?.id,
+      resolvePersistedProjectId(currentLead),
+      linkedProjectId,
+      fallbackLinkedProjectId,
+    ].filter(Boolean)
+
+    if (!requiresPersistedProjectLink) {
+      return projectCandidates[0] || ''
+    }
+
+    return projectCandidates.find((candidateId) => isUuid(candidateId)) || ''
+  }, [baseProject, currentLead, fallbackLinkedProjectId, linkedProjectId, project, requiresPersistedProjectLink])
+  const canRecordPayment = Boolean(persistedProjectId)
   const fallbackProjectPhotos = useMemo(() => {
     const hiddenIds = new Set(hiddenFallbackPhotoIds)
     const scopedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead) || currentLead?.id || projectId
@@ -1006,7 +1045,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
   }
 
   const actionButtons = [
-    { label: t('recordPayment'), icon: DollarSign, action: () => { setEditingPayment(null); setShowPaymentModal(true) }, primary: true },
+    { label: t('recordPayment'), icon: DollarSign, action: () => { setEditingPayment(null); setShowPaymentModal(true) }, primary: true, disabled: !canRecordPayment },
     { label: t('scheduleJob'), icon: CalendarDays, action: onScheduleEvent },
     { label: t('uploadPhotos'), icon: Camera, action: () => setShowPhotoModal(true) },
   ]
@@ -1083,7 +1122,6 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
   async function saveProjectPayment(payment) {
     try {
-      const persistedProjectId = linkedProjectId || resolvePersistedProjectId(currentLead)
       const parsedAmount = Number(payment?.amount)
 
       if (!payment?.amount && payment?.amount !== 0) {
@@ -1125,7 +1163,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         : await dataProvider.payments.create(paymentEntry, { contractorId })
 
       if (response?.error) {
-        showToast(response.error.message || t('paymentSaveFailed'), 'error')
+        showToast(getFriendlyPaymentSaveErrorMessage(t, response.error.message), 'error')
         return
       }
 
@@ -1148,7 +1186,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
       }
       closePaymentModal()
     } catch (error) {
-      showToast(error?.message || t('paymentSaveFailed'), 'error')
+      showToast(getFriendlyPaymentSaveErrorMessage(t, error?.message), 'error')
       logProjectDetailDevError('[dev] ProjectDetailPage failed to save payment.', error, {
         projectId: baseProject?.id || resolvePersistedProjectId(currentLead) || currentLead.id,
         paymentId: editingPayment?.id || null,
@@ -1374,8 +1412,10 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
               return (
                 <button
                   key={button.label}
+                  type="button"
                   onClick={button.action}
-                  className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm'}`}
+                  disabled={button.disabled}
+                  className={`flex min-h-[58px] items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${button.primary ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-400' : 'border border-slate-200 bg-slate-50 text-slate-800 hover:bg-white hover:shadow-sm disabled:hover:bg-slate-50 disabled:hover:shadow-none'}`}
                 >
                   <Icon className="h-4 w-4" /> {button.label}
                 </button>
@@ -1385,6 +1425,9 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
               <ActionMenu label={t('more')} items={moreMenuItems} />
             )}
           </div>
+          {!canRecordPayment && (
+            <p className="mt-3 text-sm text-amber-700">{t('recordPaymentRequiresRealProject')}</p>
+          )}
           {projectIsArchived && (
             <button onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 sm:w-auto">
               <Trash2 className="h-4 w-4" /> {t('deletePermanently')}
@@ -1772,6 +1815,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         mode="edit"
         lead={currentLead}
         clients={clients}
+        defaultClientLanguage={language}
         onClose={() => setIsEditOpen(false)}
         onSave={(updatedLead) => { if (linkedLeadId) onUpdateLead(linkedLeadId, updatedLead); setIsEditOpen(false) }}
         t={t}

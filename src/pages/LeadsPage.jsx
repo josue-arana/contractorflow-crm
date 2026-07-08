@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Archive, ClipboardList, MoreVertical, Plus, Search, Trash2, Undo2, UserPlus, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
@@ -30,11 +30,13 @@ function isLeadArchived(lead, archivedIds = []) {
   )
 }
 
-export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, t }) {
+export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, onCreateLead, onArchiveLead, onRestoreLead, onDeleteLead, language = 'en', t }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('New Lead')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
+  const [activeLeadActionId, setActiveLeadActionId] = useState('')
+  const leadActionGuardRef = useRef(false)
   const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
@@ -103,44 +105,69 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     setConfirmAction({ mode: 'delete', lead })
   }
 
+  async function runSingleFlightLeadAction(leadId, task) {
+    if (leadActionGuardRef.current) {
+      return false
+    }
+
+    leadActionGuardRef.current = true
+    setActiveLeadActionId(leadId)
+
+    try {
+      const result = await task()
+      return result ?? true
+    } finally {
+      leadActionGuardRef.current = false
+      setActiveLeadActionId('')
+    }
+  }
+
   async function runConfirmAction() {
     if (!confirmAction) return
-    try {
-      if (confirmAction.mode === 'archive') {
-        const response = await dataProvider?.leads?.archive?.(confirmAction.lead.id, { contractorId })
-        if (response?.error) {
-          showToast(response.error.message || t('archiveFailed'), 'error')
-          return
+    await runSingleFlightLeadAction(confirmAction.lead.id, async () => {
+      try {
+        if (confirmAction.mode === 'archive') {
+          const response = await dataProvider?.leads?.archive?.(confirmAction.lead.id, { contractorId })
+          if (response?.error) {
+            showToast(response.error.message || t('archiveFailed'), 'error')
+            return false
+          }
+          onArchiveLead(confirmAction.lead.id)
         }
-        onArchiveLead(confirmAction.lead.id)
-      }
-      if (confirmAction.mode === 'delete') {
-        const response = await dataProvider?.leads?.deletePermanently?.(confirmAction.lead.id, { contractorId })
-        if (response?.error) {
-          showToast(response.error.message || t('deleteFailed'), 'error')
-          return
+        if (confirmAction.mode === 'delete') {
+          const response = await dataProvider?.leads?.deletePermanently?.(confirmAction.lead.id, { contractorId })
+          if (response?.error) {
+            showToast(response.error.message || t('deleteFailed'), 'error')
+            return false
+          }
+          onDeleteLead(confirmAction.lead.id)
         }
-        onDeleteLead(confirmAction.lead.id)
+      } catch (err) {
+        showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
+        return false
+      } finally {
+        setConfirmAction(null)
       }
-    } catch (err) {
-      showToast(err?.message || (confirmAction?.mode === 'delete' ? t('deleteFailed') : t('archiveFailed')), 'error')
-    }
-    setConfirmAction(null)
+      return true
+    })
   }
 
   async function handleRestoreLead(event, leadId) {
     event.stopPropagation()
-
-    try {
-      const response = await dataProvider?.leads?.restore?.(leadId, { contractorId })
-      if (response?.error) {
-        showToast(response.error.message || t('restoreFailed'), 'error')
-        return
+    await runSingleFlightLeadAction(leadId, async () => {
+      try {
+        const response = await dataProvider?.leads?.restore?.(leadId, { contractorId })
+        if (response?.error) {
+          showToast(response.error.message || t('restoreFailed'), 'error')
+          return false
+        }
+        onRestoreLead(leadId)
+      } catch (err) {
+        showToast(err?.message || t('restoreFailed'), 'error')
+        return false
       }
-      onRestoreLead(leadId)
-    } catch (err) {
-      showToast(err?.message || t('restoreFailed'), 'error')
-    }
+      return true
+    })
   }
 
   function openLeadItem(leadId) {
@@ -156,18 +183,21 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
   function renderLeadActions(lead, compact = false) {
     const isArchived = isLeadArchived(lead, archivedIds)
+    const isLeadActionPending = activeLeadActionId === lead.id
     const moreMenuItems = isArchived
       ? [
           {
             id: 'restore-lead',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
+            disabled: isLeadActionPending,
             onClick: (event) => handleRestoreLead(event, lead.id),
           },
           {
             id: 'delete-lead',
             label: t('deletePermanently'),
             icon: <Trash2 className="mr-2 h-4 w-4" />,
+            disabled: isLeadActionPending,
             onClick: () => confirmDelete(lead),
             className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
           },
@@ -177,6 +207,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
             id: 'archive-lead',
             label: t('archive'),
             icon: <Archive className="mr-2 h-4 w-4" />,
+            disabled: isLeadActionPending,
             onClick: () => confirmArchive(lead),
             className: archiveMenuItemClasses,
           },
@@ -189,13 +220,14 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
+          <button disabled={isLeadActionPending} onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewLead')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
             showChevron={!compact}
             buttonClassName={moreButtonClasses}
             items={moreMenuItems}
+            buttonDisabled={isLeadActionPending}
           />
         </div>
       )
@@ -203,13 +235,14 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
 
     return (
       <div className={actionLayoutClasses}>
-        <button onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button>
+        <button disabled={isLeadActionPending} onClick={(event) => { event.stopPropagation(); onViewLead(lead.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewLead')}</button>
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
           showChevron={!compact}
           buttonClassName={moreButtonClasses}
           items={moreMenuItems}
+          buttonDisabled={isLeadActionPending}
         />
       </div>
     )
@@ -342,7 +375,7 @@ export function LeadsPage({ leads, clients = [], archivedIds = [], onViewLead, o
         {filteredLeads.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center"><p className="font-bold text-slate-900">{t('noLeadsFound')}</p><p className="mt-2 text-sm text-slate-500">{t('noLeadsFoundHelp')}</p></div>}
       </section>
 
-      <LeadFormModal isOpen={isCreateOpen} mode="create" clients={clients} onClose={() => setIsCreateOpen(false)} onSave={handleCreateLead} t={t} />
+      <LeadFormModal isOpen={isCreateOpen} mode="create" clients={clients} defaultClientLanguage={language} onClose={() => setIsCreateOpen(false)} onSave={handleCreateLead} t={t} />
       <ConfirmRecordModal
         isOpen={Boolean(confirmAction)}
         mode={confirmAction?.mode}

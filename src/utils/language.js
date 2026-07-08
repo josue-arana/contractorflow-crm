@@ -1,0 +1,128 @@
+export const supportedLanguageCodes = ['en', 'es']
+
+export function normalizeSupportedLanguage(value, fallback = 'en') {
+  if (value === 'es') return 'es'
+  if (value === 'en') return 'en'
+  return fallback === 'es' ? 'es' : 'en'
+}
+
+export function normalizeSupportedLanguageOrEmpty(value) {
+  if (value === 'es') return 'es'
+  if (value === 'en') return 'en'
+  return ''
+}
+
+export function getLanguageLocale(value = 'en') {
+  return normalizeSupportedLanguage(value, 'en') === 'es' ? 'es-ES' : 'en-US'
+}
+
+export function normalizeDocumentLanguageOverride(value) {
+  return normalizeSupportedLanguageOrEmpty(value)
+}
+
+export function readRecordLanguage(record = {}, fallback = 'en') {
+  const explicitLanguage = normalizeSupportedLanguageOrEmpty(
+    record?.clientLanguage
+      || record?.preferredLanguage
+      || record?.preferred_language
+      || record?.language
+      || ''
+  )
+
+  return explicitLanguage || normalizeSupportedLanguage(fallback, 'en')
+}
+
+export function resolvePreferredClientLanguage({
+  client = null,
+  lead = null,
+  userLanguage = 'en',
+  fallback = 'en',
+} = {}) {
+  if (client) {
+    return readRecordLanguage(client, normalizeSupportedLanguage(userLanguage, fallback))
+  }
+
+  if (lead) {
+    return readRecordLanguage(lead, normalizeSupportedLanguage(userLanguage, fallback))
+  }
+
+  return normalizeSupportedLanguage(userLanguage, fallback)
+}
+
+export function resolveClientFacingLanguage({
+  documentLanguage = '',
+  client = null,
+  lead = null,
+  appLanguage = 'en',
+  fallback = 'en',
+} = {}) {
+  const explicitDocumentLanguage = normalizeDocumentLanguageOverride(documentLanguage)
+
+  if (explicitDocumentLanguage) {
+    return explicitDocumentLanguage
+  }
+
+  return resolvePreferredClientLanguage({
+    client,
+    lead,
+    userLanguage: appLanguage,
+    fallback,
+  })
+}
+
+export function normalizeLeadClientLanguageFields(lead = {}, fallback = 'en') {
+  const explicitLanguage = normalizeSupportedLanguageOrEmpty(
+    lead?.clientLanguage
+      || lead?.preferredLanguage
+      || lead?.preferred_language
+      || lead?.language
+      || ''
+  )
+  const clientLanguage = explicitLanguage || (fallback ? normalizeSupportedLanguage(fallback, 'en') : '')
+
+  return {
+    ...lead,
+    ...(clientLanguage ? { clientLanguage } : {}),
+  }
+}
+
+export function normalizeClientPreferredLanguageFields(client = {}, fallback = 'en') {
+  const explicitLanguage = normalizeSupportedLanguageOrEmpty(
+    client?.preferredLanguage
+      || client?.preferred_language
+      || client?.clientLanguage
+      || client?.language
+      || ''
+  )
+  const preferredLanguage = explicitLanguage || (fallback ? normalizeSupportedLanguage(fallback, 'en') : '')
+
+  return {
+    ...client,
+    ...(preferredLanguage ? {
+      preferredLanguage,
+      preferred_language: client?.preferred_language ?? preferredLanguage,
+      language: client?.language ?? preferredLanguage,
+    } : {}),
+  }
+}
+
+export function buildLanguageOptions(t) {
+  return [
+    { value: 'en', label: `🇺🇸 ${t('english')}` },
+    { value: 'es', label: `🇪🇸 ${t('spanish')}` },
+  ]
+}
+
+export default {
+  buildLanguageOptions,
+  getLanguageLocale,
+  normalizeClientPreferredLanguageFields,
+  normalizeDocumentLanguageOverride,
+  normalizeLeadClientLanguageFields,
+  normalizeSupportedLanguage,
+  normalizeSupportedLanguageOrEmpty,
+  readRecordLanguage,
+  resolveClientFacingLanguage,
+  resolvePreferredClientLanguage,
+  supportedLanguageCodes,
+}

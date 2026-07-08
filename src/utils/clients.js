@@ -1,3 +1,5 @@
+import { normalizeClientPreferredLanguageFields, readRecordLanguage } from './language'
+
 export function getClientSlug(name = '') {
   return String(name)
     .toLowerCase()
@@ -6,16 +8,39 @@ export function getClientSlug(name = '') {
     .replace(/^-+|-+$/g, '')
 }
 
+export function findRelatedClient(clients = [], record = {}) {
+  const recordClientId = String(record?.clientId || record?.client_id || '').trim()
+  const recordClientSlug = getClientSlug(
+    record?.client || record?.clientName || record?.customerName || record?.name || record?.displayName || ''
+  )
+
+  if (!recordClientId && !recordClientSlug) {
+    return null
+  }
+
+  return clients.find((client) => {
+    const clientId = String(client?.id || '').trim()
+    const clientSlug = getClientSlug(client?.name || client?.displayName || clientId)
+
+    return Boolean(
+      (recordClientId && clientId && clientId === recordClientId)
+      || (recordClientSlug && clientSlug === recordClientSlug)
+    )
+  }) || null
+}
+
 export function buildClientProfiles(leads = [], customClients = []) {
   const clientMap = new Map()
   const slugToClientId = new Map()
 
   customClients.forEach((client) => {
+    const normalizedClient = normalizeClientPreferredLanguageFields(client)
     const id = client.id || getClientSlug(client.name)
     const slug = getClientSlug(client.name || id)
     const archivedAt = client.archivedAt || client.archived_at || null
     const isArchived = Boolean(client.isArchived || archivedAt)
     clientMap.set(id, {
+      ...normalizedClient,
       id,
       name: client.name || 'Unknown Client',
       displayName: client.displayName || client.name || 'Unknown Client',
@@ -24,7 +49,7 @@ export function buildClientProfiles(leads = [], customClients = []) {
       phone: client.phone || '(410) 555-0100',
       email: client.email || '',
       address: client.address || 'Address not added',
-      preferredLanguage: client.preferredLanguage || client.preferred_language || client.language || 'en',
+      preferredLanguage: normalizedClient.preferredLanguage,
       latestProjectStatus: client.latestProjectStatus || 'Lead',
       projectCount: 0,
       totalProjectValue: 0,
@@ -74,14 +99,21 @@ export function buildClientProfiles(leads = [], customClients = []) {
       if (!existing.phone && lead.phone) existing.phone = lead.phone
       if (!existing.email && lead.email) existing.email = lead.email
       if (!existing.address && lead.address) existing.address = lead.address
+      if (!existing.preferredLanguage && lead.clientLanguage) {
+        existing.preferredLanguage = readRecordLanguage(lead)
+      }
       if (lead.nextStep) existing.notes = [...new Set([...(existing.notes || []), lead.nextStep])]
     } else {
+      const preferredLanguage = readRecordLanguage(lead)
       clientMap.set(clientKey, {
         id: clientKey,
         name,
         phone: lead.phone || '(410) 555-0100',
         email: lead.email || '',
         address: lead.address || lead.location || 'Address not added',
+        preferredLanguage,
+        preferred_language: preferredLanguage,
+        language: preferredLanguage,
         latestProjectStatus: projectRecord.latestStatus || lead.status,
         projectCount: 1,
         totalProjectValue: contractAmount,

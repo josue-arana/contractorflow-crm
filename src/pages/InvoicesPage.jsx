@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Archive, CheckCircle2, Clock, DollarSign, FileText, MoreVertical, Send, Trash2, Undo2, XCircle } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
 import { StatusBadge } from '../components/ui/StatusBadge'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
-import { tStatus } from '../translations'
+import { createTranslator, tStatus } from '../translations'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import ActionMenu from '../components/common/ActionMenu'
@@ -17,6 +17,8 @@ import { getInvoicesContractorId } from '../services/system/invoicesRuntimeServi
 import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
 import invoicesHeroBackground from '../assets/page-heroes/invoices-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
+import { findRelatedClient } from '../utils/clients'
+import { getLanguageLocale, resolveClientFacingLanguage } from '../utils/language'
 
 const invoiceFilters = ['All', 'Archived', 'Draft', 'Sent', 'Paid', 'Overdue', 'Canceled']
 
@@ -24,10 +26,27 @@ function remainingBalance(invoice) {
   return Math.max((invoice.amount || 0) - (invoice.amountPaid || 0), 0)
 }
 
-export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, onInvoiceSent, t }) {
+function formatLocalizedInvoiceDate(value, language = 'en') {
+  if (!value) return ''
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(getLanguageLocale(language), {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+export function InvoicesPage({ leads, clients = [], invoices: invoiceRecords = [], archivedIds = [], deletedIds = [], onViewInvoice, onRecordPayment, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, onInvoiceSent, t, appLanguage = 'en' }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [sendInvoice, setSendInvoice] = useState(null)
+  const [activeInvoiceActionId, setActiveInvoiceActionId] = useState('')
+  const invoiceActionGuardRef = useRef(false)
   const { showToast } = useToast()
   const { isAnalyticsMode } = useAnalyticsMode()
   const { contractor, company, session } = useAuth()
@@ -42,6 +61,25 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
       remainingBalance: remainingBalance(invoice),
     }
   }), [invoiceRecords, leads, t, deletedIds])
+  const sendInvoiceLead = useMemo(
+    () => (sendInvoice ? findRelatedLeadForInvoice(leads, sendInvoice) : null),
+    [leads, sendInvoice]
+  )
+  const sendInvoiceClient = useMemo(
+    () => (sendInvoice ? findRelatedClient(clients, sendInvoiceLead || sendInvoice) : null),
+    [clients, sendInvoice, sendInvoiceLead]
+  )
+  const sendInvoiceLanguage = useMemo(() => resolveClientFacingLanguage({
+    documentLanguage: sendInvoice?.invoiceLanguage,
+    client: sendInvoiceClient,
+    lead: sendInvoiceLead,
+    appLanguage,
+  }), [appLanguage, sendInvoice?.invoiceLanguage, sendInvoiceClient, sendInvoiceLead])
+  const sendInvoiceT = useMemo(() => createTranslator(sendInvoiceLanguage), [sendInvoiceLanguage])
+  const sendInvoiceDueDate = useMemo(
+    () => formatLocalizedInvoiceDate(sendInvoice?.dueDate, sendInvoiceLanguage),
+    [sendInvoice?.dueDate, sendInvoiceLanguage]
+  )
 
   const activeInvoices = invoices.filter((invoice) => !archivedIds.includes(invoice.id))
   const filteredInvoices = selectedFilter === 'All'
@@ -69,55 +107,79 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
 
   async function runConfirmAction() {
     if (!confirmAction) return
+    await runSingleFlightInvoiceAction(confirmAction.invoice.id, async () => {
+      try {
+        if (confirmAction.mode === 'archive') {
+          const response = await dataProvider.invoices.archive(confirmAction.invoice.id, { contractorId })
+          if (response?.error) {
+            throw new Error(response.error.message || t('archiveFailed'))
+          }
+          onArchiveInvoice(confirmAction.invoice.id)
+        }
+        if (confirmAction.mode === 'delete') {
+          const response = await dataProvider.invoices.deletePermanently(confirmAction.invoice.id, { contractorId })
+          if (response?.error) {
+            throw new Error(response.error.message || t('deleteFailed'))
+          }
+          onDeleteInvoice(confirmAction.invoice.id)
+        }
+      } catch (err) {
+        console.warn('Invoice action failed', err)
+        showToast(err?.message || t(confirmAction?.mode === 'delete' ? 'deleteFailed' : 'archiveFailed'), 'error')
+      } finally {
+        setConfirmAction(null)
+      }
+    })
+  }
+
+  async function runSingleFlightInvoiceAction(invoiceId, task) {
+    if (invoiceActionGuardRef.current) {
+      return false
+    }
+
+    invoiceActionGuardRef.current = true
+    setActiveInvoiceActionId(invoiceId)
+
     try {
-      if (confirmAction.mode === 'archive') {
-        const response = await dataProvider.invoices.archive(confirmAction.invoice.id, { contractorId })
-        if (response?.error) {
-          throw new Error(response.error.message || t('archiveFailed'))
-        }
-        onArchiveInvoice(confirmAction.invoice.id)
-      }
-      if (confirmAction.mode === 'delete') {
-        const response = await dataProvider.invoices.deletePermanently(confirmAction.invoice.id, { contractorId })
-        if (response?.error) {
-          throw new Error(response.error.message || t('deleteFailed'))
-        }
-        onDeleteInvoice(confirmAction.invoice.id)
-      }
-    } catch (err) {
-      console.warn('Invoice action failed', err)
-      showToast(err?.message || t(confirmAction?.mode === 'delete' ? 'deleteFailed' : 'archiveFailed'), 'error')
+      const result = await task()
+      return result ?? true
     } finally {
-      setConfirmAction(null)
+      invoiceActionGuardRef.current = false
+      setActiveInvoiceActionId('')
     }
   }
 
   function renderInvoiceActions(invoice, compact = false) {
     const isArchived = archivedIds.includes(invoice.id)
+    const isInvoiceActionPending = activeInvoiceActionId === invoice.id
     const moreMenuItems = isArchived
       ? [
           {
             id: 'restore-invoice',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
+            disabled: isInvoiceActionPending,
             onClick: async (event) => {
               event.stopPropagation()
-              try {
-                const response = await dataProvider.invoices.restore(invoice.id, { contractorId })
-                if (response?.error) {
-                  throw new Error(response.error.message || t('restoreFailed'))
+              await runSingleFlightInvoiceAction(invoice.id, async () => {
+                try {
+                  const response = await dataProvider.invoices.restore(invoice.id, { contractorId })
+                  if (response?.error) {
+                    throw new Error(response.error.message || t('restoreFailed'))
+                  }
+                  onRestoreInvoice(invoice.id)
+                } catch (error) {
+                  console.warn('Restore invoice failed', error)
+                  showToast(error?.message || t('restoreFailed'), 'error')
                 }
-                onRestoreInvoice(invoice.id)
-              } catch (error) {
-                console.warn('Restore invoice failed', error)
-                showToast(error?.message || t('restoreFailed'), 'error')
-              }
+              })
             },
           },
           {
             id: 'delete-invoice',
             label: t('deletePermanently'),
             icon: <Trash2 className="mr-2 h-4 w-4" />,
+            disabled: isInvoiceActionPending,
             onClick: () => confirmDelete(invoice),
             className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
           },
@@ -127,6 +189,7 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
             id: 'archive-invoice',
             label: t('archive'),
             icon: <Archive className="mr-2 h-4 w-4" />,
+            disabled: isInvoiceActionPending,
             onClick: () => confirmArchive(invoice),
             className: archiveMenuItemClasses,
           },
@@ -141,28 +204,30 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
+          <button disabled={isInvoiceActionPending} onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewInvoice')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
             showChevron={!compact}
             buttonClassName={moreButtonClasses}
             items={moreMenuItems}
+            buttonDisabled={isInvoiceActionPending}
           />
         </div>
       )
     }
     return (
       <div className={actionLayoutClasses}>
-        <button onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewInvoice')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
-        <button onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
+        <button disabled={isInvoiceActionPending} onClick={(event) => { event.stopPropagation(); onViewInvoice(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewInvoice')}</button>
+        <button disabled={isInvoiceActionPending} onClick={(event) => { event.stopPropagation(); onRecordPayment(invoice.id) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('recordPayment')}</button>
+        <button disabled={isInvoiceActionPending} onClick={(event) => { event.stopPropagation(); setSendInvoice(invoice) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
           showChevron={!compact}
           buttonClassName={moreButtonClasses}
           items={moreMenuItems}
+          buttonDisabled={isInvoiceActionPending}
         />
       </div>
     )
@@ -265,28 +330,32 @@ export function InvoicesPage({ leads, invoices: invoiceRecords = [], archivedIds
         documentType="invoice"
         customer={{
           name: sendInvoice?.client,
-          phone: findRelatedLeadForInvoice(leads, sendInvoice || {})?.phone,
-          email: findRelatedLeadForInvoice(leads, sendInvoice || {})?.email,
+          phone: sendInvoiceLead?.phone,
+          email: sendInvoiceLead?.email,
         }}
         projectTitle={sendInvoice?.projectTitle || ''}
         amountLabel={t('amountDue')}
         amountValue={currency.format(sendInvoice?.remainingBalance ?? 0)}
-        dueDate={sendInvoice?.dueDate || ''}
+        dueDate={sendInvoiceDueDate}
         onClose={() => setSendInvoice(null)}
         onSent={async () => {
-          try {
-            const response = await dataProvider.invoices.update(sendInvoice.id, { status: 'Sent' }, { contractorId })
-            if (response?.error) {
-              throw new Error(response.error.message || t('invoiceSaveFailed'))
+          return runSingleFlightInvoiceAction(sendInvoice.id, async () => {
+            try {
+              const response = await dataProvider.invoices.update(sendInvoice.id, { status: 'Sent' }, { contractorId })
+              if (response?.error) {
+                throw new Error(response.error.message || t('invoiceSaveFailed'))
+              }
+              onInvoiceSent?.(sendInvoice?.id)
+            } catch (err) {
+              console.warn('Mark invoice sent failed', err)
+              showToast(err?.message || t('invoiceSaveFailed'), 'error')
+              return false
             }
-          } catch (err) {
-            console.warn('Mark invoice sent failed', err)
-            showToast(err?.message || t('invoiceSaveFailed'), 'error')
-            return
-          }
-          onInvoiceSent?.(sendInvoice?.id)
+            return true
+          })
         }}
         t={t}
+        contentT={sendInvoiceT}
       />
     </div>
   )

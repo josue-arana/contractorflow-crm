@@ -15,6 +15,9 @@ import { useAuth } from '../contexts/AuthContext'
 import { getInvoicesContractorId } from '../services/system/invoicesRuntimeService'
 import { getPaymentsContractorId } from '../services/system/paymentsRuntimeService'
 import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
+import { createTranslator } from '../translations'
+import { findRelatedClient } from '../utils/clients'
+import { getLanguageLocale, resolveClientFacingLanguage } from '../utils/language'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -27,7 +30,31 @@ function calculateInvoiceTotal(lineItems = []) {
   return lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
 }
 
-export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invoicesLoaded = false, archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t }) {
+function formatLocalizedInvoiceDate(value, language = 'en') {
+  if (!value) return ''
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(value)
+  }
+
+  return parsedDate.toLocaleDateString(getLanguageLocale(language), {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function translateInvoiceStatus(status, t) {
+  if (status === 'Paid') return t('paid')
+  if (status === 'Partially Paid') return t('partiallyPaid')
+  if (status === 'Sent') return t('sent')
+  if (status === 'Overdue') return t('overdue')
+  if (status === 'Canceled' || status === 'Cancelled') return t('canceled')
+  return t('draft')
+}
+
+export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoices = [], invoicesLoaded = false, archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t, appLanguage = 'en' }) {
   const { invoiceId } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
@@ -41,16 +68,34 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
   const [successMessage, setSuccessMessage] = useState('')
   const [isSavingInvoice, setIsSavingInvoice] = useState(false)
   const invoiceSaveGuardRef = useRef(false)
+  const [isRunningInvoiceAction, setIsRunningInvoiceAction] = useState(false)
+  const [activeInvoiceAction, setActiveInvoiceAction] = useState('')
+  const invoiceActionGuardRef = useRef(false)
   const [routeInvoice, setRouteInvoice] = useState(null)
   const [routeInvoiceState, setRouteInvoiceState] = useState({ loading: false, error: '' })
   const invoice = invoices.find((item) => item.id === invoiceId && !deletedIds.includes(item.id))
   const resolvedInvoice = invoice || routeInvoice
   const lead = resolvedInvoice ? findRelatedLeadForInvoice(leads, resolvedInvoice) : null
+  const clientRecord = useMemo(
+    () => findRelatedClient(clients, lead || resolvedInvoice || {}),
+    [clients, lead, resolvedInvoice]
+  )
   const [draftInvoice, setDraftInvoice] = useState(resolvedInvoice || null)
 
   const syncedInvoice = useMemo(() => (
     resolvedInvoice ? { ...resolvedInvoice, ...draftInvoice, id: resolvedInvoice.id } : null
   ), [resolvedInvoice, draftInvoice])
+  const invoiceOutputLanguage = useMemo(() => resolveClientFacingLanguage({
+    documentLanguage: syncedInvoice?.invoiceLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  }), [appLanguage, clientRecord, lead, syncedInvoice?.invoiceLanguage])
+  const invoiceT = useMemo(() => createTranslator(invoiceOutputLanguage), [invoiceOutputLanguage])
+  const localizedDueDate = useMemo(
+    () => formatLocalizedInvoiceDate(syncedInvoice?.dueDate, invoiceOutputLanguage),
+    [invoiceOutputLanguage, syncedInvoice?.dueDate]
+  )
 
   useEffect(() => {
     setDraftInvoice(resolvedInvoice || null)
@@ -131,6 +176,26 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
   const clientPhone = lead?.phone || t('notAvailable')
   const paymentHistory = currentInvoice.paymentHistory || []
   const displayCompany = companySettings?.company || contractorCompany
+  const isInvoiceActionPending = isSavingInvoice || isRunningInvoiceAction
+
+  async function runSingleFlightInvoiceAction(actionKey, task) {
+    if (invoiceActionGuardRef.current) {
+      return false
+    }
+
+    invoiceActionGuardRef.current = true
+    setIsRunningInvoiceAction(true)
+    setActiveInvoiceAction(actionKey)
+
+    try {
+      const result = await task()
+      return result ?? true
+    } finally {
+      invoiceActionGuardRef.current = false
+      setIsRunningInvoiceAction(false)
+      setActiveInvoiceAction('')
+    }
+  }
 
   function updateDraft(field, value) {
     setDraftInvoice((current) => ({ ...current, [field]: value }))
@@ -229,60 +294,16 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
       setConfirmAction({ mode: 'markPaid' })
       return
     }
-    const paymentEntry = {
-      id: `payment-${Date.now()}`,
-      amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0),
-      date: new Date().toISOString().slice(0, 10),
-      method: 'Other',
-      type: 'Final Payment',
-      notes: 'Marked as paid.',
-    }
-    try {
-      const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
-      if (paymentResponse?.error) {
-        throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
+    await runSingleFlightInvoiceAction('markPaid', async () => {
+      const paymentEntry = {
+        id: `payment-${Date.now()}`,
+        amount: Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0),
+        date: new Date().toISOString().slice(0, 10),
+        method: 'Other',
+        type: 'Final Payment',
+        notes: 'Marked as paid.',
       }
-
-      const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
-      const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' }, { contractorId: invoicesContractorId })
-
-      if (invoiceResponse?.error) {
-        throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
-      }
-
-      if (invoiceResponse?.data?.id) {
-        onUpdateInvoice?.(invoiceResponse.data.id, invoiceResponse.data)
-      }
-
-      onMarkInvoicePaid?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
-    } catch (err) {
-      console.warn('Mark paid failed', err)
-      showToast(err?.message || t('invoiceSaveFailed'), 'error')
-      return
-    }
-    setSuccessMessage(t('invoiceMarkedPaid'))
-    window.setTimeout(() => setSuccessMessage(''), 2500)
-  }
-
-  async function runConfirmAction() {
-    try {
-      if (confirmAction?.mode === 'archive') {
-        const response = await dataProvider.invoices.archive(currentInvoice.id, { contractorId: invoicesContractorId })
-        if (response?.error) {
-          throw new Error(response.error.message || t('archiveFailed'))
-        }
-        onArchiveInvoice?.(currentInvoice.id)
-      }
-      if (confirmAction?.mode === 'delete') {
-        const response = await dataProvider.invoices.deletePermanently(currentInvoice.id, { contractorId: invoicesContractorId })
-        if (response?.error) {
-          throw new Error(response.error.message || t('deleteFailed'))
-        }
-        onDeleteInvoice?.(currentInvoice.id)
-        navigate('/invoices')
-      }
-      if (confirmAction?.mode === 'markPaid') {
-        const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+      try {
         const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
         if (paymentResponse?.error) {
           throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
@@ -290,6 +311,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
 
         const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
         const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' }, { contractorId: invoicesContractorId })
+
         if (invoiceResponse?.error) {
           throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
         }
@@ -301,26 +323,76 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
         onMarkInvoicePaid?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
         setSuccessMessage(t('invoiceMarkedPaid'))
         window.setTimeout(() => setSuccessMessage(''), 2500)
+      } catch (err) {
+        console.warn('Mark paid failed', err)
+        showToast(err?.message || t('invoiceSaveFailed'), 'error')
       }
-    } catch (err) {
-      console.warn('Confirm invoice action failed', err)
-      showToast(err?.message || t(confirmAction?.mode === 'delete' ? 'deleteFailed' : confirmAction?.mode === 'archive' ? 'archiveFailed' : 'invoiceSaveFailed'), 'error')
-    } finally {
-      setConfirmAction(null)
-    }
+    })
+  }
+
+  async function runConfirmAction() {
+    const actionMode = confirmAction?.mode || ''
+
+    await runSingleFlightInvoiceAction(actionMode || 'confirm', async () => {
+      try {
+        if (actionMode === 'archive') {
+          const response = await dataProvider.invoices.archive(currentInvoice.id, { contractorId: invoicesContractorId })
+          if (response?.error) {
+            throw new Error(response.error.message || t('archiveFailed'))
+          }
+          onArchiveInvoice?.(currentInvoice.id)
+        }
+        if (actionMode === 'delete') {
+          const response = await dataProvider.invoices.deletePermanently(currentInvoice.id, { contractorId: invoicesContractorId })
+          if (response?.error) {
+            throw new Error(response.error.message || t('deleteFailed'))
+          }
+          onDeleteInvoice?.(currentInvoice.id)
+          navigate('/invoices')
+        }
+        if (actionMode === 'markPaid') {
+          const paymentEntry = { id: `payment-${Date.now()}`, amount: Math.max(Number(currentInvoice.amount || 0) - Number(currentInvoice.amountPaid || 0), 0), date: new Date().toISOString().slice(0, 10), method: 'Other', type: 'Final Payment', notes: 'Marked as paid.' }
+          const paymentResponse = await dataProvider.payments.create({ ...paymentEntry, clientId: lead?.clientId || null, invoiceId: currentInvoice.id, leadId: lead?.id, projectId: currentInvoice.projectId }, { contractorId })
+          if (paymentResponse?.error) {
+            throw new Error(paymentResponse.error.message || t('paymentSaveFailed'))
+          }
+
+          const nextPaymentHistory = [paymentEntry, ...(currentInvoice.paymentHistory || [])]
+          const invoiceResponse = await dataProvider.invoices.update(currentInvoice.id, { amountPaid: Number(currentInvoice.amount || 0), paymentHistory: nextPaymentHistory, status: 'Paid' }, { contractorId: invoicesContractorId })
+          if (invoiceResponse?.error) {
+            throw new Error(invoiceResponse.error.message || t('invoiceSaveFailed'))
+          }
+
+          if (invoiceResponse?.data?.id) {
+            onUpdateInvoice?.(invoiceResponse.data.id, invoiceResponse.data)
+          }
+
+          onMarkInvoicePaid?.(currentInvoice.id, paymentResponse?.data || paymentEntry)
+          setSuccessMessage(t('invoiceMarkedPaid'))
+          window.setTimeout(() => setSuccessMessage(''), 2500)
+        }
+      } catch (err) {
+        console.warn('Confirm invoice action failed', err)
+        showToast(err?.message || t(actionMode === 'delete' ? 'deleteFailed' : actionMode === 'archive' ? 'archiveFailed' : 'invoiceSaveFailed'), 'error')
+      } finally {
+        setConfirmAction(null)
+      }
+    })
   }
 
   async function restoreInvoice() {
-    try {
-      const response = await dataProvider.invoices.restore(currentInvoice.id, { contractorId: invoicesContractorId })
-      if (response?.error) {
-        throw new Error(response.error.message || t('restoreFailed'))
+    await runSingleFlightInvoiceAction('restore', async () => {
+      try {
+        const response = await dataProvider.invoices.restore(currentInvoice.id, { contractorId: invoicesContractorId })
+        if (response?.error) {
+          throw new Error(response.error.message || t('restoreFailed'))
+        }
+        onRestoreInvoice?.(currentInvoice.id)
+      } catch (error) {
+        console.warn('Restore invoice failed', error)
+        showToast(error?.message || t('restoreFailed'), 'error')
       }
-      onRestoreInvoice?.(currentInvoice.id)
-    } catch (error) {
-      console.warn('Restore invoice failed', error)
-      showToast(error?.message || t('restoreFailed'), 'error')
-    }
+    })
   }
 
   const moreMenuItems = isArchived
@@ -329,12 +401,14 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
           id: 'restore-invoice',
           label: t('restore'),
           icon: <Undo2 className="mr-2 h-4 w-4" />,
+          disabled: isInvoiceActionPending,
           onClick: restoreInvoice,
         },
         {
           id: 'delete-invoice',
           label: t('deletePermanently'),
           icon: <Trash2 className="mr-2 h-4 w-4" />,
+          disabled: isInvoiceActionPending,
           onClick: () => setConfirmAction({ mode: 'delete' }),
           className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
         },
@@ -344,6 +418,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
           id: 'archive-invoice',
           label: t('archive'),
           icon: <Archive className="mr-2 h-4 w-4" />,
+          disabled: isInvoiceActionPending,
           onClick: () => setConfirmAction({ mode: 'archive' }),
           className: archiveMenuItemClasses,
         },
@@ -380,17 +455,18 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
                 <p className="text-sm text-slate-500">{t('invoiceDetailHelp')}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button disabled={isSavingInvoice} onClick={saveInvoice} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingInvoice ? t('saving') : t('saveInvoice')}</button>
+                <button disabled={isInvoiceActionPending} onClick={saveInvoice} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingInvoice ? t('saving') : t('saveInvoice')}</button>
                 <button onClick={() => setShowPreview(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('previewPdf')}</button>
-                <button onClick={() => setShowPaymentModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('recordPayment')}</button>
-                <button onClick={confirmMarkPaid} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100">{t('markAsPaid')}</button>
-                <button onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
+                <button disabled={isInvoiceActionPending} onClick={() => setShowPaymentModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('recordPayment')}</button>
+                <button disabled={isInvoiceActionPending} onClick={confirmMarkPaid} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">{activeInvoiceAction === 'markPaid' ? t('saving') : t('markAsPaid')}</button>
+                <button disabled={isInvoiceActionPending} onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{activeInvoiceAction === 'send' ? t('saving') : t('sendToCustomer')}</button>
                 <ActionMenu
                   label={t('more')}
                   ariaLabel={t('more')}
                   showChevron
                   buttonClassName="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
                   items={moreMenuItems}
+                  buttonDisabled={isInvoiceActionPending}
                 />
               </div>
             </div>
@@ -465,7 +541,7 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
       </section>
 
       <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode === 'delete' ? 'delete' : 'archive'} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : confirmAction?.mode === 'markPaid' ? t('confirmMarkAsPaid') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : confirmAction?.mode === 'markPaid' ? t('markAsPaidHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : confirmAction?.mode === 'markPaid' ? t('markAsPaid') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
-      <InvoicePreviewModal isOpen={showPreview} invoice={currentInvoice} lead={lead} contractorCompany={displayCompany} onClose={() => setShowPreview(false)} t={t} />
+      <InvoicePreviewModal isOpen={showPreview} invoice={currentInvoice} lead={lead} contractorCompany={displayCompany} onClose={() => setShowPreview(false)} t={t} contentT={invoiceT} language={invoiceOutputLanguage} />
       <RecordPaymentModal isOpen={showPaymentModal} remainingBalance={balance} onClose={() => setShowPaymentModal(false)} onSave={savePayment} t={t} />
       <SendToCustomerModal
         isOpen={showSendModal}
@@ -474,25 +550,29 @@ export function InvoiceDetailRoute({ companySettings, leads, invoices = [], invo
         projectTitle={currentInvoice.projectTitle}
         amountLabel={t('amountDue')}
         amountValue={currency.format(balance)}
-        dueDate={currentInvoice.dueDate}
+        dueDate={localizedDueDate}
         onClose={() => setShowSendModal(false)}
         onSent={async () => {
-          try {
-            const response = await dataProvider.invoices.update(currentInvoice.id, { status: 'Sent' }, { contractorId: invoicesContractorId })
-            if (response?.error) {
-              throw new Error(response.error.message || t('invoiceSaveFailed'))
+          return runSingleFlightInvoiceAction('send', async () => {
+            try {
+              const response = await dataProvider.invoices.update(currentInvoice.id, { status: 'Sent' }, { contractorId: invoicesContractorId })
+              if (response?.error) {
+                throw new Error(response.error.message || t('invoiceSaveFailed'))
+              }
+              if (response?.data?.id) {
+                onUpdateInvoice?.(response.data.id, response.data)
+              }
+              onInvoiceSent?.(currentInvoice.id)
+            } catch (err) {
+              console.warn('Mark invoice sent failed', err)
+              showToast(err?.message || t('invoiceSaveFailed'), 'error')
+              return false
             }
-            if (response?.data?.id) {
-              onUpdateInvoice?.(response.data.id, response.data)
-            }
-          } catch (err) {
-            console.warn('Mark invoice sent failed', err)
-            showToast(err?.message || t('invoiceSaveFailed'), 'error')
-            return
-          }
-          onInvoiceSent?.(currentInvoice.id)
+            return true
+          })
         }}
         t={t}
+        contentT={invoiceT}
       />
     </div>
   )
@@ -510,10 +590,11 @@ function SummaryRow({ label, value, strong = false }) {
   return <div className="flex items-center justify-between gap-3"><span className="text-slate-500">{label}</span><span className={strong ? 'text-lg font-bold text-slate-950' : 'font-bold text-slate-800'}>{value}</span></div>
 }
 
-function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose, t }) {
+function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose, t, contentT, language = 'en' }) {
   if (!isOpen) return null
   const subtotal = calculateInvoiceTotal(invoice.lineItems || []) || Number(invoice.amount || 0)
   const balance = getRemainingBalance({ ...invoice, amount: subtotal })
+  const localizedDueDate = formatLocalizedInvoiceDate(invoice.dueDate, language)
   return (
     <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-3xl sm:p-8">
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -523,12 +604,12 @@ function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose
       <div className="rounded-2xl border border-slate-200 p-5">
         <div className="grid gap-5 sm:grid-cols-2">
           <div><h3 className="font-bold text-slate-950">{contractorCompany.name}</h3><p className="text-sm text-slate-600">{contractorCompany.phone}</p><p className="text-sm text-slate-600">{contractorCompany.email}</p><p className="text-sm text-slate-600">{contractorCompany.address}</p></div>
-          <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('billTo')}</p><h3 className="font-bold text-slate-950">{invoice.client}</h3><p className="text-sm text-slate-600">{lead?.phone}</p><p className="text-sm text-slate-600">{lead?.email}</p><p className="text-sm text-slate-600">{lead?.address || lead?.location}</p></div>
+          <div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('billTo')}</p><h3 className="font-bold text-slate-950">{invoice.client}</h3><p className="text-sm text-slate-600">{lead?.phone}</p><p className="text-sm text-slate-600">{lead?.email}</p><p className="text-sm text-slate-600">{lead?.address || lead?.location}</p></div>
         </div>
-        <div className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-3"><SummaryRow label={t('projectTitle')} value={invoice.projectTitle} /><SummaryRow label={t('dueDate')} value={invoice.dueDate} /><SummaryRow label={t('status')} value={invoice.status} /></div>
-        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200"><div className="grid grid-cols-[1fr_120px] bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500"><span>{t('description')}</span><span className="text-right">{t('amount')}</span></div>{(invoice.lineItems || []).map((item, index) => <div key={index} className="grid grid-cols-[1fr_120px] px-4 py-3 text-sm"><span>{item.description}</span><span className="text-right font-bold">{currency.format(item.amount)}</span></div>)}</div>
-        <div className="mt-6 ml-auto max-w-sm space-y-2 text-sm"><SummaryRow label={t('subtotal')} value={currency.format(subtotal)} /><SummaryRow label={t('paymentsReceived')} value={currency.format(invoice.amountPaid)} /><SummaryRow label={t('remainingBalance')} value={currency.format(balance)} strong /></div>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('paymentTerms')}</p><p className="mt-2 text-sm text-slate-700">{invoice.paymentTerms}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('notes')}</p><p className="mt-2 text-sm text-slate-700">{invoice.notes}</p></div></div>
+        <div className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-3"><SummaryRow label={contentT('projectTitle')} value={invoice.projectTitle} /><SummaryRow label={contentT('dueDate')} value={localizedDueDate || invoice.dueDate} /><SummaryRow label={contentT('status')} value={translateInvoiceStatus(invoice.status, contentT)} /></div>
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200"><div className="grid grid-cols-[1fr_120px] bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500"><span>{contentT('description')}</span><span className="text-right">{contentT('amount')}</span></div>{(invoice.lineItems || []).map((item, index) => <div key={index} className="grid grid-cols-[1fr_120px] px-4 py-3 text-sm"><span>{item.description}</span><span className="text-right font-bold">{currency.format(item.amount)}</span></div>)}</div>
+        <div className="mt-6 ml-auto max-w-sm space-y-2 text-sm"><SummaryRow label={contentT('subtotal')} value={currency.format(subtotal)} /><SummaryRow label={contentT('paymentsReceived')} value={currency.format(invoice.amountPaid)} /><SummaryRow label={contentT('remainingBalance')} value={currency.format(balance)} strong /></div>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('paymentTerms')}</p><p className="mt-2 text-sm text-slate-700">{invoice.paymentTerms}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('notes')}</p><p className="mt-2 text-sm text-slate-700">{invoice.notes}</p></div></div>
       </div>
     </ModalShell>
   )

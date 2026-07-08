@@ -1,4 +1,5 @@
 import { USE_AUTH } from '../../config/backendConfig'
+import { normalizeSupportedLanguage } from '../../utils/language'
 
 function getEmailLocalPart(email = '') {
   if (!email || typeof email !== 'string') return ''
@@ -91,7 +92,10 @@ export function buildDisplayedUserProfile({
     name,
     email,
     phone: contractorAccess?.contractorRecord?.phone || profileOverrides?.phone || '',
-    preferredLanguage: profileOverrides?.preferredLanguage || 'en',
+    preferredLanguage: normalizeSupportedLanguage(
+      profileOverrides?.preferredLanguage || contractorAccess?.membership?.preferred_language,
+      'en'
+    ),
     timezone: profileOverrides?.timezone || 'America/New_York',
     source,
   }

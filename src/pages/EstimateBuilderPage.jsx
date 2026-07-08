@@ -21,6 +21,8 @@ import { downloadEstimatePdf } from '../utils/estimatePdf'
 import { printDocumentElement } from '../utils/printDocument'
 import { createTranslator } from '../translations'
 import { findLeadByProjectLookup } from '../utils/projectIdentity'
+import { findRelatedClient } from '../utils/clients'
+import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -97,14 +99,14 @@ function buildEstimateDraftState({ savedEstimate = {}, lead, companySettings, t 
     totalInput: formatAmountInputValue(savedEstimate.total ?? lead?.value ?? 0),
     materialsIncluded: defaultMaterialsIncluded,
     paymentTerms: savedEstimate.paymentTerms || companySettings?.defaults?.paymentTerms || t('defaultPaymentTerms'),
-    estimateLanguage: savedEstimate.estimateLanguage || 'match',
+    estimateLanguage: normalizeDocumentLanguageOverride(savedEstimate.estimateLanguage),
     pricingMode: hasSavedLineItems ? detailedPricingMode : simplePricingMode,
     lineItems: hasSavedLineItems ? savedLineItems : defaultLineItems,
     lineItemAmountInputs: (hasSavedLineItems ? savedLineItems : defaultLineItems).map((item) => formatAmountInputValue(item.amount)),
   }
 }
 
-export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
+export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage = 'en', companySettings, isArchived = false, onBack, backLabel, onSaveEstimate, onSendEstimate, onConvert, onSyncContract, onOpenContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const scopeTextareaRef = useRef(null)
@@ -114,9 +116,16 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const lastInitializedOwnerKeyRef = useRef('')
   const portal = getPortalData(lead)
   const savedEstimate = lead.portal?.estimate || portal.estimate || {}
+  const draftEstimateOutputLanguage = useMemo(() => resolveClientFacingLanguage({
+    documentLanguage: savedEstimate?.estimateLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  }), [appLanguage, clientRecord, lead, savedEstimate?.estimateLanguage])
+  const draftEstimateT = useMemo(() => createTranslator(draftEstimateOutputLanguage), [draftEstimateOutputLanguage])
   const initialDraftState = useMemo(
-    () => buildEstimateDraftState({ savedEstimate, lead, companySettings, t }),
-    [companySettings, lead, savedEstimate, t]
+    () => buildEstimateDraftState({ savedEstimate, lead, companySettings, t: draftEstimateT }),
+    [companySettings, draftEstimateT, lead, savedEstimate]
   )
   const [scope, setScope] = useState(initialDraftState.scope)
   const [total, setTotal] = useState(initialDraftState.total)
@@ -131,6 +140,8 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
   const [isEditing, setIsEditing] = useState(true)
   const [isSavingEstimate, setIsSavingEstimate] = useState(false)
   const estimateSaveGuardRef = useRef(false)
+  const [isConvertingEstimate, setIsConvertingEstimate] = useState(false)
+  const estimateConvertGuardRef = useRef(false)
   const [lineItemAmountInputs, setLineItemAmountInputs] = useState(initialDraftState.lineItemAmountInputs)
   const [lineItems, setLineItems] = useState(initialDraftState.lineItems)
   const draftOwnerKey = useMemo(
@@ -153,18 +164,18 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     lineItems: Array.isArray(savedEstimate?.lineItems) ? savedEstimate.lineItems : [],
     companyMaterialsIncluded: companySettings?.defaults?.materialsIncluded ?? null,
     companyPaymentTerms: companySettings?.defaults?.paymentTerms || '',
-    defaultPaymentTermsLabel: t('defaultPaymentTerms'),
-    defaultLaborLabel: t('laborAndProjectSetup'),
-    defaultMaterialsLabel: t('materialsAndFinishWork'),
+    defaultPaymentTermsLabel: draftEstimateT('defaultPaymentTerms'),
+    defaultLaborLabel: draftEstimateT('laborAndProjectSetup'),
+    defaultMaterialsLabel: draftEstimateT('materialsAndFinishWork'),
   }), [
     companySettings?.defaults?.materialsIncluded,
     companySettings?.defaults?.paymentTerms,
+    draftEstimateT,
     lead?.id,
     lead?.projectId,
     lead?.project_id,
     lead?.value,
     savedEstimate,
-    t,
   ])
 
   function markDraftDirty() {
@@ -183,7 +194,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       return
     }
 
-    const nextDraftState = buildEstimateDraftState({ savedEstimate, lead, companySettings, t })
+    const nextDraftState = buildEstimateDraftState({ savedEstimate, lead, companySettings, t: draftEstimateT })
     setScope(nextDraftState.scope)
     setTotal(nextDraftState.total)
     setTotalInput(nextDraftState.totalInput)
@@ -197,21 +208,38 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     lastInitializedSourceKeyRef.current = draftSourceKey
     lastInitializedOwnerKeyRef.current = draftOwnerKey
     draftDirtyRef.current = false
-  }, [companySettings, draftOwnerKey, draftSourceKey, lead, savedEstimate, t])
+  }, [companySettings, draftEstimateT, draftOwnerKey, draftSourceKey, lead, savedEstimate])
 
   const lineTotal = lineItems.reduce((sum, item) => sum + Number(item.amount || 0), 0)
   const isDetailedPricing = pricingMode === detailedPricingMode
   const estimateTotal = Number(isDetailedPricing ? lineTotal : total || 0)
-  const estimateOutputLanguage = estimateLanguage === 'match' ? appLanguage : estimateLanguage
+  const isEstimateActionPending = isSavingEstimate || isConvertingEstimate
+  const estimateOutputLanguage = resolveClientFacingLanguage({
+    documentLanguage: estimateLanguage,
+    client: clientRecord,
+    lead,
+    appLanguage,
+  })
+  const linkedContract = lead?.portal?.contract || portal.contract || {}
+  const linkedContractIsArchived = Boolean(linkedContract?.archivedAt || linkedContract?.archived_at || linkedContract?.isArchived || linkedContract?.archived)
   const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
   const previewEstimateNumber = formatEstimateDisplayNumber(
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
     lead
   )
   const hasLinkedContract = Boolean(
-    lead?.portal?.contract?.id
-    || lead?.portal?.contract?.number
-    || lead?.portal?.contract?.contractNumber
+    !linkedContractIsArchived && (
+      linkedContract?.id
+      || linkedContract?.number
+      || linkedContract?.contractNumber
+    )
+  )
+  const linkedContractIsSigned = Boolean(
+    linkedContract?.status === 'Signed'
+      || linkedContract?.signed
+      || linkedContract?.signedDate
+      || linkedContract?.signedAt
+      || linkedContract?.signed_at
   )
   const previewEstimateDate = useMemo(
     () => (
@@ -235,8 +263,9 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
     paymentTerms,
     total: estimateTotal,
     lineItems: isDetailedPricing ? lineItems : [],
+    language: estimateOutputLanguage,
     t: estimateT,
-  }), [companySettings?.company, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateDate, previewEstimateNumber, scope])
+  }), [companySettings?.company, estimateOutputLanguage, estimateT, estimateTotal, isDetailedPricing, lead, lineItems, materialsIncluded, paymentTerms, previewEstimateDate, previewEstimateNumber, scope])
 
   function getEstimatePayload() {
     return {
@@ -247,7 +276,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       lineItems: isDetailedPricing ? lineItems : [],
       materialsIncluded,
       paymentTerms,
-      estimateLanguage,
+      estimateLanguage: estimateLanguage || '',
       pricingMode,
       updatedAt: new Date().toISOString(),
       status: 'Draft',
@@ -290,6 +319,54 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
       return null
     }
     return result
+  }
+
+  async function handleConvertToContract() {
+    if (hasLinkedContract) {
+      onOpenContract?.()
+      return null
+    }
+
+    if (estimateConvertGuardRef.current) {
+      return null
+    }
+
+    estimateConvertGuardRef.current = true
+    setIsConvertingEstimate(true)
+
+    try {
+      return await onConvert?.(getEstimatePayload())
+    } finally {
+      estimateConvertGuardRef.current = false
+      setIsConvertingEstimate(false)
+    }
+  }
+
+  async function handleSyncContract(force = false) {
+    if (!hasLinkedContract) {
+      return null
+    }
+
+    if (estimateConvertGuardRef.current) {
+      return null
+    }
+
+    estimateConvertGuardRef.current = true
+    setIsConvertingEstimate(true)
+
+    try {
+      const result = await onSyncContract?.(getEstimatePayload(), { force })
+
+      if (result?.blockedReason === 'signed' && !force) {
+        setConfirmAction({ mode: 'sync-contract' })
+        return null
+      }
+
+      return result?.contract || result || null
+    } finally {
+      estimateConvertGuardRef.current = false
+      setIsConvertingEstimate(false)
+    }
   }
 
   function updateLineItem(index, field, value) {
@@ -474,7 +551,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
             <div className="space-y-3">
               <p className="text-sm leading-6 text-slate-500">{t('estimateLanguageHelp')}</p>
               <SelectField value={estimateLanguage} onChange={(event) => { markDraftDirty(); setEstimateLanguage(event.target.value) }} className="bg-slate-50">
-                <option value="match">{t('matchAppLanguage')}</option>
+                <option value="">{t('matchAppLanguage')}</option>
                 <option value="en">{t('english')}</option>
                 <option value="es">{t('spanish')}</option>
               </SelectField>
@@ -661,7 +738,7 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
         <aside className="min-w-0 space-y-4 lg:sticky lg:top-24 lg:self-start">
           <EstimatePreviewCard {...estimatePreviewProps} />
           {!isEditing && (
-            <button onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('editEstimate')}</button>
+            <button disabled={isEstimateActionPending} onClick={() => setIsEditing(true)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('editEstimate')}</button>
           )}
           {isEditing && (
             <button disabled={isSavingEstimate} onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isSavingEstimate ? t('saving') : t('saveEstimate')}</button>
@@ -669,22 +746,30 @@ export function EstimateBuilderPage({ lead, t, appLanguage = 'en', companySettin
           <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
           <button onClick={handleDownloadPdf} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('downloadPdf')}</button>
-          <button onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100">{t('sendToCustomer')}</button>
-          <button onClick={() => (hasLinkedContract ? onOpenContract?.() : onConvert?.(getEstimatePayload()))} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700">{hasLinkedContract ? t('viewEditContract') : t('convertToContract')}</button>
-          {isArchived ? (
+          <button disabled={isEstimateActionPending} onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
+          {hasLinkedContract ? (
             <>
-              <button onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
-              <button onClick={() => setConfirmAction({ mode: 'delete' })} className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-700 hover:bg-red-100"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
+              <button disabled={isEstimateActionPending} onClick={onOpenContract} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('viewContract')}</button>
+              <button disabled={isEstimateActionPending} onClick={() => { if (linkedContractIsSigned) { setConfirmAction({ mode: 'sync-contract' }); return } handleSyncContract(false) }} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isConvertingEstimate ? t('saving') : t('syncContractFromEstimate')}</button>
             </>
           ) : (
-            <button onClick={() => setConfirmAction({ mode: 'archive' })} className={`w-full ${archivePanelButtonClasses}`}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
+            <button disabled={isEstimateActionPending} onClick={handleConvertToContract} className="w-full rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isConvertingEstimate ? t('saving') : t('convertToContract')}</button>
+          )}
+          {isArchived ? (
+            <>
+              <button disabled={isEstimateActionPending} onClick={onRestoreEstimate} className="w-full rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"><Undo2 className="mr-2 inline h-4 w-4" />{t('restore')}</button>
+              <button disabled={isEstimateActionPending} onClick={() => setConfirmAction({ mode: 'delete' })} className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"><Trash2 className="mr-2 inline h-4 w-4" />{t('deletePermanently')}</button>
+            </>
+          ) : (
+            <button disabled={isEstimateActionPending} onClick={() => setConfirmAction({ mode: 'archive' })} className={`w-full ${archivePanelButtonClasses} ${isEstimateActionPending ? 'cursor-not-allowed opacity-60' : ''}`.trim()}><Archive className="mr-2 inline h-4 w-4" />{t('archive')}</button>
           )}
         </aside>
       </div>
-      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={() => { if (confirmAction?.mode === 'archive') onArchiveEstimate?.(); if (confirmAction?.mode === 'delete') { onDeleteEstimate?.(); onBack?.() } setConfirmAction(null) }} t={t} />
-      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={estimateT('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
-        await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
-      }} t={estimateT} />
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode === 'delete' ? 'delete' : 'archive'} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : confirmAction?.mode === 'sync-contract' ? t('confirmSyncSignedContract') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : confirmAction?.mode === 'sync-contract' ? t('signedContractSyncWarning') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : confirmAction?.mode === 'sync-contract' ? t('syncContractFromEstimate') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={async () => { if (confirmAction?.mode === 'archive') { await onArchiveEstimate?.() } if (confirmAction?.mode === 'delete') { await onDeleteEstimate?.(); onBack?.() } if (confirmAction?.mode === 'sync-contract') { await handleSyncContract(true) } setConfirmAction(null) }} t={t} />
+      <SendToCustomerModal isOpen={showSendModal} documentType="estimate" customer={{ name: lead.client, phone: lead.phone, email: lead.email }} projectTitle={lead.projectTitle || lead.projectType} amountLabel={t('estimatedTotal')} amountValue={currency.format(estimateTotal)} onClose={() => setShowSendModal(false)} onSent={async () => {
+        const result = await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
+        return Boolean(result)
+      }} t={t} contentT={estimateT} />
       <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
         <div className="rounded-3xl bg-white text-slate-950">
           <div className="p-3 sm:p-4">
@@ -791,7 +876,7 @@ function ScaledEstimatePreview({ children }) {
   )
 }
 
-export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [], onSaveEstimate, onConvertEstimate, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
+export function EstimateBuilderRoute({ companySettings, leads, clients = [], archivedIds = [], onSaveEstimate, onConvertEstimate, onSyncEstimateContract, onArchiveEstimate, onRestoreEstimate, onDeleteEstimate, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -914,6 +999,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
     )
   }
 
+  const clientRecord = findRelatedClient(clients, lead || {})
+
   const mergedLead = loadedEstimate
     ? {
         ...lead,
@@ -929,6 +1016,7 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
   return (
     <EstimateBuilderPage
       lead={mergedLead}
+      clientRecord={clientRecord}
       t={t}
       appLanguage={appLanguage}
       companySettings={companySettings}
@@ -950,7 +1038,8 @@ export function EstimateBuilderRoute({ companySettings, leads, archivedIds = [],
         return result
       }}
       onConvert={async (estimate) => onConvertEstimate?.(lead.id, estimate)}
-      onOpenContract={() => navigate(`/projects/${lead.projectId || lead.id}/contract`, { state: { source: 'project', projectId: lead.projectId || lead.id, leadId: lead.id } })}
+      onSyncContract={async (estimate, options = {}) => onSyncEstimateContract?.(lead.id, estimate, options)}
+      onOpenContract={() => navigate(`/projects/${lead.projectId || lead.id}/contract`, { state: { source: 'estimate', projectId: lead.projectId || lead.id, leadId: lead.id } })}
       onArchiveEstimate={() => onArchiveEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}
       onRestoreEstimate={() => onRestoreEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}
       onDeleteEstimate={() => onDeleteEstimate?.(lead.id, loadedEstimate || lead.portal?.estimate || null)}

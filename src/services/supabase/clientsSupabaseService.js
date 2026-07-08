@@ -1,5 +1,6 @@
 import { USE_SUPABASE, USE_SUPABASE_CLIENTS } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { normalizeSupportedLanguage, normalizeSupportedLanguageOrEmpty } from '../../utils/language'
 
 const TABLE_NAME = 'clients'
 
@@ -42,10 +43,15 @@ function createErrorResult(message, details = null, code = null) {
 }
 
 function normalizeError(error, fallbackMessage) {
+  if (extractMissingColumnName(error) === 'preferred_language') {
+    return createPreferredLanguageSetupError(error)
+  }
+
   return {
     message: error?.message || fallbackMessage,
     details: error?.details || null,
     code: error?.code || null,
+    status: error?.status || null,
   }
 }
 
@@ -83,9 +89,47 @@ function buildDisplayName(row = {}) {
   return row.display_name || fullName || 'Unknown Client'
 }
 
+function hasOwnField(object, fieldName) {
+  return Boolean(object) && Object.prototype.hasOwnProperty.call(object, fieldName)
+}
+
+function extractMissingColumnName(error) {
+  const message = [
+    error?.message,
+    error?.details,
+    error?.raw?.message,
+    error?.raw?.details,
+    error?.raw?.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const quotedColumnMatch = message.match(/'([^']+)' column/)
+  if (quotedColumnMatch?.[1]) {
+    return quotedColumnMatch[1]
+  }
+
+  const alternateColumnMatch = message.match(/column ['"]?([^'" ]+)['"]?/)
+  if (alternateColumnMatch?.[1]) {
+    return alternateColumnMatch[1]
+  }
+
+  return null
+}
+
+function createPreferredLanguageSetupError(error) {
+  return {
+    message: 'Client preferred language is not set up in Supabase. Run the clients preferred_language migration before saving or loading client language preferences.',
+    details: error?.details || error?.raw?.details || error?.raw || null,
+    code: 'CLIENTS_PREFERRED_LANGUAGE_COLUMN_MISSING',
+    status: error?.status || null,
+  }
+}
+
 export function mapClientRowToUiClient(row) {
   const displayName = row?.display_name || buildDisplayName(row)
   const archivedAt = row?.archived_at || null
+  const preferredLanguage = normalizeSupportedLanguageOrEmpty(row?.preferred_language)
 
   return {
     id: row?.id || undefined,
@@ -97,9 +141,9 @@ export function mapClientRowToUiClient(row) {
     phone: row?.phone || '',
     email: row?.email || '',
     address: row?.address || '',
-    preferredLanguage: row?.preferred_language || 'en',
-    preferred_language: row?.preferred_language || 'en',
-    language: row?.preferred_language || 'en',
+    preferredLanguage,
+    preferred_language: preferredLanguage,
+    language: preferredLanguage,
     notes: row?.notes || '',
     status: row?.status || 'active',
     archivedAt,
@@ -121,10 +165,71 @@ export function mapUiClientToClientRow(contractorId, client = {}) {
     phone: client.phone || null,
     email: client.email || null,
     address: client.address || null,
-    preferred_language: client.preferredLanguage || client.preferred_language || client.language || 'en',
+    preferred_language: normalizeSupportedLanguage(
+      client.preferredLanguage || client.preferred_language || client.language,
+      'en'
+    ),
     notes: client.notes || null,
     status: client.status || 'active',
   }
+}
+
+function mapUiClientUpdatesToClientRow(updates = {}) {
+  const payload = {}
+  const nextName = readClientName(updates)
+
+  if (
+    hasOwnField(updates, 'name')
+    || hasOwnField(updates, 'displayName')
+    || hasOwnField(updates, 'display_name')
+    || hasOwnField(updates, 'firstName')
+    || hasOwnField(updates, 'first_name')
+    || hasOwnField(updates, 'lastName')
+    || hasOwnField(updates, 'last_name')
+  ) {
+    const { firstName, lastName, displayName } = splitClientName({
+      ...updates,
+      ...(nextName ? { name: nextName } : {}),
+    })
+
+    payload.first_name = firstName
+    payload.last_name = lastName
+    payload.display_name = displayName
+  }
+
+  if (hasOwnField(updates, 'phone')) {
+    payload.phone = updates.phone || null
+  }
+
+  if (hasOwnField(updates, 'email')) {
+    payload.email = updates.email || null
+  }
+
+  if (hasOwnField(updates, 'address')) {
+    payload.address = updates.address || null
+  }
+
+  if (
+    hasOwnField(updates, 'preferredLanguage')
+    || hasOwnField(updates, 'preferred_language')
+    || hasOwnField(updates, 'language')
+    || hasOwnField(updates, 'clientLanguage')
+  ) {
+    payload.preferred_language = normalizeSupportedLanguage(
+      updates.preferredLanguage || updates.preferred_language || updates.language || updates.clientLanguage,
+      'en'
+    )
+  }
+
+  if (hasOwnField(updates, 'notes')) {
+    payload.notes = updates.notes || null
+  }
+
+  if (hasOwnField(updates, 'status')) {
+    payload.status = updates.status || 'active'
+  }
+
+  return payload
 }
 
 function buildContractorQuery(contractorId, extraQuery = {}) {
@@ -260,7 +365,7 @@ export async function update(id, updates, { contractorId } = {}) {
 
   try {
     const payload = {
-      ...mapUiClientToClientRow(contractorId, updates),
+      ...mapUiClientUpdatesToClientRow(updates),
       updated_at: new Date().toISOString(),
     }
 
@@ -275,7 +380,7 @@ export async function update(id, updates, { contractorId } = {}) {
     })
 
     return {
-      data: mapClientRowToUiClient(readSingleRow(data) || { id, contractor_id: contractorId, ...payload }),
+      data: mapClientRowToUiClient(readSingleRow(data) || { id, contractor_id: contractorId, ...(updates || {}), ...payload }),
       error: null,
       skipped: false,
     }

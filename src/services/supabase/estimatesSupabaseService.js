@@ -1,5 +1,6 @@
 import { USE_SUPABASE, USE_SUPABASE_ESTIMATES } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { normalizeSupportedLanguageOrEmpty } from '../../utils/language'
 
 const TABLE_NAME = 'estimates'
 
@@ -59,10 +60,47 @@ function createErrorResult(message, details = null) {
 }
 
 function normalizeError(error, fallbackMessage) {
+  if (extractMissingColumnName(error) === 'estimate_language') {
+    return createEstimateLanguageSetupError(error)
+  }
+
   return {
     message: error?.message || fallbackMessage,
     details: error?.details || null,
     code: error?.code || null,
+  }
+}
+
+function extractMissingColumnName(error) {
+  const message = [
+    error?.message,
+    error?.details,
+    error?.raw?.message,
+    error?.raw?.details,
+    error?.raw?.hint,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const quotedColumnMatch = message.match(/'([^']+)' column/)
+  if (quotedColumnMatch?.[1]) {
+    return quotedColumnMatch[1]
+  }
+
+  const alternateColumnMatch = message.match(/column ['"]?([^'" ]+)['"]?/)
+  if (alternateColumnMatch?.[1]) {
+    return alternateColumnMatch[1]
+  }
+
+  return null
+}
+
+function createEstimateLanguageSetupError(error) {
+  return {
+    message: 'Estimate language is not set up in Supabase. Run the estimates estimate_language migration before saving or loading estimate language preferences.',
+    details: error?.details || error?.raw?.details || error?.raw || null,
+    code: 'ESTIMATES_LANGUAGE_COLUMN_MISSING',
+    status: error?.status || null,
   }
 }
 
@@ -170,6 +208,7 @@ function toAppEstimate(row) {
     depositPercentage: row?.deposit_percentage === null || row?.deposit_percentage === undefined ? null : toNumber(row?.deposit_percentage),
     materialsIncluded: Boolean(row?.materials_included),
     paymentTerms: row?.payment_terms || '',
+    estimateLanguage: normalizeSupportedLanguageOrEmpty(row?.estimate_language),
     status: mapStatusToUi(row?.status),
     sentAt: row?.sent_at || null,
     approvedAt: row?.approved_at || null,
@@ -195,6 +234,7 @@ function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {
   const titleInput = readField(estimate, ['title', 'projectTitle', 'estimateTitle'])
   const statusInput = readField(estimate, ['status'])
   const materialsIncludedInput = readField(estimate, ['materialsIncluded', 'materials_included'])
+  const estimateLanguageInput = readField(estimate, ['estimateLanguage'])
 
   if (contractorId) {
     payload.contractor_id = contractorId
@@ -274,6 +314,10 @@ function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {
 
   if (isCreate || readField(estimate, ['paymentTerms', 'payment_terms']) !== undefined) {
     payload.payment_terms = readField(estimate, ['paymentTerms', 'payment_terms']) || null
+  }
+
+  if (isCreate || estimateLanguageInput !== undefined) {
+    payload.estimate_language = normalizeSupportedLanguageOrEmpty(estimateLanguageInput) || null
   }
 
   if (statusInput !== undefined) {

@@ -1,5 +1,6 @@
 import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
+import { getLanguageLocale } from '../../utils/language'
 
 const colors = {
   white: '#ffffff',
@@ -29,9 +30,9 @@ const layout = {
   summaryTotalColumn: '152px',
 }
 
-function formatDisplayDate(value) {
+function formatDisplayDate(value, language = 'en') {
   if (!value) {
-    return new Date().toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+    return new Date().toLocaleDateString(getLanguageLocale(language), { month: 'long', day: 'numeric', year: 'numeric' })
   }
 
   const parsedDate = new Date(value)
@@ -39,7 +40,7 @@ function formatDisplayDate(value) {
     return String(value)
   }
 
-  return parsedDate.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
+  return parsedDate.toLocaleDateString(getLanguageLocale(language), { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 function splitLineItemDescription(value, fallbackTitle) {
@@ -307,6 +308,7 @@ export function EstimatePdfTemplate({
   paymentTerms,
   total,
   lineItems = [],
+  language = 'en',
   t,
 }) {
   const hasScope = Boolean(String(scope || '').trim())
@@ -393,7 +395,7 @@ export function EstimatePdfTemplate({
           </div>
           <div style={{ minWidth: 0, padding: '14px 16px', display: 'grid', gap: '9px' }}>
             <SummaryBlock label={t('date')}>
-              <div>{formatDisplayDate(estimateDate)}</div>
+              <div>{formatDisplayDate(estimateDate, language)}</div>
             </SummaryBlock>
             <SummaryBlock label={t('project')}>
               <div style={{ maxWidth: '240px', whiteSpace: 'normal', wordBreak: 'normal', overflowWrap: 'break-word' }}>{projectTitle}</div>
