@@ -65,6 +65,7 @@ import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStage
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 import { createLocalRecordId, dedupeById, findLeadByProjectLookup, resolveLinkedLeadId, resolveLinkedProjectId } from './utils/projectIdentity'
 import { resolvePortalRouteId } from './utils/portal'
+import { buildContractWorkBreakdownFromEstimate, isGeneratedContractScopeText } from './utils/contractDocument'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -256,6 +257,43 @@ function getLinkedContract(lead) {
   }
 
   return readLinkedContractDraft(lead)
+}
+
+function isArchivedContractRecord(contract = {}) {
+  return Boolean(
+    contract?.archivedAt
+      || contract?.archived_at
+      || contract?.isArchived
+      || contract?.archived
+  )
+}
+
+function isSignedContractRecord(contract = {}) {
+  return Boolean(
+    contract?.status === 'Signed'
+      || contract?.signed
+      || contract?.signedDate
+      || contract?.signedAt
+      || contract?.signed_at
+  )
+}
+
+function getLinkedActiveContract(lead) {
+  const linkedContract = getLinkedContract(lead)
+
+  if (!hasContractData(linkedContract) || isArchivedContractRecord(linkedContract)) {
+    return null
+  }
+
+  return linkedContract
+}
+
+function selectActiveContractRecord(contracts = []) {
+  if (!Array.isArray(contracts)) {
+    return null
+  }
+
+  return contracts.find((contract) => hasContractData(contract) && !isArchivedContractRecord(contract)) || null
 }
 
 function attachContractToLeadState(lead = {}, contract = null) {
@@ -2469,7 +2507,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         const currentPortal = lead.portal || {}
         const contractAmount = resolveEstimateTotal(lead, persistedEstimate)
         const amountPaid = toSafeNumber(currentPortal.amountPaid)
-        const nextContract = hasContractData(currentPortal.contract)
+        const nextContract = hasContractData(currentPortal.contract) && !isArchivedContractRecord(currentPortal.contract)
           ? {
               ...(currentPortal.contract || {}),
               total: contractAmount,
@@ -2651,8 +2689,10 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
   }
 
   async function findExistingLinkedContract({ sourceLead, estimateRecord = null, projectId = '', leadId = '' } = {}) {
-    const persistedContract = persistedContracts.find((contract) => matchesLinkedContract(sourceLead || { id: leadId }, contract, estimateRecord))
-    const existingContract = hasContractData(persistedContract) ? persistedContract : getLinkedContract(sourceLead)
+    const persistedContract = selectActiveContractRecord(
+      persistedContracts.filter((contract) => matchesLinkedContract(sourceLead || { id: leadId }, contract, estimateRecord))
+    )
+    const existingContract = hasContractData(persistedContract) ? persistedContract : getLinkedActiveContract(sourceLead)
 
     if (hasContractData(existingContract)) {
       return existingContract
@@ -2661,7 +2701,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     const estimateId = estimateRecord?.id || sourceLead?.estimateId || sourceLead?.portal?.estimate?.id || null
     const resolvedProjectId = projectId || sourceLead?.projectId || sourceLead?.project_id || null
     const leadMatches = leads.find((lead) => {
-      const contract = getLinkedContract(lead)
+      const contract = getLinkedActiveContract(lead)
       if (!hasContractData(contract)) return false
 
       if (estimateId && (contract.estimateId === estimateId || lead.estimateId === estimateId)) {
@@ -2681,7 +2721,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     })
 
     if (leadMatches) {
-      return getLinkedContract(leadMatches)
+      return getLinkedActiveContract(leadMatches)
     }
 
     if (!projectsContractorId) {
@@ -2711,9 +2751,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         continue
       }
 
-      const nextContract = Array.isArray(response?.data)
-        ? response.data.find((contract) => hasContractData(contract))
-        : null
+      const nextContract = selectActiveContractRecord(response?.data)
 
       if (hasContractData(nextContract)) {
         writeLinkedContractDrafts([
@@ -2786,6 +2824,24 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     }))
   }
 
+  function buildEstimateDerivedContractValues(leadRecord, estimateRecord) {
+    const contractAmount = resolveEstimateTotal(leadRecord, estimateRecord, toSafeNumber(leadRecord?.value))
+    const derivedWorkBreakdown = buildContractWorkBreakdownFromEstimate(estimateRecord)
+    const estimateDepositPercentage = Number(estimateRecord?.depositPercentage ?? estimateRecord?.deposit_percentage)
+    const derivedDepositAmount = Number.isFinite(estimateDepositPercentage) && estimateDepositPercentage > 0
+      ? Number(((contractAmount * estimateDepositPercentage) / 100).toFixed(2))
+      : null
+
+    return {
+      contractAmount,
+      derivedWorkBreakdown,
+      derivedDepositAmount,
+      derivedScope: estimateRecord?.summary || estimateRecord?.scopeOfWork || '',
+      derivedPaymentTerms: estimateRecord?.paymentTerms || '',
+      derivedContractLanguage: normalizeDocumentLanguageOverride(estimateRecord?.estimateLanguage),
+    }
+  }
+
   async function ensureContractForLead(leadId, estimateInput = null) {
     const existingContractPromise = contractEnsureGuardRef.current.get(leadId)
     if (existingContractPromise) {
@@ -2829,6 +2885,14 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       const refreshedLead = conversionResult.persistedLead || findLeadByProjectLookup(leads, leadId) || sourceLead
       const linkedEstimateRecord = conversionResult.linkedEstimate || estimateRecord
       const relatedProjectId = conversionResult.linkedProjectId || resolvePersistedProjectLink(linkedEstimateRecord, refreshedLead)
+      const {
+        contractAmount,
+        derivedWorkBreakdown,
+        derivedDepositAmount,
+        derivedScope,
+        derivedPaymentTerms,
+        derivedContractLanguage,
+      } = buildEstimateDerivedContractValues(refreshedLead, linkedEstimateRecord)
       const existingContract = await findExistingLinkedContract({
         sourceLead: refreshedLead,
         estimateRecord: linkedEstimateRecord,
@@ -2837,18 +2901,34 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       })
 
       if (hasContractData(existingContract)) {
+        const existingWorkBreakdown = Array.isArray(existingContract.workBreakdown) ? existingContract.workBreakdown : []
+        const shouldBackfillWorkBreakdown = existingWorkBreakdown.length === 0 && derivedWorkBreakdown.length > 0
+        const existingScope = existingContract.scope || existingContract.scopeOfWork || ''
+        const shouldBackfillScope = (!String(existingScope).trim() || isGeneratedContractScopeText(existingScope)) && Boolean(derivedScope)
         const updatedExistingContract = {
           ...existingContract,
           estimateId: existingContract.estimateId || linkedEstimateRecord?.id || null,
           projectId: existingContract.projectId || relatedProjectId || null,
           project_id: existingContract.project_id || relatedProjectId || null,
           clientId: existingContract.clientId || refreshedLead?.clientId || refreshedLead?.client_id || linkedEstimateRecord?.clientId || null,
+          projectTitle: existingContract.projectTitle || refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || 'Contract',
+          title: existingContract.title || refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || 'Contract',
+          scope: shouldBackfillScope ? derivedScope : existingScope,
+          paymentTerms: existingContract.paymentTerms || derivedPaymentTerms,
+          contractLanguage: existingContract.contractLanguage || derivedContractLanguage,
+          depositAmount: existingContract.depositAmount ?? derivedDepositAmount,
+          workBreakdown: shouldBackfillWorkBreakdown ? derivedWorkBreakdown : existingWorkBreakdown,
         }
 
         if (existingContract.id && (
           updatedExistingContract.estimateId !== existingContract.estimateId
           || updatedExistingContract.projectId !== existingContract.projectId
           || updatedExistingContract.clientId !== existingContract.clientId
+          || updatedExistingContract.scope !== existingContract.scope
+          || updatedExistingContract.paymentTerms !== existingContract.paymentTerms
+          || updatedExistingContract.contractLanguage !== existingContract.contractLanguage
+          || updatedExistingContract.depositAmount !== existingContract.depositAmount
+          || updatedExistingContract.workBreakdown !== existingWorkBreakdown
         )) {
           try {
             const updateResponse = await dataProvider.contracts.update(existingContract.id, updatedExistingContract, {
@@ -2866,7 +2946,6 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         return updatedExistingContract
       }
 
-      const contractAmount = resolveEstimateTotal(refreshedLead, linkedEstimateRecord, toSafeNumber(refreshedLead?.value))
       const nextContractId = createLocalRecordId('contract')
       const contractPayload = {
         id: nextContractId,
@@ -2883,9 +2962,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
           id: nextContractId,
           projectId: relatedProjectId || refreshedLead?.projectId || refreshedLead?.project_id || undefined,
         }),
-        scope: linkedEstimateRecord?.summary || refreshedLead?.portal?.contract?.scope || `${t('scopeOfWork')} - ${refreshedLead?.projectType || refreshedLead?.projectTitle || t('projectScope')}.`,
-        paymentTerms: linkedEstimateRecord?.paymentTerms || companySettings?.defaults?.paymentTerms || '',
-        contractLanguage: normalizeDocumentLanguageOverride(linkedEstimateRecord?.estimateLanguage),
+        scope: derivedScope,
+        paymentTerms: derivedPaymentTerms,
+        contractLanguage: derivedContractLanguage,
+        depositAmount: derivedDepositAmount,
+        workBreakdown: derivedWorkBreakdown,
         total: contractAmount,
         status: 'Draft',
         updatedAt: new Date().toISOString(),
@@ -3049,6 +3130,162 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       signed_by: '',
     }, persistedEstimate)
     showToast(t('contractMarkedUnsigned'))
+  }
+
+  async function syncContractFromEstimate(leadId, estimateInput = null, { force = false } = {}) {
+    const sourceLead = findLeadByProjectLookup(leads, leadId)
+
+    if (!sourceLead) {
+      return { contract: null, blockedReason: 'missing_lead' }
+    }
+
+    const baseEstimate = hasEstimateData(estimateInput)
+      ? estimateInput
+      : hasEstimateData(sourceLead?.portal?.estimate)
+        ? sourceLead.portal.estimate
+        : readLinkedEstimateDraft(sourceLead, leadId)
+
+    const persistedEstimate = hasEstimateData(baseEstimate)
+      ? await saveEstimate(leadId, {
+          ...baseEstimate,
+          status: 'Converted to Contract',
+          projectId: resolvePersistedProjectLink(baseEstimate, sourceLead),
+          clientId: baseEstimate?.clientId || sourceLead?.clientId || sourceLead?.client_id || null,
+        })
+      : null
+
+    const estimateRecord = persistedEstimate || baseEstimate || null
+    const conversionResult = await ensureProjectForLeadConversion(sourceLead, {
+      leadId,
+      estimateRecord,
+      silent: true,
+    })
+
+    if (!conversionResult?.linkedProjectId) {
+      showToast(t('contractRequiresRealProject'), 'error')
+      return { contract: null, blockedReason: 'missing_project' }
+    }
+
+    const refreshedLead = conversionResult.persistedLead || findLeadByProjectLookup(leads, leadId) || sourceLead
+    const linkedEstimateRecord = conversionResult.linkedEstimate || estimateRecord
+    const relatedProjectId = conversionResult.linkedProjectId || resolvePersistedProjectLink(linkedEstimateRecord, refreshedLead)
+    const existingContract = await findExistingLinkedContract({
+      sourceLead: refreshedLead,
+      estimateRecord: linkedEstimateRecord,
+      projectId: relatedProjectId,
+      leadId,
+    })
+
+    if (!hasContractData(existingContract) || !existingContract?.id) {
+      showToast(t('contractSyncRequiresLinkedContract'), 'error')
+      return { contract: null, blockedReason: 'missing_contract' }
+    }
+
+    if (isSignedContractRecord(existingContract) && !force) {
+      showToast(t('signedContractSyncConfirmationRequired'), 'error')
+      return { contract: existingContract, blockedReason: 'signed' }
+    }
+
+    const {
+      contractAmount,
+      derivedWorkBreakdown,
+      derivedDepositAmount,
+      derivedScope,
+      derivedPaymentTerms,
+      derivedContractLanguage,
+    } = buildEstimateDerivedContractValues(refreshedLead, linkedEstimateRecord)
+
+    const syncedContractPayload = {
+      ...existingContract,
+      leadId: refreshedLead?.id || existingContract.leadId || leadId,
+      clientId: conversionResult.linkedClientRecord?.id || refreshedLead?.clientId || refreshedLead?.client_id || linkedEstimateRecord?.clientId || existingContract.clientId || null,
+      projectId: relatedProjectId || existingContract.projectId || existingContract.project_id || null,
+      project_id: relatedProjectId || existingContract.project_id || existingContract.projectId || null,
+      estimateId: linkedEstimateRecord?.id || existingContract.estimateId || refreshedLead?.estimateId || null,
+      projectTitle: refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || existingContract.projectTitle || 'Contract',
+      title: refreshedLead?.projectTitle || refreshedLead?.projectType || linkedEstimateRecord?.projectTitle || existingContract.title || 'Contract',
+      scope: derivedScope,
+      workBreakdown: derivedWorkBreakdown,
+      paymentTerms: derivedPaymentTerms,
+      contractLanguage: existingContract.contractLanguage || derivedContractLanguage,
+      depositAmount: derivedDepositAmount,
+      total: contractAmount,
+      updatedAt: new Date().toISOString(),
+    }
+
+    try {
+      const response = await dataProvider.contracts.update(existingContract.id, syncedContractPayload, {
+        contractorId: projectsContractorId,
+      })
+
+      if (response?.error) {
+        showToast(response.error.message || t('contractSyncFailed'), 'error')
+        return { contract: null, blockedReason: 'save_failed' }
+      }
+
+      const persistedContract = {
+        ...syncedContractPayload,
+        ...(response?.data || {}),
+      }
+
+      syncLeadContractState(leadId, persistedContract, linkedEstimateRecord)
+      showToast(t('contractSyncedFromEstimate'))
+      return { contract: persistedContract, blockedReason: null }
+    } catch (error) {
+      showToast(error?.message || t('contractSyncFailed'), 'error')
+      return { contract: null, blockedReason: 'save_failed' }
+    }
+  }
+
+  async function archiveContractRecord(leadId, contractRecord = null) {
+    const sourceLead = findLeadByProjectLookup(leads, leadId)
+    const linkedEstimate = hasEstimateData(sourceLead?.portal?.estimate)
+      ? sourceLead.portal.estimate
+      : readLinkedEstimateDraft(sourceLead || leadId, leadId)
+    const linkedContract = hasContractData(contractRecord)
+      ? contractRecord
+      : selectActiveContractRecord(
+          persistedContracts.filter((contract) => matchesLinkedContract(sourceLead || { id: leadId }, contract, linkedEstimate))
+        ) || getLinkedActiveContract(sourceLead)
+
+    if (!linkedContract?.id) {
+      showToast(t('archiveFailed'), 'error')
+      return null
+    }
+
+    const response = await dataProvider.contracts.archive(linkedContract.id, {
+      contractorId: projectsContractorId,
+    })
+
+    if (response?.error) {
+      showToast(response.error.message || t('archiveFailed'), 'error')
+      return null
+    }
+
+    const archivedAt = response?.data?.archivedAt || response?.data?.archived_at || new Date().toISOString()
+    const archivedContract = {
+      ...linkedContract,
+      ...(response?.data || {}),
+      archivedAt,
+      archived_at: archivedAt,
+    }
+
+    upsertPersistedContractRecord(archivedContract)
+
+    setLeads((current) => current.map((lead) => (
+      matchesLinkedContract(lead, archivedContract, linkedEstimate)
+        ? {
+            ...lead,
+            portal: {
+              ...(lead.portal || {}),
+              contract: archivedContract,
+            },
+          }
+        : lead
+    )))
+
+    showToast(t('contractArchived'))
+    return archivedContract
   }
 
   function getInvoiceStatus(invoice) {
@@ -3361,8 +3598,8 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} clients={clients} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} appLanguage={language} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
-      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
-      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} clients={clients} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} t={t} appLanguage={language} />} />
+      <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onSyncEstimateContract={async (leadId, estimate, options = {}) => syncContractFromEstimate(leadId, estimate, options)} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
+      <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} clients={clients} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} onArchiveContract={archiveContractRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={(leadId) => navigate(`/projects/${leadId}`)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />

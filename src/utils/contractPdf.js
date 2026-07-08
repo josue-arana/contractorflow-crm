@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription } from './contractDocument'
 
 const safeColors = {
   white: '#ffffff',
@@ -87,16 +88,6 @@ function wrapMultilineText(text, maxChars) {
     .flatMap((line) => (line.trim() ? wrapLine(line, maxChars) : ['']))
 }
 
-function buildNotesAndTermsItems({ materials = '', timeline = '', changeOrders = '', clientResponsibilities = '', paymentTerms = '', warrantyDisclaimer = '', t = (key) => key }) {
-  return [
-    { title: t('materialsAndScheduling'), content: materials },
-    { title: t('projectTimeline'), content: timeline },
-    { title: t('clientCommunicationAndAdjustments'), content: [changeOrders, clientResponsibilities].filter(Boolean).join('\n\n') },
-    { title: t('paymentTerms'), content: paymentTerms },
-    { title: t('acceptanceLegalConfirmation'), content: [t('compactContractAcceptanceText'), warrantyDisclaimer].filter(Boolean).join('\n\n') },
-  ]
-}
-
 function buildBillToLines(lead = {}, t = (key) => key) {
   const lines = [
     lead?.client,
@@ -181,6 +172,9 @@ function buildFallbackPdf({
   company = {},
   lead = {},
   scope = '',
+  workBreakdown = [],
+  acceptanceLegalText = '',
+  depositAmount = null,
   paymentTerms = '',
   materials = '',
   timeline = '',
@@ -205,6 +199,7 @@ function buildFallbackPdf({
   const billToLines = buildBillToLines(lead, t)
   const workLines = buildWorkLines(lead, t)
   const licenseLines = buildLicenseLines(company, t)
+  const normalizedWorkBreakdown = normalizeContractWorkBreakdown(workBreakdown)
 
   function drawPageFrame() {
     pdf.setFillColor(safeColors.white)
@@ -228,13 +223,12 @@ function buildFallbackPdf({
   }
 
   function drawNotesSection(items) {
-    const resolvedItems = items.length > 0 ? items : buildNotesAndTermsItems({
-      materials,
-      timeline,
-      changeOrders,
-      clientResponsibilities,
+    const resolvedItems = items.length > 0 ? items : buildContractNotesAndTermsItems({
       paymentTerms,
-      warrantyDisclaimer,
+      total,
+      depositAmount,
+      acceptanceLegalText,
+      legacyAcceptanceText: warrantyDisclaimer,
       t,
     })
     const lineHeight = 12
@@ -367,17 +361,39 @@ function buildFallbackPdf({
   pdf.setFont('helvetica', 'normal')
   pdf.setFontSize(10)
   pdf.setTextColor(safeColors.slate700)
-  scopeLines.forEach((line, index) => {
-    ensureSpace(12)
-    if (index === 0) {
+
+  if (normalizedWorkBreakdown.length > 0) {
+    normalizedWorkBreakdown.forEach((item, index) => {
+      const descriptionParts = splitContractWorkBreakdownDescription(item.description, item.title || t('item'))
+      const detailLines = descriptionParts.details.flatMap((line) => wrapMultilineText(line, 62))
+      ensureSpace(28 + (detailLines.length * 12))
+      if (index > 0) {
+        pdf.setDrawColor(safeColors.slate200)
+        pdf.line(innerX + 14, cursorY - 4, innerX + descriptionSectionWidth - 14, cursorY - 4)
+      }
+      drawText(`${index + 1}. ${descriptionParts.title || t('item')}`, innerX + 14, cursorY, { bold: true, size: 10, color: safeColors.slate900 })
+      drawText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(item.amount || 0)), innerX + descriptionSectionWidth - 14, cursorY, { bold: true, size: 10, color: safeColors.blue700, align: 'right' })
+      cursorY += 13
+      if (typeof item.materialsIncluded === 'boolean') {
+        drawText(item.materialsIncluded ? t('includesMaterials') : t('materialsNotIncluded'), innerX + 14, cursorY, { size: 9, color: safeColors.slate500 })
+        cursorY += 12
+      }
+      detailLines.forEach((line) => {
+        ensureSpace(12)
+        pdf.text(`• ${line || ''}`, innerX + 22, cursorY, { maxWidth: descriptionSectionWidth - 36 })
+        cursorY += 12
+      })
+      cursorY += 6
+    })
+  }
+
+  if (shouldRenderContractScopeText(scope, normalizedWorkBreakdown)) {
+    scopeLines.forEach((line) => {
+      ensureSpace(12)
       pdf.text(line || ' ', innerX + 14, cursorY, { maxWidth: descriptionSectionWidth - 28 })
       cursorY += 12
-      return
-    }
-
-    pdf.text(line || ' ', innerX + 14, cursorY, { maxWidth: descriptionSectionWidth - 28 })
-    cursorY += 12
-  })
+    })
+  }
   cursorY += 8
 
   drawNotesSection(notesAndTermsItems)
@@ -426,6 +442,9 @@ export async function downloadContractPdf({
   company = {},
   lead = {},
   scope = '',
+  workBreakdown = [],
+  acceptanceLegalText = '',
+  depositAmount = null,
   paymentTerms = '',
   materials = '',
   timeline = '',
@@ -502,6 +521,9 @@ export async function downloadContractPdf({
       company,
       lead,
       scope,
+      workBreakdown,
+      acceptanceLegalText,
+      depositAmount,
       paymentTerms,
       materials,
       timeline,

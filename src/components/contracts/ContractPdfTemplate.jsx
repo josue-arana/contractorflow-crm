@@ -1,4 +1,5 @@
 import { currency } from '../../utils/formatters'
+import { hasContractWorkBreakdown, normalizeContractWorkBreakdown, shouldRenderContractScopeText } from '../../utils/contractDocument'
 
 const colors = {
   white: '#ffffff',
@@ -92,7 +93,62 @@ function buildLicenseLines(company = {}, t) {
   return lines.length > 0 ? lines : [t('notAdded')]
 }
 
-function DescriptionSection({ title, projectTitle, scope, total, t }) {
+function MaterialsIndicator({ included, t }) {
+  if (typeof included !== 'boolean') {
+    return null
+  }
+
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        borderRadius: '999px',
+        backgroundColor: included ? colors.blue50 : colors.slate100,
+        padding: '4px 9px',
+        fontSize: '10px',
+        fontWeight: 700,
+        color: included ? colors.blue700 : colors.slate700,
+      }}
+    >
+      {included ? t('includesMaterials') : t('materialsNotIncluded')}
+    </div>
+  )
+}
+
+function WorkBreakdownItem({ item, index, t }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '36px minmax(0, 1fr) 110px', gap: '12px', padding: index === 0 ? '0 0 12px' : '12px 0', borderTop: index === 0 ? 'none' : `1px solid ${colors.slate200}` }}>
+      <div style={{ display: 'flex', height: '36px', width: '36px', alignItems: 'center', justifyContent: 'center', borderRadius: '999px', backgroundColor: colors.slate900, color: colors.white, fontSize: '13px', fontWeight: 700 }}>
+        {index + 1}
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: '13px', fontWeight: 700, color: colors.slate900, overflowWrap: 'anywhere' }}>{item.title || t('item')}</p>
+        <div style={{ marginTop: '6px' }}>
+          <MaterialsIndicator included={item.materialsIncluded} t={t} />
+        </div>
+        {item.details.length > 0 ? (
+          <div style={{ marginTop: '8px', display: 'grid', gap: '5px' }}>
+            {item.details.map((detail, detailIndex) => (
+              <div key={`${item.id}-${detailIndex}`} style={{ display: 'grid', gridTemplateColumns: '10px minmax(0,1fr)', gap: '8px', alignItems: 'start' }}>
+                <span style={{ display: 'block', width: '4px', height: '4px', marginTop: '7px', borderRadius: '999px', backgroundColor: colors.blue500 }} />
+                <span style={{ fontSize: '11px', lineHeight: 1.45, color: colors.slate700, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{detail}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div style={{ textAlign: 'right' }}>
+        <p style={{ margin: 0, fontSize: '14px', fontWeight: 700, color: colors.blue700 }}>{currency.format(item.amount)}</p>
+      </div>
+    </div>
+  )
+}
+
+function DescriptionSection({ title, projectTitle, scope, workBreakdown = [], total, t }) {
+  const normalizedWorkBreakdown = normalizeContractWorkBreakdown(workBreakdown)
+  const showScopeText = shouldRenderContractScopeText(scope, normalizedWorkBreakdown)
+
   return (
     <section
       style={{
@@ -125,7 +181,26 @@ function DescriptionSection({ title, projectTitle, scope, total, t }) {
           pageBreakInside: 'auto',
         }}
       >
-        {scope}
+        {hasContractWorkBreakdown(normalizedWorkBreakdown) ? (
+          <div style={{ display: 'grid', gap: '0' }}>
+            {normalizedWorkBreakdown.map((item, index) => (
+              <WorkBreakdownItem key={item.id || `${item.title}-${index}`} item={item} index={index} t={t} />
+            ))}
+          </div>
+        ) : null}
+        {showScopeText ? (
+          <div
+            style={{
+              whiteSpace: 'pre-line',
+              fontSize: '12px',
+              lineHeight: 1.5,
+              color: colors.slate700,
+              marginTop: hasContractWorkBreakdown(normalizedWorkBreakdown) ? '14px' : '0',
+            }}
+          >
+            {scope}
+          </div>
+        ) : null}
       </div>
     </section>
   )
@@ -197,6 +272,7 @@ export function ContractPdfTemplate({
   contractDate,
   notesAndTermsItems = [],
   scope,
+  workBreakdown = [],
   total,
   t,
 }) {
@@ -234,6 +310,7 @@ export function ContractPdfTemplate({
         title={t('description')}
         projectTitle={lead?.projectTitle || lead?.projectType || t('projectScope')}
         scope={scope}
+        workBreakdown={workBreakdown}
         total={total}
         t={t}
       />

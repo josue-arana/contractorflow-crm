@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, MoreVertical } from 'lucide-react'
+import { Archive, ArrowLeft, MoreVertical } from 'lucide-react'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { ContractPdfTemplate } from '../components/contracts/ContractPdfTemplate'
 import { SelectField } from '../components/ui/SelectField'
 import { currency } from '../utils/formatters'
 import { getPortalData } from '../utils/portal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import dataProvider from '../services/dataProvider'
 import { ModalShell } from '../components/common/ModalShell'
 import { useToast } from '../components/common/ToastProvider'
@@ -20,6 +21,7 @@ import { printDocumentElement } from '../utils/printDocument'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
+import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText } from '../utils/contractDocument'
 import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
 function formatContractDate(value, language = 'en') {
@@ -37,44 +39,58 @@ function formatContractDate(value, language = 'en') {
   return parsedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
-function buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t }) {
-  return [
-    {
-      title: t('materialsAndScheduling'),
-      content: materials,
-    },
-    {
-      title: t('projectTimeline'),
-      content: timeline,
-    },
-    {
-      title: t('clientCommunicationAndAdjustments'),
-      content: [changeOrders, clientResponsibilities].filter(Boolean).join('\n\n'),
-    },
-    {
-      title: t('paymentTerms'),
-      content: paymentTerms,
-    },
-    {
-      title: t('acceptanceLegalConfirmation'),
-      content: [t('compactContractAcceptanceText'), warrantyDisclaimer].filter(Boolean).join('\n\n'),
-    },
-  ]
+function isArchivedContractRecord(contract = {}) {
+  return Boolean(
+    contract?.archivedAt
+      || contract?.archived_at
+      || contract?.isArchived
+      || contract?.archived
+  )
 }
 
-function buildContractEditorState({ lead, portal, savedContract, estimate, t }) {
+function selectPreferredContractRecord(contracts = []) {
+  if (!Array.isArray(contracts) || contracts.length === 0) {
+    return null
+  }
+
+  return contracts.find((contract) => !isArchivedContractRecord(contract)) || contracts[0]
+}
+
+function buildContractEditorState({ lead, portal, savedContract, estimate, contractTotal, t }) {
+  const savedWorkBreakdown = normalizeContractWorkBreakdown(savedContract.workBreakdown || [])
+  const estimateWorkBreakdown = buildContractWorkBreakdownFromEstimate(estimate)
+  const workBreakdown = savedWorkBreakdown.length > 0
+    ? savedWorkBreakdown
+    : savedContract?.id
+      ? []
+      : estimateWorkBreakdown
+  const depositAmount = savedContract.depositAmount ?? savedContract.deposit_amount ?? null
+  const acceptanceLegalText = resolveContractAcceptanceLegalText({
+    acceptanceLegalText: savedContract.acceptanceLegalText,
+    legacyAcceptanceText: savedContract.warrantyDisclaimer,
+    t,
+  })
+
   return {
-    scope: savedContract.scope || estimate.summary || `${t('scopeOfWork')} - ${t(lead.projectType)}.`,
-    paymentTerms: savedContract.paymentTerms || t('contractTermsText'),
+    scope: savedContract.scope || savedContract.scopeOfWork || estimate.summary || estimate.scopeOfWork || '',
+    workBreakdown,
+    paymentTerms: buildGeneratedContractPaymentTerms({
+      paymentTerms: savedContract.paymentTerms || estimate.paymentTerms || '',
+      total: contractTotal,
+      depositAmount,
+      t,
+    }),
+    acceptanceLegalText,
     materials: savedContract.materials || t('materialsText'),
     timeline: savedContract.timeline || `${t('timelineTextPrefix')} ${portal.startDate}. ${t('estimatedCompletion')} ${portal.estimatedCompletion}.`,
     changeOrders: savedContract.changeOrders || t('changeOrdersText'),
     clientResponsibilities: savedContract.clientResponsibilities || t('clientResponsibilitiesText'),
     warrantyDisclaimer: savedContract.warrantyDisclaimer || t('warrantyDisclaimerText'),
+    depositAmount,
   }
 }
 
-export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage = 'en', companySettings, onBack, backLabel, onSaveContract, onMarkSigned, onMarkUnsigned }) {
+export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage = 'en', companySettings, onBack, backLabel, onSaveContract, onMarkSigned, onMarkUnsigned, onArchiveContract }) {
   const { showToast } = useToast()
   const pdfTemplateRef = useRef(null)
   const { contractor, company, session } = useAuth()
@@ -84,6 +100,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
   const estimate = lead.portal?.estimate || portal.estimate || {}
   const [showSendModal, setShowSendModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [confirmAction, setConfirmAction] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isSavingContract, setIsSavingContract] = useState(false)
   const contractSaveGuardRef = useRef(false)
@@ -97,22 +114,32 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
     appLanguage,
   })
   const contractT = useMemo(() => createTranslator(contractOutputLanguage), [contractOutputLanguage])
-  const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, t: contractT })
+  const contractTotal = Number(savedContract.total || lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
+  const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, contractTotal, t: contractT })
   const [scope, setScope] = useState(editorState.scope)
+  const [workBreakdown, setWorkBreakdown] = useState(editorState.workBreakdown)
   const [paymentTerms, setPaymentTerms] = useState(editorState.paymentTerms)
+  const [acceptanceLegalText, setAcceptanceLegalText] = useState(editorState.acceptanceLegalText)
   const [materials, setMaterials] = useState(editorState.materials)
   const [timeline, setTimeline] = useState(editorState.timeline)
   const [changeOrders, setChangeOrders] = useState(editorState.changeOrders)
   const [clientResponsibilities, setClientResponsibilities] = useState(editorState.clientResponsibilities)
   const [warrantyDisclaimer, setWarrantyDisclaimer] = useState(editorState.warrantyDisclaimer)
-  const contractTotal = Number(lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
+  const [depositAmount, setDepositAmount] = useState(editorState.depositAmount)
   const previewContractDate = useMemo(
     () => formatContractDate(savedContract.signedDate || savedContract.updatedAt || lead.portal?.contract?.updatedAt || new Date(), contractOutputLanguage),
     [contractOutputLanguage, lead.portal?.contract?.updatedAt, savedContract.signedDate, savedContract.updatedAt]
   )
   const notesAndTermsItems = useMemo(
-    () => buildNotesAndTermsItems({ materials, timeline, changeOrders, clientResponsibilities, paymentTerms, warrantyDisclaimer, t: contractT }),
-    [changeOrders, clientResponsibilities, contractT, materials, paymentTerms, timeline, warrantyDisclaimer]
+    () => buildContractNotesAndTermsItems({
+      paymentTerms,
+      total: contractTotal,
+      depositAmount,
+      acceptanceLegalText,
+      legacyAcceptanceText: warrantyDisclaimer,
+      t: contractT,
+    }),
+    [acceptanceLegalText, contractT, contractTotal, depositAmount, paymentTerms, warrantyDisclaimer]
   )
   const previewContractNumber = useMemo(
     () => formatContractDisplayNumber(savedContract.number || generateContractNumber(lead), { ...lead, ...savedContract }),
@@ -125,9 +152,10 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
     contractDate: previewContractDate,
     notesAndTermsItems,
     scope,
+    workBreakdown,
     total: contractTotal,
     t: contractT,
-  }), [companySettings?.company, contractT, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope])
+  }), [companySettings?.company, contractT, contractTotal, lead, notesAndTermsItems, previewContractDate, previewContractNumber, scope, workBreakdown])
   const isSigned = Boolean(
     savedContract?.status === 'Signed'
       || savedContract?.signed
@@ -142,16 +170,20 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
       portal: getPortalData(lead),
       savedContract: lead.portal?.contract || {},
       estimate: lead.portal?.estimate || {},
+      contractTotal,
       t: contractT,
     })
 
     setScope(nextState.scope)
+    setWorkBreakdown(nextState.workBreakdown)
     setPaymentTerms(nextState.paymentTerms)
+    setAcceptanceLegalText(nextState.acceptanceLegalText)
     setMaterials(nextState.materials)
     setTimeline(nextState.timeline)
     setChangeOrders(nextState.changeOrders)
     setClientResponsibilities(nextState.clientResponsibilities)
     setWarrantyDisclaimer(nextState.warrantyDisclaimer)
+    setDepositAmount(nextState.depositAmount)
   }
 
   useEffect(() => {
@@ -162,7 +194,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
     if (!isEditing) {
       resetEditorState()
     }
-  }, [contractLanguage, contractT, isEditing, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate])
+  }, [contractLanguage, contractT, contractTotal, isEditing, lead.id, lead.portal?.contract?.updatedAt, lead.portal?.contract?.signedDate, lead.portal?.estimate?.updatedAt, portal.estimatedCompletion, portal.startDate])
 
   function getContractPayload(extra = {}) {
     return {
@@ -179,7 +211,10 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
       signedDate: savedContract.signedDate || '',
       contractLanguage: contractLanguage || '',
       scope,
+      workBreakdown,
       paymentTerms,
+      acceptanceLegalText,
+      depositAmount,
       materials,
       timeline,
       changeOrders,
@@ -203,7 +238,10 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
         company: companySettings?.company || {},
         lead,
         scope,
+        workBreakdown,
         paymentTerms,
+        acceptanceLegalText,
+        depositAmount,
         materials,
         timeline,
         changeOrders,
@@ -340,11 +378,28 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
     }
   }
 
+  async function handleArchiveContract() {
+    const archivedContract = await onArchiveContract?.(savedContract)
+
+    if (archivedContract) {
+      setConfirmAction(null)
+      onBack?.()
+    }
+  }
+
   const moreMenuItems = [
     {
       id: 'download-contract-pdf',
       label: t('downloadPdf'),
       onClick: handleDownloadPdf,
+    },
+    {
+      id: 'archive-contract',
+      label: t('archiveContract'),
+      onClick: () => setConfirmAction({ mode: 'archive' }),
+      disabled: isSavingContract || !savedContract?.id,
+      className: 'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50',
+      icon: <Archive className="h-4 w-4" />,
     },
     isSigned
       ? {
@@ -398,19 +453,12 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
           notesAndTermsItems={notesAndTermsItems}
           contractTotal={contractTotal}
           scope={scope}
+          workBreakdown={workBreakdown}
           setScope={setScope}
           paymentTerms={paymentTerms}
           setPaymentTerms={setPaymentTerms}
-          materials={materials}
-          setMaterials={setMaterials}
-          timeline={timeline}
-          setTimeline={setTimeline}
-          changeOrders={changeOrders}
-          setChangeOrders={setChangeOrders}
-          clientResponsibilities={clientResponsibilities}
-          setClientResponsibilities={setClientResponsibilities}
-          warrantyDisclaimer={warrantyDisclaimer}
-          setWarrantyDisclaimer={setWarrantyDisclaimer}
+          acceptanceLegalText={acceptanceLegalText}
+          setAcceptanceLegalText={setAcceptanceLegalText}
           contractT={contractT}
           t={t}
         />
@@ -431,6 +479,16 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
           </div>
         </div>
       </ModalShell>
+      <ConfirmRecordModal
+        isOpen={Boolean(confirmAction)}
+        mode="archive"
+        title={t('confirmArchiveContract')}
+        message={t('archiveContractHelp')}
+        confirmLabel={t('archiveContract')}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={handleArchiveContract}
+        t={t}
+      />
       <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>
         <div
           ref={pdfTemplateRef}
@@ -444,10 +502,10 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
   )
 }
 
-function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, setScope, paymentTerms, setPaymentTerms, materials, setMaterials, timeline, setTimeline, changeOrders, setChangeOrders, clientResponsibilities, setClientResponsibilities, warrantyDisclaimer, setWarrantyDisclaimer, contractT, t }) {
+function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, workBreakdown, setScope, paymentTerms, setPaymentTerms, acceptanceLegalText, setAcceptanceLegalText, contractT, t }) {
   return (
     <div className="space-y-5 text-sm leading-6 text-slate-700">
-      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} total={contractTotal} t={contractT} /> : null}
+      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} workBreakdown={workBreakdown} total={contractTotal} t={contractT} /> : null}
       {isEditing ? (
         <>
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">
@@ -459,13 +517,16 @@ function ContractDocument({ isEditing, lead, company, contractDate, contractNumb
               <p className="mt-1 break-words text-sm text-slate-600">{contractDate}</p>
             </div>
           </div>
+          {hasContractWorkBreakdown(workBreakdown) ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-base font-bold text-slate-950">{t('workBreakdown')}</p>
+              <p className="mt-2 text-sm leading-6 text-slate-500">{t('contractWorkBreakdownHelp')}</p>
+              <ContractWorkBreakdownList workBreakdown={workBreakdown} t={contractT} />
+            </div>
+          ) : null}
           <ContractSection title={t('projectScope')} value={scope} onChange={setScope} isEditing={isEditing} highlighted />
-          <ContractSection title={t('materialsAndScheduling')} value={materials} onChange={setMaterials} isEditing={isEditing} />
-          <ContractSection title={t('projectTimeline')} value={timeline} onChange={setTimeline} isEditing={isEditing} />
-          <ContractSection title={t('changeOrders')} value={changeOrders} onChange={setChangeOrders} isEditing={isEditing} />
-          <ContractSection title={t('clientResponsibilities')} value={clientResponsibilities} onChange={setClientResponsibilities} isEditing={isEditing} />
           <ContractSection title={t('paymentTerms')} value={paymentTerms} onChange={setPaymentTerms} isEditing={isEditing} />
-          <ContractSection title={t('warrantyDisclaimer')} value={warrantyDisclaimer} onChange={setWarrantyDisclaimer} isEditing={isEditing} />
+          <ContractSection title={t('acceptanceLegalConfirmation')} value={acceptanceLegalText} onChange={setAcceptanceLegalText} isEditing={isEditing} />
         </>
       ) : null}
     </div>
@@ -490,6 +551,44 @@ function DocumentCompanyHeader({ company, t }) {
   )
 }
 
+function ContractWorkBreakdownList({ workBreakdown = [], t }) {
+  const normalizedWorkBreakdown = normalizeContractWorkBreakdown(workBreakdown)
+
+  if (normalizedWorkBreakdown.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {normalizedWorkBreakdown.map((item, index) => (
+        <div key={item.id || `${item.title}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-950">{item.title || t('item')}</p>
+              {typeof item.materialsIncluded === 'boolean' ? (
+                <p className="mt-2 inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+                  {item.materialsIncluded ? t('includesMaterials') : t('materialsNotIncluded')}
+                </p>
+              ) : null}
+            </div>
+            <p className="shrink-0 text-sm font-bold text-slate-950">{currency.format(item.amount)}</p>
+          </div>
+          {item.details.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {item.details.map((detail, detailIndex) => (
+                <div key={`${item.id}-${detailIndex}`} className="grid grid-cols-[10px_minmax(0,1fr)] gap-2 text-sm leading-6 text-slate-700">
+                  <span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-500" />
+                  <span className="whitespace-pre-wrap break-words">{detail}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ContractSection({ title, value, onChange, isEditing, highlighted = false }) {
   return (
     <section>
@@ -503,7 +602,7 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
   )
 }
 
-export function ContractRoute({ companySettings, leads, clients = [], onSaveContract, onMarkContractSigned, onMarkContractUnsigned, t, appLanguage = 'en' }) {
+export function ContractRoute({ companySettings, leads, clients = [], onSaveContract, onMarkContractSigned, onMarkContractUnsigned, onArchiveContract, t, appLanguage = 'en' }) {
   const { id, leadId } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -572,7 +671,7 @@ export function ContractRoute({ companySettings, leads, clients = [], onSaveCont
           return
         }
 
-        const persistedContract = response?.data?.[0] || null
+        const persistedContract = selectPreferredContractRecord(response?.data)
         setLoadedContract(persistedContract ? { ...(cachedContract || {}), ...persistedContract } : cachedContract)
       } catch (error) {
         if (!isCancelled) {
@@ -624,6 +723,7 @@ export function ContractRoute({ companySettings, leads, clients = [], onSaveCont
       onSaveContract={(contract) => onSaveContract?.(lead.id, contract)}
       onMarkSigned={(contract) => onMarkContractSigned?.(lead.id, contract)}
       onMarkUnsigned={(contract) => onMarkContractUnsigned?.(lead.id, contract)}
+      onArchiveContract={(contract) => onArchiveContract?.(lead.id, contract)}
     />
   )
 }
@@ -631,7 +731,10 @@ export function ContractRoute({ companySettings, leads, clients = [], onSaveCont
 export function ContractsPage({ leads, contracts = [], onViewContract, t }) {
   const usesSupabaseContracts = USE_SUPABASE || USE_SUPABASE_CONTRACTS
   const contractRows = usesSupabaseContracts && contracts.length > 0
-    ? dedupeById(contracts, ['projectId', 'project_id', 'estimateId', 'estimate_id', 'number', 'contractNumber']).map((contract) => {
+    ? dedupeById(
+      contracts.filter((contract) => !isArchivedContractRecord(contract)),
+      ['projectId', 'project_id', 'estimateId', 'estimate_id', 'number', 'contractNumber']
+    ).map((contract) => {
       const linkedLead = findLeadByProjectLookup(leads, contract?.projectId, contract?.project_id, contract?.leadId, contract?.lead_id)
         || leads.find((lead) => contract?.estimateId && contract.estimateId === lead.estimateId)
         || null
@@ -645,7 +748,7 @@ export function ContractsPage({ leads, contracts = [], onViewContract, t }) {
       }
     })
     : leads
-        .filter((lead) => lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber)
+        .filter((lead) => !isArchivedContractRecord(lead.portal?.contract) && (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber))
         .map((lead) => ({
         id: lead.id,
         routeId: lead.projectId || lead.project_id || lead.id,
