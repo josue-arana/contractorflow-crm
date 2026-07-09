@@ -21,7 +21,7 @@ import { printDocumentElement } from '../utils/printDocument'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
-import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText } from '../utils/contractDocument'
+import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText, stripLeadingBulletMarker } from '../utils/contractDocument'
 import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
 function formatContractDate(value, language = 'en') {
@@ -578,7 +578,7 @@ function ContractWorkBreakdownList({ workBreakdown = [], t }) {
               {item.details.map((detail, detailIndex) => (
                 <div key={`${item.id}-${detailIndex}`} className="grid grid-cols-[10px_minmax(0,1fr)] gap-2 text-sm leading-6 text-slate-700">
                   <span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  <span className="whitespace-pre-wrap break-words">{detail}</span>
+                  <span className="whitespace-pre-wrap break-words">{stripLeadingBulletMarker(detail)}</span>
                 </div>
               ))}
             </div>

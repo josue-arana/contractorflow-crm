@@ -1,6 +1,6 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription } from './contractDocument'
+import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription, stripLeadingBulletMarker } from './contractDocument'
 
 const safeColors = {
   white: '#ffffff',
@@ -365,7 +365,10 @@ function buildFallbackPdf({
   if (normalizedWorkBreakdown.length > 0) {
     normalizedWorkBreakdown.forEach((item, index) => {
       const descriptionParts = splitContractWorkBreakdownDescription(item.description, item.title || t('item'))
-      const detailLines = descriptionParts.details.flatMap((line) => wrapMultilineText(line, 62))
+      const detailLines = descriptionParts.details
+        .map((line) => stripLeadingBulletMarker(line))
+        .filter(Boolean)
+        .flatMap((line) => wrapMultilineText(line, 62))
       ensureSpace(28 + (detailLines.length * 12))
       if (index > 0) {
         pdf.setDrawColor(safeColors.slate200)

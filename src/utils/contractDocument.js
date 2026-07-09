@@ -21,6 +21,15 @@ function normalizeMaterialsIncluded(value, fallbackValue = null) {
   return null
 }
 
+export function stripLeadingBulletMarker(text) {
+  const normalizedText = String(text || '').trim()
+  if (!normalizedText) {
+    return ''
+  }
+
+  return normalizedText.replace(/^[-–—•*]\s+/, '').trim()
+}
+
 export function splitContractWorkBreakdownDescription(value, fallbackTitle = '') {
   const normalizedText = normalizeMultilineText(value)
 
@@ -183,5 +192,6 @@ export default {
   normalizeContractWorkBreakdown,
   resolveContractAcceptanceLegalText,
   shouldRenderContractScopeText,
+  stripLeadingBulletMarker,
   splitContractWorkBreakdownDescription,
 }

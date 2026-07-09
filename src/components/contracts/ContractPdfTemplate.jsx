@@ -1,5 +1,5 @@
 import { currency } from '../../utils/formatters'
-import { hasContractWorkBreakdown, normalizeContractWorkBreakdown, shouldRenderContractScopeText } from '../../utils/contractDocument'
+import { hasContractWorkBreakdown, normalizeContractWorkBreakdown, shouldRenderContractScopeText, stripLeadingBulletMarker } from '../../utils/contractDocument'
 
 const colors = {
   white: '#ffffff',
@@ -132,7 +132,7 @@ function WorkBreakdownItem({ item, index, t }) {
             {item.details.map((detail, detailIndex) => (
               <div key={`${item.id}-${detailIndex}`} style={{ display: 'grid', gridTemplateColumns: '10px minmax(0,1fr)', gap: '8px', alignItems: 'start' }}>
                 <span style={{ display: 'block', width: '4px', height: '4px', marginTop: '7px', borderRadius: '999px', backgroundColor: colors.blue500 }} />
-                <span style={{ fontSize: '11px', lineHeight: 1.45, color: colors.slate700, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{detail}</span>
+                <span style={{ fontSize: '11px', lineHeight: 1.45, color: colors.slate700, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{stripLeadingBulletMarker(detail)}</span>
               </div>
             ))}
           </div>
