@@ -422,7 +422,7 @@ export async function downloadEstimatePdf({
     })
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 28
+    const margin = 36
     const renderWidth = pageWidth - (margin * 2)
     const renderHeight = (canvas.height * renderWidth) / canvas.width
     const printableHeight = pageHeight - (margin * 2)

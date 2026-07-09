@@ -1,6 +1,8 @@
-const printPageMarginInches = 0.35
+const printPageMarginInches = 0.45
 const printPageWidthInches = 8.5
 const printableWidthInches = printPageWidthInches - (printPageMarginInches * 2)
+const printSafeInsetInches = 0.2
+const printContentMaxWidthInches = printableWidthInches - printSafeInsetInches
 
 async function copyDocumentStyles(targetDocument) {
   const sourceNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
@@ -70,16 +72,21 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
           body { font-family: ui-sans-serif, system-ui, sans-serif; }
           img { max-width: 100%; }
           [data-print-root="true"] {
-            width: 100%;
-            max-width: ${printableWidthInches}in;
+            width: calc(100% - ${printSafeInsetInches}in);
+            max-width: ${printContentMaxWidthInches}in;
+            min-width: 0;
             margin: 0 auto;
             box-sizing: border-box;
             display: block;
             overflow: visible;
           }
+          [data-print-root="true"], [data-print-root="true"] * {
+            box-sizing: border-box;
+          }
           [data-print-root="true"] > * {
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
             margin: 0 auto !important;
             padding: 0 !important;
             box-sizing: border-box !important;
@@ -88,6 +95,7 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
           [data-print-root="true"] .document-sheet {
             width: 100% !important;
             max-width: 100% !important;
+            min-width: 0 !important;
             box-sizing: border-box !important;
             box-shadow: none !important;
           }
@@ -104,7 +112,8 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
             html, body { background: #ffffff; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
             [data-print-root="true"] {
-              max-width: 100%;
+              width: calc(100% - ${printSafeInsetInches}in);
+              max-width: ${printContentMaxWidthInches}in;
             }
           }
         </style>
