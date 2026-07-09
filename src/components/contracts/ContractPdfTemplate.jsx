@@ -462,7 +462,6 @@ function SignatureSection({ contractorName, clientName, t }) {
   const resolvedContractorName = contractorName || t('contractor')
   const resolvedClientName = clientName || t('client')
 
-function SignatureNameField({ name }) {
   return (
     <section
       style={{
@@ -498,6 +497,7 @@ export function ContractPdfTemplate({
   company,
   lead,
   contractNumber,
+  contractDate,
   notesAndTermsItems = [],
   scope,
   workBreakdown = [],
