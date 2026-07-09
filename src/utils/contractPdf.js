@@ -112,8 +112,7 @@ function buildLicenseLines(company = {}, t = (key) => key) {
   const lines = []
 
   if (company?.licenseNumber) {
-    lines.push(`${t('licenseNumber')}: ${company.licenseNumber}`)
-    lines.push(t('licensedAndInsured'))
+    lines.push(company.licenseNumber)
   }
 
   return lines.length > 0 ? lines : [t('notAdded')]
@@ -403,15 +402,17 @@ function buildFallbackPdf({
 
   ensureSpace(54)
   const signatureColumns = [
-    { label: t('date'), value: contractDate || new Date().toLocaleDateString(), x: innerX, width: 86 },
-    { label: t('contractorSignatureName'), value: company?.ownerName || company?.name || t('brandName'), x: innerX + 98, width: 150 },
-    { label: `${t('client')} ${t('date')}`, value: '', x: innerX + 260, width: 86 },
-    { label: t('clientSignatureName'), value: lead?.client || clientName, x: innerX + 358, width: 150 },
+    { label: t('contractorDate'), value: '', x: innerX, width: 86 },
+    { label: company?.ownerName || company?.name || t('brandName'), value: '', x: innerX + 98, width: 150 },
+    { label: lead?.client || clientName || t('client'), value: '', x: innerX + 260, width: 150 },
+    { label: t('clientDate'), value: '', x: innerX + 422, width: 86 },
   ]
   signatureColumns.forEach(({ label, value, x, width }) => {
     pdf.setDrawColor(safeColors.slate300)
     pdf.line(x, cursorY + 18, x + width, cursorY + 18)
-    drawText(value, x, cursorY + 14, { size: 9, color: safeColors.slate700 })
+    if (value) {
+      drawText(value, x, cursorY + 14, { size: 9, color: safeColors.slate700 })
+    }
     drawText(label, x, cursorY + 32, { bold: true, size: 8, color: safeColors.slate500 })
   })
 
