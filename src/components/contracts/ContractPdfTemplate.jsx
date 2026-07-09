@@ -182,6 +182,9 @@ function buildLicenseLines(company = {}, t) {
   return lines.length > 0 ? lines : [t('notAdded')]
 }
 
+const showHeaderContractDivider = false
+const showProjectTotalSummaryDivider = false
+
 function MaterialsIndicator({ included, t }) {
   if (typeof included !== 'boolean') {
     return null
@@ -459,6 +462,7 @@ function SignatureSection({ contractorName, clientName, t }) {
   const resolvedContractorName = contractorName || t('contractor')
   const resolvedClientName = clientName || t('client')
 
+function SignatureNameField({ name }) {
   return (
     <section
       style={{
@@ -494,7 +498,6 @@ export function ContractPdfTemplate({
   company,
   lead,
   contractNumber,
-  contractDate,
   notesAndTermsItems = [],
   scope,
   workBreakdown = [],

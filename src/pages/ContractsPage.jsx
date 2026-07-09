@@ -22,8 +22,10 @@ import { printDocumentElement } from '../utils/printDocument'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
-import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText } from '../utils/contractDocument'
+import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText, stripLeadingBulletMarker } from '../utils/contractDocument'
 import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
+
+const contractPreviewPageWidth = 816
 
 function formatContractDate(value, language = 'en') {
   const locale = language === 'es' ? 'es-ES' : 'en-US'
@@ -601,7 +603,7 @@ function ContractWorkBreakdownList({ workBreakdown = [], t }) {
               {item.details.map((detail, detailIndex) => (
                 <div key={`${item.id}-${detailIndex}`} className="grid grid-cols-[10px_minmax(0,1fr)] gap-2 text-sm leading-6 text-slate-700">
                   <span className="mt-2 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                  <span className="whitespace-pre-wrap break-words">{detail}</span>
+                  <span className="whitespace-pre-wrap break-words">{stripLeadingBulletMarker(detail)}</span>
                 </div>
               ))}
             </div>
@@ -622,6 +624,73 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
         <div className={`${highlighted ? 'rounded-2xl bg-slate-50 p-4' : ''} whitespace-pre-line break-words text-sm leading-6 text-slate-700`}>{value}</div>
       )}
     </section>
+  )
+}
+
+function ScaledContractPreview({ children }) {
+  const containerRef = useRef(null)
+  const contentRef = useRef(null)
+  const [scale, setScale] = useState(1)
+  const [contentHeight, setContentHeight] = useState(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const containerNode = containerRef.current
+    const contentNode = contentRef.current
+    if (!containerNode || !contentNode) return undefined
+
+    const updateLayout = () => {
+      const nextWidth = containerNode.clientWidth || contractPreviewPageWidth
+      const nextScale = Math.min(1, nextWidth / contractPreviewPageWidth)
+      setScale(nextScale)
+      setContentHeight(contentNode.offsetHeight || 0)
+    }
+
+    updateLayout()
+
+    const resizeObserver = new ResizeObserver(() => {
+      updateLayout()
+    })
+
+    resizeObserver.observe(containerNode)
+    resizeObserver.observe(contentNode)
+    window.addEventListener('resize', updateLayout)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateLayout)
+    }
+  }, [children])
+
+  return (
+    <div ref={containerRef} className="w-full max-w-full overflow-hidden">
+      <div style={{ height: contentHeight ? `${contentHeight * scale}px` : 'auto' }}>
+        <div className="flex w-full justify-center overflow-hidden">
+          <div
+            ref={contentRef}
+            style={{
+              width: `${contractPreviewPageWidth}px`,
+              maxWidth: 'none',
+              transform: `scale(${scale})`,
+              transformOrigin: 'top center',
+            }}
+          >
+            <div
+              style={{
+                width: `${contractPreviewPageWidth}px`,
+                backgroundColor: '#ffffff',
+                color: '#0f172a',
+                padding: '18px',
+                boxSizing: 'border-box',
+              }}
+            >
+              {children}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
