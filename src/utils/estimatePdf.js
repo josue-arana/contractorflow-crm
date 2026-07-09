@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
+import { currency } from './formatters'
 
 const safeColors = {
   white: '#ffffff',
@@ -142,8 +143,6 @@ function sanitizeCloneTree(root, clonedDoc) {
   ]
 
   elements.forEach((element) => {
-    element.className = ''
-
     const computed = win?.getComputedStyle?.(element)
     if (!computed) return
 
@@ -306,7 +305,7 @@ function buildFallbackPdf({
   drawText(t('description').toUpperCase(), innerX + 14, cursorY + 17, { bold: true, size: 9.5, color: safeColors.slate400 })
   drawText(`${t('estimate').toUpperCase()} ${t('totalAmount').toUpperCase()}`, innerX + (cardWidth - 54), cursorY + 17, { bold: true, size: 9.5, color: safeColors.blue700, align: 'right' })
   drawText(lead?.projectTitle || lead?.projectType || t('projectTitle'), innerX + 14, cursorY + 40, { bold: true, size: 12 })
-  drawText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(total || 0)), innerX + (cardWidth - 54), cursorY + 40, { bold: true, size: 16, align: 'right' })
+  drawText(currency.format(Number(total || 0)), innerX + (cardWidth - 54), cursorY + 40, { bold: true, size: 16, align: 'right' })
   cursorY += 62
 
   if (String(scope || '').trim()) {

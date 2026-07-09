@@ -10,6 +10,7 @@ import { archivePanelButtonClasses } from '../utils/buttonStyles'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ModalShell } from '../components/common/ModalShell'
+import { ScaledDocumentPreview, defaultDocumentPreviewWidth } from '../components/common/ScaledDocumentPreview'
 import { useToast } from '../components/common/ToastProvider'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
@@ -26,7 +27,7 @@ import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
-const estimatePreviewPageWidth = 780
+const estimatePreviewPageWidth = defaultDocumentPreviewWidth
 
 function readEstimateScopeText(estimate = {}) {
   return estimate?.summary || estimate?.scopeOfWork || estimate?.scope_of_work || ''
@@ -770,12 +771,12 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
         const result = await persistEstimate({ status: 'Sent' }, { closeSendModal: true })
         return Boolean(result)
       }} t={t} contentT={estimateT} />
-      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-[72rem] lg:max-w-[78rem]">
+      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="p-2 sm:max-w-[64rem] sm:p-3 lg:max-w-[68rem]">
         <div className="rounded-3xl bg-white text-slate-950">
-          <div className="p-3 sm:p-4">
-            <ScaledEstimatePreview>
+          <div className="p-1">
+            <ScaledDocumentPreview pageWidth={estimatePreviewPageWidth} pagePadding={18}>
               <EstimatePdfTemplate {...estimatePreviewProps} />
-            </ScaledEstimatePreview>
+            </ScaledDocumentPreview>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
@@ -784,7 +785,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
         </div>
       </ModalShell>
       <div style={{ pointerEvents: 'none', position: 'fixed', left: '-200vw', top: 0, zIndex: -1 }}>
-        <div
+      <div
           ref={pdfTemplateRef}
           data-estimate-pdf-root="true"
           style={{ width: `${estimatePreviewPageWidth}px`, backgroundColor: '#ffffff', color: '#0f172a', padding: '18px', boxSizing: 'border-box' }}
@@ -800,79 +801,11 @@ function EstimatePreviewCard(props) {
   return (
     <InfoCard title={props.t('previewEstimate')} bodyClassName="min-w-0 overflow-hidden">
       <div className="rounded-[28px] bg-slate-50 p-2 sm:p-3">
-        <ScaledEstimatePreview>
+        <ScaledDocumentPreview pageWidth={estimatePreviewPageWidth} pagePadding={18}>
           <EstimatePdfTemplate {...props} />
-        </ScaledEstimatePreview>
+        </ScaledDocumentPreview>
       </div>
     </InfoCard>
-  )
-}
-
-function ScaledEstimatePreview({ children }) {
-  const containerRef = useRef(null)
-  const contentRef = useRef(null)
-  const [scale, setScale] = useState(1)
-  const [contentHeight, setContentHeight] = useState(0)
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-
-    const containerNode = containerRef.current
-    const contentNode = contentRef.current
-    if (!containerNode || !contentNode) return undefined
-
-    const updateLayout = () => {
-      const nextWidth = containerNode.clientWidth || estimatePreviewPageWidth
-      const nextScale = Math.min(1, nextWidth / estimatePreviewPageWidth)
-      setScale(nextScale)
-      setContentHeight(contentNode.offsetHeight || 0)
-    }
-
-    updateLayout()
-
-    const resizeObserver = new ResizeObserver(() => {
-      updateLayout()
-    })
-
-    resizeObserver.observe(containerNode)
-    resizeObserver.observe(contentNode)
-    window.addEventListener('resize', updateLayout)
-
-    return () => {
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', updateLayout)
-    }
-  }, [children])
-
-  return (
-    <div ref={containerRef} className="w-full max-w-full overflow-hidden">
-      <div style={{ height: contentHeight ? `${contentHeight * scale}px` : 'auto' }}>
-        <div className="flex w-full justify-center overflow-hidden">
-          <div
-            ref={contentRef}
-            style={{
-              width: `${estimatePreviewPageWidth}px`,
-              maxWidth: 'none',
-              transform: `scale(${scale})`,
-              transformOrigin: 'top center',
-            }}
-          >
-            <div
-              data-estimate-pdf-root="true"
-              style={{
-                width: `${estimatePreviewPageWidth}px`,
-                backgroundColor: '#ffffff',
-                color: '#0f172a',
-                padding: '18px',
-                boxSizing: 'border-box',
-              }}
-            >
-              {children}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }
 

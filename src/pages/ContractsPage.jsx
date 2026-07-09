@@ -10,6 +10,7 @@ import { SendToCustomerModal } from '../components/common/SendToCustomerModal'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import dataProvider from '../services/dataProvider'
 import { ModalShell } from '../components/common/ModalShell'
+import { ScaledDocumentPreview, defaultDocumentPreviewWidth } from '../components/common/ScaledDocumentPreview'
 import { useToast } from '../components/common/ToastProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { USE_SUPABASE, USE_SUPABASE_CONTRACTS } from '../config/backendConfig'
@@ -38,6 +39,8 @@ function formatContractDate(value, language = 'en') {
 
   return parsedDate.toLocaleDateString(locale, { month: 'long', day: 'numeric', year: 'numeric' })
 }
+
+const contractPreviewPageWidth = defaultDocumentPreviewWidth
 
 function isArchivedContractRecord(contract = {}) {
   return Boolean(
@@ -470,9 +473,13 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
         const result = await markSent()
         return Boolean(result)
       }} t={t} contentT={contractT} />
-      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="sm:max-w-4xl sm:p-8">
+      <ModalShell isOpen={showPreviewModal} onBackdropClick={() => setShowPreviewModal(false)} panelClassName="p-2 sm:max-w-[64rem] sm:p-3 lg:max-w-[68rem]">
         <div className="rounded-3xl bg-white text-slate-950">
-          <ContractPdfTemplate {...contractPreviewProps} />
+          <div className="p-1">
+            <ScaledDocumentPreview pageWidth={contractPreviewPageWidth} pagePadding={18}>
+              <ContractPdfTemplate {...contractPreviewProps} />
+            </ScaledDocumentPreview>
+          </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
             <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
@@ -493,7 +500,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
         <div
           ref={pdfTemplateRef}
           data-contract-pdf-root="true"
-          style={{ width: '816px', backgroundColor: '#ffffff', color: '#0f172a', padding: '24px', boxSizing: 'border-box' }}
+          style={{ width: `${contractPreviewPageWidth}px`, backgroundColor: '#ffffff', color: '#0f172a', padding: '18px', boxSizing: 'border-box' }}
         >
           <ContractPdfTemplate {...contractPreviewProps} />
         </div>
