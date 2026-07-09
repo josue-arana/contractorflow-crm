@@ -487,20 +487,22 @@ export async function downloadContractPdf({
     })
     const pageWidth = pdf.internal.pageSize.getWidth()
     const pageHeight = pdf.internal.pageSize.getHeight()
-    const imgWidth = pageWidth
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
+    const margin = 28
+    const renderWidth = pageWidth - (margin * 2)
+    const renderHeight = (canvas.height * renderWidth) / canvas.width
+    const printableHeight = pageHeight - (margin * 2)
     const imageData = canvas.toDataURL('image/png')
 
-    let remainingHeight = imgHeight
-    let offsetY = 0
+    let remainingHeight = renderHeight
+    let offsetY = margin
 
     while (remainingHeight > 0) {
-      pdf.addImage(imageData, 'PNG', 0, offsetY, imgWidth, imgHeight, undefined, 'FAST')
-      remainingHeight -= pageHeight
+      pdf.addImage(imageData, 'PNG', margin, offsetY, renderWidth, renderHeight, undefined, 'FAST')
+      remainingHeight -= printableHeight
 
       if (remainingHeight > 0) {
         pdf.addPage()
-        offsetY -= pageHeight
+        offsetY = margin - (renderHeight - remainingHeight)
       }
     }
 
