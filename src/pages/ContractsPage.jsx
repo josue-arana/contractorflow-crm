@@ -25,7 +25,7 @@ import { findRelatedClient } from '../utils/clients'
 import { buildContractNotesAndTermsItems, buildContractWorkBreakdownFromEstimate, buildGeneratedContractPaymentTerms, hasContractWorkBreakdown, normalizeContractWorkBreakdown, resolveContractAcceptanceLegalText, stripLeadingBulletMarker } from '../utils/contractDocument'
 import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
 
-const contractPreviewPageWidth = 816
+const contractPreviewPageWidth = 816 
 
 function formatContractDate(value, language = 'en') {
   const locale = language === 'es' ? 'es-ES' : 'en-US'
@@ -626,6 +626,7 @@ function ContractSection({ title, value, onChange, isEditing, highlighted = fals
     </section>
   )
 }
+
 
 function ScaledContractPreview({ children }) {
   const containerRef = useRef(null)
