@@ -1,6 +1,8 @@
 import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
 import { getLanguageLocale } from '../../utils/language'
+import { calculateEstimateDocumentDensity, getDocumentDensityVariables } from '../../utils/documentDensity'
+import '../documents/documentDensity.css'
 
 const colors = {
   white: '#ffffff',
@@ -125,7 +127,7 @@ function CompanyBadge({ company = {}, t }) {
     .join('') || t('brandInitials')
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--document-company-gap)', minWidth: 0 }}>
       {company?.logo ? (
         <img
           src={company.logo}
@@ -195,7 +197,7 @@ function SummaryBlock({ label, children }) {
       >
         {label}
       </p>
-      <div style={{ marginTop: '7px', fontSize: '14px', lineHeight: 1.38, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+      <div style={{ marginTop: 'var(--document-label-gap)', fontSize: '14px', lineHeight: 1.38, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
         {children}
       </div>
     </div>
@@ -224,9 +226,9 @@ function WorkBreakdownItem({ item, index, fallbackMaterialsIncluded, t }) {
       style={{
         display: 'grid',
         gridTemplateColumns: `${layout.numberColumn} minmax(180px, ${layout.titleColumn}) ${layout.detailColumn} ${layout.amountColumn}`,
-        gap: layout.rowGap,
+        gap: 'var(--document-work-row-gap)',
         alignItems: 'start',
-        padding: '10px 0',
+        padding: 'var(--document-work-row-padding) 0',
         borderTop: index === 0 ? 'none' : `1px solid ${colors.slate200}`,
       }}
     >
@@ -267,7 +269,7 @@ function WorkBreakdownItem({ item, index, fallbackMaterialsIncluded, t }) {
       </div>
       <div style={{ minWidth: 0 }}>
         {details.length > 0 ? (
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '3px' }}>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 'var(--document-work-bullet-gap)' }}>
             {details.map((line, lineIndex) => (
               <li key={`${index}-${lineIndex}`} style={{ display: 'grid', gridTemplateColumns: '10px minmax(0,1fr)', gap: '8px', alignItems: 'start' }}>
                 <span
@@ -315,21 +317,28 @@ export function EstimatePdfTemplate({
   const hasLineItems = lineItems.length > 0
   const clientAddressLines = formatAddressLines(lead?.address || lead?.location || '')
   const projectTitle = lead?.projectTitle || lead?.projectType || t('projectTitle')
+  const densityMode = calculateEstimateDocumentDensity({
+    lineItems,
+    scope,
+    paymentTerms,
+  })
 
   return (
     <article
+      className={`document-sheet document-estimate document-density-${densityMode}`}
       style={{
+        ...getDocumentDensityVariables(densityMode),
         overflow: 'hidden',
-        borderRadius: '18px',
+        borderRadius: 'var(--document-card-radius)',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.paper,
-        padding: '16px 20px 16px',
+        padding: 'var(--document-card-padding-y) var(--document-card-padding-x) var(--document-card-padding-y)',
         boxShadow: '0 18px 48px rgba(15, 23, 42, 0.08)',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         color: colors.slate900,
       }}
     >
-      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '14px' }}>
+      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--document-header-gap)' }}>
         <div style={{ flex: '2 2 420px', minWidth: 0 }}>
           <CompanyBadge company={company} t={t} />
         </div>
@@ -368,7 +377,7 @@ export function EstimatePdfTemplate({
       <section
         data-estimate-summary="true"
         style={{
-          marginTop: '14px',
+          marginTop: 'var(--document-section-gap)',
           borderRadius: '16px',
           border: `1px solid ${colors.slate200}`,
           backgroundColor: colors.white,
@@ -379,7 +388,7 @@ export function EstimatePdfTemplate({
           <div
             style={{
               minWidth: 0,
-              padding: '14px 16px',
+              padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)',
             }}
           >
             <SummaryBlock label={t('client')}>
@@ -393,7 +402,7 @@ export function EstimatePdfTemplate({
               ) : null}
             </SummaryBlock>
           </div>
-          <div style={{ minWidth: 0, padding: '14px 16px', display: 'grid', gap: '9px' }}>
+          <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)', display: 'grid', gap: 'var(--document-summary-inner-gap)' }}>
             <SummaryBlock label={t('date')}>
               <div>{formatDisplayDate(estimateDate, language)}</div>
             </SummaryBlock>
@@ -404,7 +413,7 @@ export function EstimatePdfTemplate({
           <div
             style={{
               borderLeft: `1px solid ${colors.slate300}`,
-              padding: '14px 16px',
+              padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',
@@ -432,7 +441,7 @@ export function EstimatePdfTemplate({
       </section>
 
       {hasScope ? (
-        <section data-estimate-section="true" style={{ marginTop: '14px' }}>
+        <section data-estimate-section="true" style={{ marginTop: 'var(--document-section-gap)' }}>
           <p
             style={{
               margin: 0,
@@ -448,9 +457,9 @@ export function EstimatePdfTemplate({
           </p>
           <div
             style={{
-              marginTop: '8px',
+              marginTop: 'var(--document-scope-gap)',
               borderTop: `1px solid ${colors.slate200}`,
-              paddingTop: '9px',
+              paddingTop: 'var(--document-scope-padding-top)',
               whiteSpace: 'pre-line',
               fontSize: '12px',
               lineHeight: 1.38,
@@ -465,7 +474,7 @@ export function EstimatePdfTemplate({
       ) : null}
 
       {hasLineItems ? (
-        <section data-estimate-section="true" style={{ marginTop: hasScope ? '12px' : '16px' }}>
+        <section data-estimate-section="true" style={{ marginTop: hasScope ? 'var(--document-card-section-gap)' : 'var(--document-section-gap)' }}>
           <p
             style={{
               margin: 0,
@@ -479,7 +488,7 @@ export function EstimatePdfTemplate({
           >
             {t('workBreakdown')}
           </p>
-          <div style={{ marginTop: '6px', borderTop: `1px solid ${colors.slate200}` }}>
+          <div style={{ marginTop: 'var(--document-work-gap)', borderTop: `1px solid ${colors.slate200}` }}>
             {lineItems.map((item, index) => (
               <WorkBreakdownItem
                 key={`${item?.name || 'item'}-${index}`}
@@ -496,7 +505,7 @@ export function EstimatePdfTemplate({
       <section
         data-estimate-section="true"
         style={{
-          marginTop: '14px',
+          marginTop: 'var(--document-section-gap)',
           borderRadius: '16px',
           border: `1px solid ${colors.slate200}`,
           backgroundColor: colors.white,
@@ -507,10 +516,10 @@ export function EstimatePdfTemplate({
           <div
             style={{
               minWidth: 0,
-              padding: '12px 14px',
+              padding: 'var(--document-panel-padding-y) var(--document-panel-padding-x)',
               display: 'flex',
               alignItems: 'flex-start',
-              gap: '10px',
+              gap: 'var(--document-panel-gap)',
             }}
           >
             <div
@@ -544,7 +553,7 @@ export function EstimatePdfTemplate({
               </p>
               <div
                 style={{
-                  marginTop: '4px',
+                  marginTop: 'var(--document-panel-heading-gap)',
                   fontSize: '11px',
                   lineHeight: 1.32,
                   color: colors.slate900,
@@ -560,7 +569,7 @@ export function EstimatePdfTemplate({
           <div
             style={{
               borderLeft: `1px solid ${colors.slate300}`,
-              padding: '12px 14px',
+              padding: 'var(--document-panel-padding-y) var(--document-panel-padding-x)',
               display: 'flex',
               flexDirection: 'column',
               justifyContent: 'center',

@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription } from './contractDocument'
+import { currency } from './formatters'
 
 const safeColors = {
   white: '#ffffff',
@@ -139,7 +140,6 @@ function sanitizeCloneTree(root, clonedDoc) {
   ]
 
   elements.forEach((element) => {
-    element.className = ''
     const computed = win?.getComputedStyle?.(element)
     if (!computed) return
 
@@ -355,7 +355,7 @@ function buildFallbackPdf({
   drawText(t('description').toUpperCase(), innerX + 14, cursorY + 17, { bold: true, size: 9, color: safeColors.slate400 })
   drawText(t('projectTotal').toUpperCase(), innerX + descriptionSectionWidth - 14, cursorY + 17, { bold: true, size: 9, color: safeColors.blue700, align: 'right' })
   drawText(lead?.projectTitle || lead?.projectType || t('projectScope'), innerX + 14, cursorY + 40, { bold: true, size: 11 })
-  drawText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(total || 0)), innerX + descriptionSectionWidth - 14, cursorY + 40, { bold: true, size: 15, align: 'right' })
+  drawText(currency.format(Number(total || 0)), innerX + descriptionSectionWidth - 14, cursorY + 40, { bold: true, size: 15, align: 'right' })
   cursorY += 56
 
   pdf.setFont('helvetica', 'normal')
@@ -372,7 +372,7 @@ function buildFallbackPdf({
         pdf.line(innerX + 14, cursorY - 4, innerX + descriptionSectionWidth - 14, cursorY - 4)
       }
       drawText(`${index + 1}. ${descriptionParts.title || t('item')}`, innerX + 14, cursorY, { bold: true, size: 10, color: safeColors.slate900 })
-      drawText(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(item.amount || 0)), innerX + descriptionSectionWidth - 14, cursorY, { bold: true, size: 10, color: safeColors.blue700, align: 'right' })
+      drawText(currency.format(Number(item.amount || 0)), innerX + descriptionSectionWidth - 14, cursorY, { bold: true, size: 10, color: safeColors.blue700, align: 'right' })
       cursorY += 13
       if (typeof item.materialsIncluded === 'boolean') {
         drawText(item.materialsIncluded ? t('includesMaterials') : t('materialsNotIncluded'), innerX + 14, cursorY, { size: 9, color: safeColors.slate500 })

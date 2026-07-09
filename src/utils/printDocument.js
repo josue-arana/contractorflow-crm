@@ -1,3 +1,24 @@
+async function copyDocumentStyles(targetDocument) {
+  const sourceNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+
+  const pendingLoads = sourceNodes.map((sourceNode) => {
+    const clonedNode = sourceNode.cloneNode(true)
+    targetDocument.head.appendChild(clonedNode)
+
+    if (clonedNode.tagName !== 'LINK') {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
+      clonedNode.addEventListener('load', resolve, { once: true })
+      clonedNode.addEventListener('error', resolve, { once: true })
+      setTimeout(resolve, 1200)
+    })
+  })
+
+  await Promise.all(pendingLoads)
+}
+
 export async function printDocumentElement(element, { documentTitle = 'Document' } = {}) {
   if (!element) {
     throw new Error('Document preview is not ready.')
@@ -23,7 +44,8 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
           html, body { margin: 0; padding: 0; background: #ffffff; color: #0f172a; }
           body { font-family: ui-sans-serif, system-ui, sans-serif; }
           img { max-width: 100%; }
-          [data-print-root="true"] { width: 100%; box-sizing: border-box; }
+          [data-print-root="true"] { width: 100%; box-sizing: border-box; display: flex; justify-content: center; }
+          [data-print-root="true"] > * { flex: 0 0 auto; }
           [data-print-root="true"] article,
           [data-print-root="true"] section,
           [data-print-root="true"] div {
@@ -45,6 +67,7 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
     </html>
   `)
   printWindow.document.close()
+  await copyDocumentStyles(printWindow.document)
 
   const mountPoint = printWindow.document.querySelector('[data-print-root="true"]')
 
