@@ -512,7 +512,23 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
 function ContractDocument({ isEditing, lead, company, contractDate, contractNumber, notesAndTermsItems, contractTotal, scope, workBreakdown, setScope, paymentTerms, setPaymentTerms, acceptanceLegalText, setAcceptanceLegalText, contractT, t }) {
   return (
     <div className="space-y-5 text-sm leading-6 text-slate-700">
-      {!isEditing ? <ContractPdfTemplate company={company} lead={lead} contractNumber={contractNumber} contractDate={contractDate} notesAndTermsItems={notesAndTermsItems} scope={scope} workBreakdown={workBreakdown} total={contractTotal} t={contractT} /> : null}
+      {!isEditing ? (
+        <div className="overflow-hidden rounded-[28px] bg-slate-50 p-2 sm:p-3">
+          <ScaledDocumentPreview pageWidth={contractPreviewPageWidth} pagePadding={18}>
+            <ContractPdfTemplate
+              company={company}
+              lead={lead}
+              contractNumber={contractNumber}
+              contractDate={contractDate}
+              notesAndTermsItems={notesAndTermsItems}
+              scope={scope}
+              workBreakdown={workBreakdown}
+              total={contractTotal}
+              t={contractT}
+            />
+          </ScaledDocumentPreview>
+        </div>
+      ) : null}
       {isEditing ? (
         <>
           <div className="flex flex-col gap-4 border-b border-slate-200 pb-6 sm:flex-row sm:items-start sm:justify-between">

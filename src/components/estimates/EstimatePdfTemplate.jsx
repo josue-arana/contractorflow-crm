@@ -1,7 +1,7 @@
 import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
 import { getLanguageLocale } from '../../utils/language'
-import { calculateEstimateDocumentDensity, getDocumentDensityVariables } from '../../utils/documentDensity'
+import { getDocumentDensityVariables } from '../../utils/documentDensity'
 import '../documents/documentDensity.css'
 
 const colors = {
@@ -317,17 +317,12 @@ export function EstimatePdfTemplate({
   const hasLineItems = lineItems.length > 0
   const clientAddressLines = formatAddressLines(lead?.address || lead?.location || '')
   const projectTitle = lead?.projectTitle || lead?.projectType || t('projectTitle')
-  const densityMode = calculateEstimateDocumentDensity({
-    lineItems,
-    scope,
-    paymentTerms,
-  })
 
   return (
     <article
-      className={`document-sheet document-estimate document-density-${densityMode}`}
+      className="document-sheet document-estimate"
       style={{
-        ...getDocumentDensityVariables(densityMode),
+        ...getDocumentDensityVariables(),
         overflow: 'hidden',
         borderRadius: 'var(--document-card-radius)',
         border: `1px solid ${colors.slate200}`,

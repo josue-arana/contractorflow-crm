@@ -1,7 +1,7 @@
 import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
 import { hasContractWorkBreakdown, normalizeContractWorkBreakdown, shouldRenderContractScopeText } from '../../utils/contractDocument'
-import { calculateContractDocumentDensity, getDocumentDensityVariables } from '../../utils/documentDensity'
+import { getDocumentDensityVariables } from '../../utils/documentDensity'
 import '../documents/documentDensity.css'
 
 const colors = {
@@ -505,18 +505,12 @@ export function ContractPdfTemplate({
   const workLines = buildWorkLines(lead, t)
   const licenseLines = buildLicenseLines(company, t)
   const projectTitle = lead?.projectTitle || lead?.projectType || t('projectScope')
-  const densityMode = calculateContractDocumentDensity({
-    workBreakdown,
-    scope,
-    notesAndTermsItems,
-    hasSignatureSection: true,
-  })
 
   return (
     <article
-      className={`document-sheet document-contract document-density-${densityMode}`}
+      className="document-sheet document-contract"
       style={{
-        ...getDocumentDensityVariables(densityMode),
+        ...getDocumentDensityVariables(),
         overflow: 'hidden',
         borderRadius: '18px',
         border: `1px solid ${colors.slate200}`,
