@@ -49,17 +49,6 @@ function HeaderMailIcon() {
   )
 }
 
-function HeaderUserIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" style={{ display: 'block', flexShrink: 0 }}>
-      <path
-        fill={colors.teal600}
-        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4m0 2c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4"
-      />
-    </svg>
-  )
-}
-
 function CompanyBadge({ company = {}, t }) {
   const initials = (company?.name || t('brandName'))
     .split(/\s+/)
@@ -67,7 +56,6 @@ function CompanyBadge({ company = {}, t }) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || t('brandInitials')
-  const contractorName = company?.ownerName || t('contractor')
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '14px', minWidth: 0 }}>
@@ -118,10 +106,6 @@ function CompanyBadge({ company = {}, t }) {
               <span style={{ fontSize: '12px', lineHeight: 1.35, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{company.email}</span>
             </div>
           ) : null}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, color: colors.slate900 }}>
-            <HeaderUserIcon />
-            <span style={{ fontSize: '12px', lineHeight: 1.35, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{contractorName}</span>
-          </div>
         </div>
       </div>
     </div>
@@ -194,6 +178,9 @@ function InsetDivider({ color = colors.slate300, inset = '14px' }) {
     />
   )
 }
+
+const showHeaderContractDivider = false
+const showProjectTotalSummaryDivider = false
 
 function MaterialsIndicator({ included, t }) {
   if (typeof included !== 'boolean') {
@@ -300,7 +287,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
       }}
     >
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 188px', alignItems: 'stretch', backgroundColor: colors.slate50 }}>
-        <div style={{ minWidth: 0, padding: '12px 14px' }}>
+        <div style={{ minWidth: 0, padding: '10px 14px' }}>
           <SummaryBlock label={t('description')}>
             <div style={{ fontWeight: 700 }}>{projectTitle}</div>
           </SummaryBlock>
@@ -308,14 +295,14 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
         <div
           style={{
             position: 'relative',
-            padding: '12px 14px',
+            padding: '10px 14px',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
             textAlign: 'right',
           }}
         >
-          <InsetDivider />
+          {showProjectTotalSummaryDivider ? <InsetDivider /> : null}
           <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: colors.teal700 }}>
             {t('projectTotal')}
           </p>
@@ -383,7 +370,7 @@ function NotesAndTermsSection({ items, t }) {
             style={{
               position: 'relative',
               minWidth: 0,
-              padding: '12px 14px',
+              padding: '10px 14px',
             }}
           >
             {index > 0 ? <InsetDivider color={colors.slate200} inset="12px" /> : null}
@@ -452,7 +439,6 @@ export function ContractPdfTemplate({
   company,
   lead,
   contractNumber,
-  contractDate,
   notesAndTermsItems = [],
   scope,
   workBreakdown = [],
@@ -486,7 +472,6 @@ export function ContractPdfTemplate({
             flex: '0 0 178px',
             minWidth: '178px',
             alignSelf: 'stretch',
-            borderLeft: `1px solid ${colors.slate300}`,
             paddingLeft: '14px',
             display: 'flex',
             flexDirection: 'column',
@@ -494,17 +479,12 @@ export function ContractPdfTemplate({
             textAlign: 'right',
           }}
         >
+          {showHeaderContractDivider ? <InsetDivider /> : null}
           <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, letterSpacing: '0.38em', textTransform: 'uppercase', color: colors.teal700 }}>
             {t('contract')}
           </p>
           <p style={{ margin: '6px 0 0', fontSize: '15px', lineHeight: 1.1, fontWeight: 700, color: colors.slate900, whiteSpace: 'nowrap' }}>
             {contractNumber}
-          </p>
-          <p style={{ margin: '10px 0 0', fontSize: '11px', lineHeight: 1.3, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: colors.teal700 }}>
-            {t('date')}
-          </p>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', lineHeight: 1.35, color: colors.slate700, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-            {contractDate}
           </p>
         </div>
       </header>
