@@ -179,6 +179,22 @@ function buildLicenseLines(company = {}, t) {
   return company?.licenseNumber ? [company.licenseNumber] : [t('notAdded')]
 }
 
+function InsetDivider({ color = colors.slate300, inset = '14px' }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: inset,
+        bottom: inset,
+        width: '1px',
+        backgroundColor: color,
+      }}
+    />
+  )
+}
+
 function MaterialsIndicator({ included, t }) {
   if (typeof included !== 'boolean') {
     return null
@@ -232,7 +248,8 @@ function WorkBreakdownItem({ item, index, t }) {
           <MaterialsIndicator included={item.materialsIncluded} t={t} />
         </div>
       </div>
-      <div style={{ minWidth: 0, paddingLeft: '14px', borderLeft: `1px solid ${colors.slate200}` }}>
+      <div style={{ position: 'relative', minWidth: 0, paddingLeft: '14px' }}>
+        <InsetDivider color={colors.slate200} inset="2px" />
         {item.details.length > 0 ? (
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '4px' }}>
             {item.details.map((detail, detailIndex) => (
@@ -274,7 +291,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
     <section
       style={{
         marginTop: '12px',
-        borderRadius: '18px',
+        borderRadius: '20px',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -290,7 +307,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
         </div>
         <div
           style={{
-            borderLeft: `1px solid ${colors.slate300}`,
+            position: 'relative',
             padding: '12px 14px',
             display: 'flex',
             flexDirection: 'column',
@@ -298,6 +315,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
             textAlign: 'right',
           }}
         >
+          <InsetDivider />
           <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, letterSpacing: '0.18em', textTransform: 'uppercase', color: colors.teal700 }}>
             {t('projectTotal')}
           </p>
@@ -345,7 +363,7 @@ function NotesAndTermsSection({ items, t }) {
     <section
       style={{
         marginTop: '12px',
-        borderRadius: '18px',
+        borderRadius: '20px',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -363,11 +381,12 @@ function NotesAndTermsSection({ items, t }) {
           <div
             key={item.title}
             style={{
+              position: 'relative',
               minWidth: 0,
               padding: '12px 14px',
-              borderLeft: index === 0 ? 'none' : `1px solid ${colors.slate200}`,
             }}
           >
+            {index > 0 ? <InsetDivider color={colors.slate200} inset="12px" /> : null}
             <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, color: colors.slate900 }}>
               {item.title}
             </p>
@@ -411,7 +430,7 @@ function SignatureSection({ contractorName, clientName, t }) {
     <section
       style={{
         marginTop: '12px',
-        borderRadius: '18px',
+        borderRadius: '20px',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -449,7 +468,7 @@ export function ContractPdfTemplate({
     <article
       style={{
         overflow: 'hidden',
-        borderRadius: '18px',
+        borderRadius: '20px',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.paper,
         padding: '16px 20px',
@@ -493,7 +512,7 @@ export function ContractPdfTemplate({
       <section
         style={{
           marginTop: '14px',
-          borderRadius: '16px',
+          borderRadius: '18px',
           border: `1px solid ${colors.slate200}`,
           backgroundColor: colors.white,
           overflow: 'hidden',
@@ -509,7 +528,8 @@ export function ContractPdfTemplate({
               </div>
             </SummaryBlock>
           </div>
-          <div style={{ minWidth: 0, padding: '14px 16px', borderLeft: `1px solid ${colors.slate300}` }}>
+          <div style={{ position: 'relative', minWidth: 0, padding: '14px 16px' }}>
+            <InsetDivider />
             <SummaryBlock label={t('workToBePerformedAt')}>
               <div style={{ display: 'grid', gap: '1px' }}>
                 {workLines.map((line) => (
@@ -518,7 +538,8 @@ export function ContractPdfTemplate({
               </div>
             </SummaryBlock>
           </div>
-          <div style={{ minWidth: 0, padding: '14px 16px', borderLeft: `1px solid ${colors.slate300}` }}>
+          <div style={{ position: 'relative', minWidth: 0, padding: '14px 16px' }}>
+            <InsetDivider />
             <SummaryBlock label={t('licenseInfo')}>
               <div style={{ display: 'grid', gap: '1px' }}>
                 {licenseLines.map((line) => (
