@@ -1,3 +1,7 @@
+const printPageMarginInches = 0.35
+const printPageWidthInches = 8.5
+const printableWidthInches = printPageWidthInches - (printPageMarginInches * 2)
+
 async function copyDocumentStyles(targetDocument) {
   const sourceNodes = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
 
@@ -19,6 +23,26 @@ async function copyDocumentStyles(targetDocument) {
   await Promise.all(pendingLoads)
 }
 
+function preparePrintContentNode(contentNode) {
+  if (!contentNode?.style) return
+
+  contentNode.style.width = '100%'
+  contentNode.style.maxWidth = '100%'
+  contentNode.style.padding = '0'
+  contentNode.style.margin = '0 auto'
+  contentNode.style.boxSizing = 'border-box'
+  contentNode.style.overflow = 'visible'
+
+  const documentSheet = contentNode.querySelector('.document-sheet')
+
+  if (documentSheet?.style) {
+    documentSheet.style.width = '100%'
+    documentSheet.style.maxWidth = '100%'
+    documentSheet.style.boxSizing = 'border-box'
+    documentSheet.style.boxShadow = 'none'
+  }
+}
+
 export async function printDocumentElement(element, { documentTitle = 'Document' } = {}) {
   if (!element) {
     throw new Error('Document preview is not ready.')
@@ -31,6 +55,7 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
   }
 
   const contentNode = element.cloneNode(true)
+  preparePrintContentNode(contentNode)
 
   printWindow.document.open()
   printWindow.document.write(`
@@ -40,12 +65,32 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
         <meta charset="utf-8" />
         <title>${documentTitle}</title>
         <style>
-          @page { size: letter; margin: 0.35in; }
-          html, body { margin: 0; padding: 0; background: #ffffff; color: #0f172a; }
+          @page { size: letter; margin: ${printPageMarginInches}in; }
+          html, body { margin: 0; padding: 0; width: 100%; background: #ffffff; color: #0f172a; }
           body { font-family: ui-sans-serif, system-ui, sans-serif; }
           img { max-width: 100%; }
-          [data-print-root="true"] { width: 100%; box-sizing: border-box; display: flex; justify-content: center; }
-          [data-print-root="true"] > * { flex: 0 0 auto; }
+          [data-print-root="true"] {
+            width: 100%;
+            max-width: ${printableWidthInches}in;
+            margin: 0 auto;
+            box-sizing: border-box;
+            display: block;
+            overflow: visible;
+          }
+          [data-print-root="true"] > * {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+            box-sizing: border-box !important;
+            overflow: visible !important;
+          }
+          [data-print-root="true"] .document-sheet {
+            width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            box-shadow: none !important;
+          }
           [data-print-root="true"] article,
           [data-print-root="true"] section,
           [data-print-root="true"] div {
@@ -58,6 +103,9 @@ export async function printDocumentElement(element, { documentTitle = 'Document'
           @media print {
             html, body { background: #ffffff; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            [data-print-root="true"] {
+              max-width: 100%;
+            }
           }
         </style>
       </head>
