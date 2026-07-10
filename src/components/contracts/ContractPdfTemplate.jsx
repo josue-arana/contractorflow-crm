@@ -1,33 +1,40 @@
 import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
-import { hasContractWorkBreakdown, normalizeContractWorkBreakdown, shouldRenderContractScopeText } from '../../utils/contractDocument'
-import { getDocumentDensityVariables } from '../../utils/documentDensity'
-import '../documents/documentDensity.css'
+import {
+  hasContractWorkBreakdown,
+  normalizeContractWorkBreakdown,
+  shouldRenderContractScopeText,
+  stripLeadingBulletMarker,
+} from '../../utils/contractDocument'
 
 const colors = {
   white: '#ffffff',
   paper: '#fefefe',
   slate50: '#f8fafc',
-  slate100: '#f1f5f9',
   slate200: '#dbe4ee',
   slate300: '#cbd5e1',
   slate500: '#64748b',
   slate700: '#334155',
   slate900: '#0f172a',
-  teal50: '#ecfeff',
-  teal100: '#cffafe',
-  teal300: '#67e8f9',
   teal600: '#0891b2',
   teal700: '#0e7490',
   emerald600: '#16a34a',
 }
 
 const layout = {
+  cardRadius: '16px',
+  sheetPadding: '16px 20px',
+  headerGap: '14px',
+  companyGap: '14px',
+  summaryGap: '14px',
+  summaryPadding: '14px 16px',
+  panelPadding: '14px',
+  rowGap: '14px',
   numberColumn: '40px',
   titleColumn: '208px',
   detailColumn: 'minmax(0, 1fr)',
   amountColumn: '88px',
-  rowGap: '14px',
+  totalColumn: '188px',
 }
 
 function HeaderPhoneIcon() {
@@ -52,6 +59,22 @@ function HeaderMailIcon() {
   )
 }
 
+function InsetDivider({ color = colors.slate300, inset = '14px' }) {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: inset,
+        bottom: inset,
+        width: '1px',
+        backgroundColor: color,
+      }}
+    />
+  )
+}
+
 function CompanyBadge({ company = {}, t }) {
   const initials = (company?.name || t('brandName'))
     .split(/\s+/)
@@ -61,7 +84,7 @@ function CompanyBadge({ company = {}, t }) {
     .join('') || t('brandInitials')
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--document-company-gap)', minWidth: 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: layout.companyGap, minWidth: 0 }}>
       {company?.logo ? (
         <img
           src={company.logo}
@@ -115,9 +138,9 @@ function CompanyBadge({ company = {}, t }) {
   )
 }
 
-function SummaryBlock({ label, children }) {
+function SummaryBlock({ label, children, align = 'left' }) {
   return (
-    <div style={{ minWidth: 0 }}>
+    <div style={{ minWidth: 0, textAlign: align }}>
       <p
         style={{
           margin: 0,
@@ -131,7 +154,7 @@ function SummaryBlock({ label, children }) {
       >
         {label}
       </p>
-      <div style={{ marginTop: 'var(--document-label-gap)', fontSize: '13px', lineHeight: 1.38, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+      <div style={{ marginTop: '7px', fontSize: '13px', lineHeight: 1.38, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
         {children}
       </div>
     </div>
@@ -149,41 +172,22 @@ function formatAddressLines(value) {
 
   const firstLine = address.slice(0, commaIndex).trim()
   const secondLine = address.slice(commaIndex + 1).trim()
-
   return [firstLine, secondLine].filter(Boolean)
 }
 
 function buildBillToLines(lead = {}, t) {
-  const lines = [
-    lead?.client,
-    lead?.phone,
-    lead?.email,
-    ...(formatAddressLines(lead?.billingAddress || lead?.billing_address || lead?.clientAddress || lead?.client_address || '')),
-  ].filter(Boolean)
-
+  const lines = [lead?.client, lead?.phone].filter(Boolean)
   return lines.length > 0 ? lines : [t('notAdded')]
 }
 
 function buildWorkLines(lead = {}, t) {
-  const lines = [
-    ...(formatAddressLines(lead?.address || lead?.location || '')),
-  ].filter(Boolean)
-
+  const lines = formatAddressLines(lead?.address || lead?.location || '')
   return lines.length > 0 ? lines : [t('unknownAddress')]
 }
 
 function buildLicenseLines(company = {}, t) {
-  const lines = []
-
-  if (company?.licenseNumber) {
-    lines.push(`${t('licenseNumber')}: ${company.licenseNumber}`)
-  }
-
-  return lines.length > 0 ? lines : [t('notAdded')]
+  return company?.licenseNumber ? [company.licenseNumber] : [t('notAdded')]
 }
-
-const showHeaderContractDivider = false
-const showProjectTotalSummaryDivider = false
 
 function MaterialsIndicator({ included, t }) {
   if (typeof included !== 'boolean') {
@@ -205,10 +209,10 @@ function ContractWorkBreakdownItem({ item, index, t }) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: `${layout.numberColumn} minmax(180px, ${layout.titleColumn}) ${layout.detailColumn} ${layout.amountColumn}`,
-        gap: 'var(--document-work-row-gap)',
+        gridTemplateColumns: `${layout.numberColumn} ${layout.titleColumn} ${layout.detailColumn} ${layout.amountColumn}`,
+        gap: layout.rowGap,
         alignItems: 'start',
-        padding: 'var(--document-work-row-padding) 0',
+        padding: index === 0 ? '14px 0' : '16px 0',
         borderTop: index === 0 ? 'none' : `1px solid ${colors.slate200}`,
       }}
     >
@@ -224,6 +228,7 @@ function ContractWorkBreakdownItem({ item, index, t }) {
           color: colors.white,
           fontSize: '15px',
           fontWeight: 700,
+          lineHeight: 1,
           marginTop: '1px',
         }}
       >
@@ -243,15 +248,16 @@ function ContractWorkBreakdownItem({ item, index, t }) {
         >
           {item.title || t('item')}
         </p>
-        <div style={{ marginTop: '5px' }}>
+        <div style={{ marginTop: '6px' }}>
           <MaterialsIndicator included={item.materialsIncluded} t={t} />
         </div>
       </div>
-      <div style={{ minWidth: 0 }}>
+      <div style={{ position: 'relative', minWidth: 0, paddingLeft: '14px' }}>
+        <InsetDivider color={colors.slate200} inset="2px" />
         {item.details.length > 0 ? (
-          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: 'var(--document-work-bullet-gap)' }}>
-            {item.details.map((line, lineIndex) => (
-              <li key={`${index}-${lineIndex}`} style={{ display: 'grid', gridTemplateColumns: '10px minmax(0,1fr)', gap: '8px', alignItems: 'start' }}>
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '4px' }}>
+            {item.details.map((detail, detailIndex) => (
+              <li key={`${item.id}-${detailIndex}`} style={{ display: 'grid', gridTemplateColumns: '10px minmax(0,1fr)', gap: '8px', alignItems: 'start' }}>
                 <span
                   aria-hidden="true"
                   style={{
@@ -263,8 +269,8 @@ function ContractWorkBreakdownItem({ item, index, t }) {
                     backgroundColor: colors.teal600,
                   }}
                 />
-                <span style={{ fontSize: '12px', lineHeight: 1.3, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-                  {line}
+                <span style={{ fontSize: '12px', lineHeight: 1.34, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
+                  {stripLeadingBulletMarker(detail)}
                 </span>
               </li>
             ))}
@@ -292,8 +298,8 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
   return (
     <section
       style={{
-        marginTop: 'var(--document-card-section-gap)',
-        borderRadius: '16px',
+        marginTop: '12px',
+        borderRadius: layout.cardRadius,
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -301,16 +307,16 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
         pageBreakInside: 'auto',
       }}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 188px', alignItems: 'stretch', backgroundColor: colors.slate50 }}>
-        <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `minmax(0, 1fr) ${layout.totalColumn}`, alignItems: 'stretch', backgroundColor: colors.slate50 }}>
+        <div style={{ minWidth: 0, padding: layout.summaryPadding }}>
           <SummaryBlock label={hasBreakdown ? t('workBreakdown') : t('projectScope')}>
             <div style={{ fontWeight: 700 }}>{projectTitle}</div>
           </SummaryBlock>
         </div>
         <div
           style={{
-            borderLeft: `1px solid ${colors.slate300}`,
-            padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)',
+            minWidth: 0,
+            padding: layout.summaryPadding,
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
@@ -335,7 +341,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
           </p>
         </div>
       </div>
-      <div style={{ padding: '0 var(--document-summary-padding-x) 2px', breakInside: 'auto', pageBreakInside: 'auto' }}>
+      <div style={{ padding: '0 14px 2px', breakInside: 'auto', pageBreakInside: 'auto' }}>
         {hasBreakdown ? (
           <div style={{ display: 'grid', gap: '0' }}>
             {normalizedWorkBreakdown.map((item, index) => (
@@ -346,9 +352,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
         {showScopeText ? (
           <div
             style={{
-              padding: hasBreakdown
-                ? 'var(--document-work-row-padding) 0 var(--document-card-section-gap)'
-                : 'var(--document-panel-padding-y) 0 var(--document-work-row-padding)',
+              padding: hasBreakdown ? '14px 0 12px' : '14px 0 12px',
               borderTop: hasBreakdown ? `1px solid ${colors.slate200}` : 'none',
             }}
           >
@@ -369,7 +373,7 @@ function WorkBreakdownSection({ scope, workBreakdown = [], projectTitle, total, 
             ) : null}
             <div
               style={{
-                marginTop: hasBreakdown ? 'var(--document-work-gap)' : '0',
+                marginTop: hasBreakdown ? '7px' : '0',
                 whiteSpace: 'pre-line',
                 fontSize: '12px',
                 lineHeight: 1.38,
@@ -392,11 +396,15 @@ function NotesAndTermsSection({ items, t }) {
     return null
   }
 
+  const [leftItem, rightItem] = items
+  const contentItems = [leftItem, rightItem].filter(Boolean)
+  const twoColumn = contentItems.length > 1
+
   return (
     <section
       style={{
-        marginTop: 'var(--document-card-section-gap)',
-        borderRadius: '16px',
+        marginTop: '12px',
+        borderRadius: layout.cardRadius,
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -407,10 +415,10 @@ function NotesAndTermsSection({ items, t }) {
       <div
         style={{
           minWidth: 0,
-          padding: 'var(--document-panel-padding-y) var(--document-panel-padding-x)',
+          padding: layout.panelPadding,
           display: 'flex',
           alignItems: 'flex-start',
-          gap: 'var(--document-panel-gap)',
+          gap: layout.summaryGap,
         }}
       >
         <div
@@ -442,10 +450,28 @@ function NotesAndTermsSection({ items, t }) {
           >
             {t('notesAndTerms')}
           </p>
-          <div style={{ marginTop: 'var(--document-panel-heading-gap)', display: 'grid', gap: '0' }}>
-            {items.map((item, index) => (
-              <div key={item.title} style={{ paddingTop: index === 0 ? 0 : 'var(--document-divider-gap)', marginTop: index === 0 ? 0 : 'var(--document-divider-gap)', borderTop: index === 0 ? 'none' : `1px solid ${colors.slate200}` }}>
-                <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, color: colors.slate900 }}>{item.title}</p>
+          <div
+            style={{
+              marginTop: '10px',
+              display: 'grid',
+              gridTemplateColumns: twoColumn ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)',
+              gap: 0,
+            }}
+          >
+            {contentItems.map((item, index) => (
+              <div
+                key={item.title}
+                style={{
+                  position: 'relative',
+                  minWidth: 0,
+                  paddingLeft: index === 0 ? 0 : layout.panelPadding,
+                  paddingRight: index === 0 && twoColumn ? layout.panelPadding : 0,
+                }}
+              >
+                {index > 0 ? <InsetDivider color={colors.slate200} inset="4px" /> : null}
+                <p style={{ margin: 0, fontSize: '11px', lineHeight: 1.3, fontWeight: 700, color: colors.slate900 }}>
+                  {item.title}
+                </p>
                 <div style={{ marginTop: '3px', whiteSpace: 'pre-line', fontSize: '11px', lineHeight: 1.32, color: colors.slate900, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                   {item.content}
                 </div>
@@ -458,6 +484,27 @@ function NotesAndTermsSection({ items, t }) {
   )
 }
 
+function SignatureField({ label, isNameLabel = false }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ minHeight: '38px', borderBottom: `1px solid ${colors.slate300}` }} />
+      <p
+        style={{
+          margin: '5px 0 0',
+          fontSize: isNameLabel ? '11px' : '10px',
+          lineHeight: 1.25,
+          fontWeight: isNameLabel ? 600 : 700,
+          color: isNameLabel ? colors.slate900 : colors.slate500,
+          overflowWrap: 'anywhere',
+          wordBreak: 'break-word',
+        }}
+      >
+        {label}
+      </p>
+    </div>
+  )
+}
+
 function SignatureSection({ contractorName, clientName, t }) {
   const resolvedContractorName = contractorName || t('contractor')
   const resolvedClientName = clientName || t('client')
@@ -465,8 +512,8 @@ function SignatureSection({ contractorName, clientName, t }) {
   return (
     <section
       style={{
-        marginTop: 'var(--document-card-section-gap)',
-        borderRadius: '16px',
+        marginTop: '12px',
+        borderRadius: layout.cardRadius,
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.white,
         overflow: 'hidden',
@@ -474,7 +521,7 @@ function SignatureSection({ contractorName, clientName, t }) {
         pageBreakInside: 'avoid',
       }}
     >
-      <div style={{ padding: 'var(--document-signature-padding-top) var(--document-panel-padding-x) var(--document-signature-padding-bottom)', display: 'grid', gridTemplateColumns: '0.8fr 1.2fr 0.8fr 1.2fr', gap: 'var(--document-panel-gap)' }}>
+      <div style={{ padding: '14px 14px 16px', display: 'grid', gridTemplateColumns: '0.8fr 1.2fr 0.8fr 1.2fr', gap: '14px' }}>
         <SignatureField label={t('contractorDate')} />
         <SignatureField label={resolvedContractorName} isNameLabel />
         <SignatureField label={t('clientDate')} />
@@ -484,20 +531,10 @@ function SignatureSection({ contractorName, clientName, t }) {
   )
 }
 
-function SignatureField({ label, isNameLabel = false }) {
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ minHeight: 'var(--document-signature-line-height)', borderBottom: `1px solid ${colors.slate300}` }} />
-      <p style={{ margin: '5px 0 0', fontSize: isNameLabel ? '11px' : '10px', lineHeight: 1.25, fontWeight: isNameLabel ? 600 : 700, color: isNameLabel ? colors.slate900 : colors.slate500, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{label}</p>
-    </div>
-  )
-}
-
 export function ContractPdfTemplate({
   company,
   lead,
   contractNumber,
-  contractDate,
   notesAndTermsItems = [],
   scope,
   workBreakdown = [],
@@ -513,18 +550,17 @@ export function ContractPdfTemplate({
     <article
       className="document-sheet document-contract"
       style={{
-        ...getDocumentDensityVariables(),
         overflow: 'hidden',
         borderRadius: '18px',
         border: `1px solid ${colors.slate200}`,
         backgroundColor: colors.paper,
-        padding: 'var(--document-card-padding-y) var(--document-card-padding-x) var(--document-card-padding-y)',
+        padding: layout.sheetPadding,
         boxShadow: '0 18px 48px rgba(15, 23, 42, 0.08)',
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         color: colors.slate900,
       }}
     >
-      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 'var(--document-header-gap)' }}>
+      <header style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: layout.headerGap }}>
         <div style={{ flex: '2 2 420px', minWidth: 0 }}>
           <CompanyBadge company={company} t={t} />
         </div>
@@ -533,7 +569,6 @@ export function ContractPdfTemplate({
             flex: '0 0 178px',
             minWidth: '178px',
             alignSelf: 'stretch',
-            borderLeft: `1px solid ${colors.slate300}`,
             paddingLeft: '14px',
             display: 'flex',
             flexDirection: 'column',
@@ -562,15 +597,15 @@ export function ContractPdfTemplate({
 
       <section
         style={{
-          marginTop: 'var(--document-section-gap)',
-          borderRadius: '16px',
+          marginTop: '14px',
+          borderRadius: layout.cardRadius,
           border: `1px solid ${colors.slate200}`,
           backgroundColor: colors.white,
           overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.95fr) 164px', alignItems: 'stretch' }}>
-          <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.08fr) minmax(0, 1.12fr) minmax(0, 0.82fr)', alignItems: 'stretch' }}>
+          <div style={{ minWidth: 0, padding: layout.summaryPadding }}>
             <SummaryBlock label={t('billTo')}>
               <div style={{ display: 'grid', gap: '1px' }}>
                 {billToLines.map((line) => (
@@ -579,7 +614,8 @@ export function ContractPdfTemplate({
               </div>
             </SummaryBlock>
           </div>
-          <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-summary-padding-x)' }}>
+          <div style={{ position: 'relative', minWidth: 0, padding: layout.summaryPadding }}>
+            <InsetDivider />
             <SummaryBlock label={t('workToBePerformedAt')}>
               <div style={{ display: 'grid', gap: '1px' }}>
                 {workLines.map((line) => (
@@ -588,18 +624,14 @@ export function ContractPdfTemplate({
               </div>
             </SummaryBlock>
           </div>
-          <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-panel-padding-x)' }}>
+          <div style={{ position: 'relative', minWidth: 0, padding: layout.summaryPadding }}>
+            <InsetDivider />
             <SummaryBlock label={t('licenseInfo')}>
               <div style={{ display: 'grid', gap: '1px' }}>
                 {licenseLines.map((line) => (
                   <div key={line}>{line}</div>
                 ))}
               </div>
-            </SummaryBlock>
-          </div>
-          <div style={{ minWidth: 0, padding: 'var(--document-summary-padding-y) var(--document-panel-padding-x)' }}>
-            <SummaryBlock label={t('date')}>
-              <div>{contractDate}</div>
             </SummaryBlock>
           </div>
         </div>
