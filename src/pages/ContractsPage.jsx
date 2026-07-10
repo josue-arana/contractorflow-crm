@@ -19,6 +19,7 @@ import { readLinkedContractDraft } from '../utils/contractLinks'
 import { downloadContractPdf } from '../utils/contractPdf'
 import { formatContractDisplayNumber, generateContractNumber } from '../utils/contractNumber'
 import { printDocumentElement } from '../utils/printDocument'
+import { shouldUseGeneratedPdfForPrint } from '../utils/documentOutput'
 import { dedupeById, findLeadByProjectLookup, resolveLinkedProjectId } from '../utils/projectIdentity'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
@@ -117,6 +118,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
     appLanguage,
   })
   const contractT = useMemo(() => createTranslator(contractOutputLanguage), [contractOutputLanguage])
+  const shouldUsePdfForPrint = useMemo(() => shouldUseGeneratedPdfForPrint(), [])
   const contractTotal = Number(savedContract.total || lead.portal?.contractAmount || lead.portal?.estimate?.total || lead.value || 0)
   const editorState = buildContractEditorState({ lead, portal, savedContract, estimate, contractTotal, t: contractT })
   const [scope, setScope] = useState(editorState.scope)
@@ -372,6 +374,11 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
   }
 
   async function handlePrint() {
+    if (shouldUsePdfForPrint) {
+      await handleDownloadPdf()
+      return
+    }
+
     try {
       await printDocumentElement(pdfTemplateRef.current, {
         documentTitle: `${previewContractNumber} ${lead?.client || ''}`.trim(),
@@ -442,7 +449,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
             <button onClick={() => setIsEditing(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('editContract')}</button>
           )}
           <button onClick={() => setShowPreviewModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold">{t('previewPdf')}</button>
-          <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+          <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{shouldUsePdfForPrint ? t('downloadPdf') : t('print')}</button>
           {!isSigned ? <button disabled={isSavingContract} onClick={markSigned} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">{isSavingContract ? t('saving') : t('markAsSigned')}</button> : <div className="hidden xl:block" />}
           <button disabled={isSavingContract} onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
           <ActionMenu label={<MoreVertical className="h-4 w-4" />} ariaLabel={t('more')} showChevron={false} buttonClassName="inline-flex min-h-[50px] items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" items={moreMenuItems} buttonDisabled={isSavingContract} />
@@ -481,7 +488,7 @@ export function ContractPreviewPage({ lead, clientRecord = null, t, appLanguage 
             </ScaledDocumentPreview>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{shouldUsePdfForPrint ? t('downloadPdf') : t('print')}</button>
             <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
           </div>
         </div>
