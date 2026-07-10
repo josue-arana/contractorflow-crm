@@ -20,6 +20,7 @@ import { readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/est
 import { formatEstimateDisplayNumber, generateEstimateNumber } from '../utils/estimateNumber'
 import { downloadEstimatePdf } from '../utils/estimatePdf'
 import { printDocumentElement } from '../utils/printDocument'
+import { shouldUseGeneratedPdfForPrint } from '../utils/documentOutput'
 import { createTranslator } from '../translations'
 import { findLeadByProjectLookup } from '../utils/projectIdentity'
 import { findRelatedClient } from '../utils/clients'
@@ -224,6 +225,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
   const linkedContract = lead?.portal?.contract || portal.contract || {}
   const linkedContractIsArchived = Boolean(linkedContract?.archivedAt || linkedContract?.archived_at || linkedContract?.isArchived || linkedContract?.archived)
   const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
+  const shouldUsePdfForPrint = useMemo(() => shouldUseGeneratedPdfForPrint(), [])
   const previewEstimateNumber = formatEstimateDisplayNumber(
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
     lead
@@ -527,6 +529,11 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
   }
 
   async function handlePrint() {
+    if (shouldUsePdfForPrint) {
+      await handleDownloadPdf()
+      return
+    }
+
     try {
       await printDocumentElement(pdfTemplateRef.current, {
         documentTitle: `${previewEstimateNumber} ${lead?.client || ''}`.trim(),
@@ -744,7 +751,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
           {isEditing && (
             <button disabled={isSavingEstimate} onClick={saveEstimate} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isSavingEstimate ? t('saving') : t('saveEstimate')}</button>
           )}
-          <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+          <button onClick={handlePrint} className="w-full rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800">{shouldUsePdfForPrint ? t('downloadPdf') : t('print')}</button>
           <button onClick={() => setShowPreviewModal(true)} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('previewPdf')}</button>
           <button onClick={handleDownloadPdf} className="hidden w-full rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:block">{t('downloadPdf')}</button>
           <button disabled={isEstimateActionPending} onClick={() => setShowSendModal(true)} className="w-full rounded-2xl border border-blue-200 bg-blue-50 px-4 py-4 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{t('sendToCustomer')}</button>
@@ -779,7 +786,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
             </ScaledDocumentPreview>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{t('print')}</button>
+            <button onClick={handlePrint} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{shouldUsePdfForPrint ? t('downloadPdf') : t('print')}</button>
             <button onClick={() => setShowPreviewModal(false)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
           </div>
         </div>
