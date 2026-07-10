@@ -1,6 +1,6 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
-import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription } from './contractDocument'
+import { buildContractNotesAndTermsItems, normalizeContractWorkBreakdown, shouldRenderContractScopeText, splitContractWorkBreakdownDescription, stripLeadingBulletMarker } from './contractDocument'
 import { currency } from './formatters'
 
 const safeColors = {
