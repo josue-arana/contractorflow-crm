@@ -16,7 +16,7 @@ const authRuntimeState = {
 
 function createAuthDisabledError() {
   return {
-    message: 'Auth is disabled. ContractorFlow is using mock beta access.',
+    message: 'Auth is disabled. Aymero is using mock beta access.',
     code: 'AUTH_DISABLED',
     details: null,
   }

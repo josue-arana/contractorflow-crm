@@ -78,15 +78,17 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {}, t
 
         <div className="relative flex h-full flex-col overflow-y-auto px-5 pb-[max(env(safe-area-inset-bottom),1.2rem)] pt-[max(env(safe-area-inset-top),1.55rem)] lg:px-6 lg:py-7">
           <div className="mb-8 flex items-start justify-between lg:mb-10 lg:flex-col lg:items-start lg:gap-4">
-            <NavLink to={appRoutes.dashboard} onClick={onClose} className="flex min-w-0 flex-1 flex-col items-start lg:flex-row lg:items-center lg:gap-3">
+            <NavLink to={appRoutes.dashboard} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-3">
               {companySettings?.company?.logo ? (
-                <img src={companySettings.company.logo} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover shadow-[0_18px_40px_rgba(15,23,42,0.42)] ring-1 ring-white/12 lg:h-12 lg:w-12 lg:rounded-2xl lg:shadow-lg" />
+                <img src={companySettings.company.logo} alt="" className="h-12 w-12 shrink-0 rounded-2xl object-cover shadow-[0_18px_40px_rgba(15,23,42,0.42)] ring-1 ring-white/12 lg:h-11 lg:w-11 lg:shadow-lg" />
               ) : (
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-blue-500 font-bold text-lg text-white shadow-[0_18px_36px_rgba(59,130,246,0.32)] lg:h-12 lg:w-12 lg:rounded-2xl lg:text-base lg:shadow-lg lg:shadow-blue-500/30">{t('brandInitials')}</div>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-500 font-bold text-base text-white shadow-[0_18px_36px_rgba(59,130,246,0.32)] lg:h-11 lg:w-11">
+                  {t('brandInitials')}
+                </div>
               )}
-              <div className="min-w-0 pt-5 lg:flex-1 lg:pt-0">
-                <p className="max-w-[11ch] text-[1.45rem] font-bold leading-[1.1] tracking-tight text-white lg:max-w-[14ch] lg:text-[1.1rem]">{companySettings?.company?.name || t('brandName')}</p>
-                <p className="mt-3 text-[0.95rem] leading-6 text-slate-400 lg:mt-2 lg:text-xs lg:leading-5 lg:text-slate-400"> ContractorFlow </p>{/*t('smallContractorCrm') */}
+              <div className="min-w-0">
+                <p className="max-w-[13ch] text-[1.15rem] font-bold leading-[1.1] tracking-tight text-white lg:max-w-[14ch] lg:text-[1rem]">{companySettings?.company?.name || t('brandName')}</p>
+                <p className="mt-1 text-[0.8rem] leading-5 text-slate-400 lg:text-xs lg:leading-5">{t('smallContractorCrm')}</p>
               </div>
             </NavLink>
             <button
