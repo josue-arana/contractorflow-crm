@@ -10,7 +10,7 @@ import { supabaseClient } from '../lib/supabaseClient'
 // operation by contractor_id and respect archived_at soft deletion.
 
 function localStateOnlyMessage(tableName, operation) {
-  return `${tableName}.${operation} is Supabase-ready, but USE_SUPABASE=false. ContractorFlow is currently using local React state.`
+  return `${tableName}.${operation} is Supabase-ready, but USE_SUPABASE=false. Aymero is currently using local React state.`
 }
 
 function skippedResponse(tableName, operation, fallbackData = null, meta = {}) {

@@ -345,6 +345,6 @@ function CompanyLogoPreview({ company }) {
   if (company.logo) {
     return <img src={company.logo} alt="" className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200" />
   }
-  const initials = (company.name || 'ContractorFlow').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+  const initials = (company.name || 'Aymero').split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
   return <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-lg font-bold text-white shadow-lg shadow-blue-500/20">{initials}</div>
 }

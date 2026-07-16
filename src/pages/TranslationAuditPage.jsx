@@ -94,7 +94,7 @@ export function TranslationAuditPage({ t }) {
     contractorAccess,
     mockProfile: {
       name: 'Josue Arana',
-      email: 'josue@contractorflow.example',
+      email: 'josue@aymero.example',
       phone: '(410) 555-0188',
       preferredLanguage: 'en',
       timezone: 'America/New_York',

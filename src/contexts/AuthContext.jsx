@@ -15,7 +15,7 @@ const mockContractor = {
   id: MOCK_CONTRACTOR.id,
   contractorId: BETA_CONTRACTOR_ID,
   fullName: MOCK_CONTRACTOR.name,
-  email: 'josue@contractorflow.example',
+  email: 'josue@aymero.example',
   role: 'Owner Admin',
 }
 

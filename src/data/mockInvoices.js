@@ -130,8 +130,8 @@ export const mockInvoices = [
 ]
 
 export const contractorCompany = {
-  name: 'ContractorFlow Remodeling LLC',
+  name: 'Northline Remodeling LLC',
   phone: '(410) 555-0199',
-  email: 'office@contractorflow.example',
+  email: 'office@northline.example',
   address: 'Baltimore, MD 21201',
 }

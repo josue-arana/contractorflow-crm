@@ -461,7 +461,7 @@ function mergePersistedDocumentsIntoLead(lead, persistedEstimates = [], persiste
 
 const defaultUserProfile = {
   name: 'Josue Arana',
-  email: 'josue@contractorflow.example',
+  email: 'josue@aymero.example',
   phone: '(410) 555-0188',
   preferredLanguage: 'en',
   timezone: 'America/New_York',
@@ -3469,9 +3469,9 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     const ics = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
-      'PRODID:-//ContractorFlow CRM//Schedule Event//EN',
+      'PRODID:-//Aymero//Schedule Event//EN',
       'BEGIN:VEVENT',
-      `UID:${event.id || Date.now()}@contractorflow.local`,
+      `UID:${event.id || Date.now()}@aymero.local`,
       `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}`,
       `DTSTART:${dateStamp}T${startTime}00`,
       `DTEND:${dateStamp}T${endTime}00`,
@@ -3486,7 +3486,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${(event.title || 'contractorflow-event').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`
+    link.download = `${(event.title || 'aymero-event').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ics`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

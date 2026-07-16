@@ -8,11 +8,16 @@ export function AuthPageShell({ eyebrow, title, description, alternateLabel, alt
       <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-[1.05fr,0.95fr]">
         <section className="rounded-[2rem] bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-6 text-white shadow-2xl sm:p-8">
           <div className="flex items-start justify-between gap-4">
-            <NavLink to={appRoutes.dashboard} className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-blue-100">
-              {t('brandName')}
+            <NavLink to={appRoutes.dashboard} className="inline-flex shrink-0">
+              <img
+                src="/AymeroLogo_h.png"
+                alt={t('brandName')}
+                className="block h-auto w-[clamp(11.5rem,45vw,18rem)] object-contain object-left drop-shadow-[0_10px_30px_rgba(15,23,42,0.35)]"
+              />
             </NavLink>
             <LanguageToggleButton language={language} setLanguage={setLanguage} t={t} className="border-white/80 bg-white text-slate-900 shadow-sm hover:bg-slate-100" />
           </div>
+          <p className="mt-5 text-sm font-medium tracking-[0.08em] text-slate-300 sm:text-base">{t('brandSlogan')}</p>
           <p className="mt-8 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{eyebrow}</p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{title}</h1>
           <p className="mt-4 max-w-xl text-sm leading-6 text-slate-300">{description}</p>

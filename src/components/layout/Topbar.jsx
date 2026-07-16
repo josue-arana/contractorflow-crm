@@ -5,6 +5,7 @@ import { appRoutes } from '../../config/appRoutes'
 import { USE_AUTH } from '../../config/backendConfig'
 import { useAuth } from '../../contexts/AuthContext'
 import { ActionMenu } from '../common/ActionMenu'
+import { BrandLogo } from '../common/BrandLogo'
 import { useToast } from '../common/ToastProvider'
 import { LanguageToggleButton } from '../common/LanguageToggleButton'
 import { ModalShell } from '../common/ModalShell'
@@ -261,7 +262,8 @@ export function Topbar({
       <ModalShell isOpen={accountScreen === 'about'} onBackdropClick={closeAccountScreen} panelClassName="max-w-md">
         <div className="flex items-center justify-between gap-4"><h2 className="text-lg font-bold text-slate-950">{t('aboutContractorFlow')}</h2><button onClick={closeAccountScreen} className="rounded-2xl border border-slate-200 p-2 hover:bg-slate-50" aria-label={t('close')}><X className="h-4 w-4" /></button></div>
         <div className="mt-5 rounded-3xl border border-slate-200 bg-slate-50 p-5">
-          <p className="text-base font-bold text-slate-950">{t('appName')}</p>
+          <BrandLogo variant="horizontal" tone="light" className="h-10 w-32" imageClassName="object-left" />
+          <p className="mt-3 text-base font-bold text-slate-950">{t('appName')}</p>
           <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-400">{t('version')} 1.9</p>
           <p className="mt-3 text-sm leading-6 text-slate-600">{t('aboutDescription')}</p>
         </div>
