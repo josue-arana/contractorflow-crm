@@ -12,7 +12,7 @@
 
 ## Phase 1.95: Private Beta
 
-- Goal: get 1–3 real contractors using ContractorFlow.
+- Goal: get 1–3 real contractors using Aymero.
 - Must-have before beta: auth, real CRUD, company isolation, storage, and basic backups.
 - Postponed: Stripe, AI, advanced analytics, and change orders.
 

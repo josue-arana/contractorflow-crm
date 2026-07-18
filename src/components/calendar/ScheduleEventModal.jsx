@@ -75,7 +75,9 @@ function buildEventTitle({ eventType, client, project, t }) {
 
 export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', context = 'event', editingEvent = null, onClose, onSave, t }) {
   const dateRef = useRef(null)
+  const isSubmittingRef = useRef(false)
   const [autoState, setAutoState] = useState(emptyAutoState)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const defaultLead = useMemo(() => leads.find((lead) => matchesLeadRecord(lead, initialLeadId)) || leads[0], [initialLeadId, leads])
   const buildDefaultForm = () => {
     const baseLead = editingEvent
@@ -141,6 +143,13 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
       locationManuallyEdited: Boolean(editingEvent?.location && editingEvent.location !== generatedLocation),
     })
   }, [editingEvent, initialLeadId, isOpen, leads, t])
+
+  useEffect(() => {
+    if (isOpen) return
+
+    isSubmittingRef.current = false
+    setIsSubmitting(false)
+  }, [isOpen])
 
   const selectedLead = leads.find((lead) => matchesLeadRecord(lead, form.leadId))
   const filteredLeads = (() => {
@@ -256,10 +265,16 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
     else input.focus()
   }
 
-  function submitForm(event) {
+  async function submitForm(event) {
     event.preventDefault()
+    if (isSubmittingRef.current) return
+
     const lead = leads.find((item) => matchesLeadRecord(item, form.leadId))
-    onSave({
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
+
+    try {
+      await onSave({
       ...(editingEvent ? { id: editingEvent.id } : {}),
       ...form,
       title: form.title.trim() || tStatus(t, form.type),
@@ -273,11 +288,15 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
       displayDate: '',
       location: form.location || lead?.address || lead?.location || '',
       status: 'Scheduled',
-    })
+      })
+    } finally {
+      isSubmittingRef.current = false
+      setIsSubmitting(false)
+    }
   }
 
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-3xl">
+    <ModalShell isOpen={isOpen} onBackdropClick={isSubmitting ? undefined : onClose} panelClassName="sm:max-w-3xl">
       <form onSubmit={submitForm}>
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
@@ -285,7 +304,7 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
             <h2 className="mt-1 text-2xl font-bold text-slate-950">{t(context === 'job' ? 'scheduleJob' : 'scheduleEvent')}</h2>
             <p className="mt-1 text-sm text-slate-500">{t(context === 'job' ? 'scheduleJobHelp' : 'scheduleEventHelp')}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50">
+          <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -293,35 +312,35 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
         <div className="grid gap-4 md:grid-cols-2">
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('eventType')}</span>
-            <SelectField value={form.type} onChange={(event) => updateField('type', event.target.value)} className="bg-white">
+            <SelectField disabled={isSubmitting} value={form.type} onChange={(event) => updateField('type', event.target.value)} className="bg-white">
               {eventTypes.map((type) => <option key={type} value={type}>{tStatus(t, type)}</option>)}
             </SelectField>
           </label>
 
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('client')}</span>
-            <SelectField value={form.leadId} onChange={(event) => updateField('leadId', event.target.value)} className="bg-white">
+            <SelectField disabled={isSubmitting} value={form.leadId} onChange={(event) => updateField('leadId', event.target.value)} className="bg-white">
               {leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.client}</option>)}
             </SelectField>
           </label>
 
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('projectJob')}</span>
-            <SelectField value={form.leadId} onChange={(event) => updateField('leadId', event.target.value)} className="bg-white">
+            <SelectField disabled={isSubmitting} value={form.leadId} onChange={(event) => updateField('leadId', event.target.value)} className="bg-white">
               {filteredLeads.map((lead) => <option key={lead.id} value={lead.id}>{lead.projectTitle || lead.projectType}</option>)}
             </SelectField>
           </label>
 
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('eventTitle')}</span>
-            <input value={form.title} onChange={(event) => updateField('title', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" placeholder={t('eventTitlePlaceholder')} />
+            <input disabled={isSubmitting} value={form.title} onChange={(event) => updateField('title', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60" placeholder={t('eventTitlePlaceholder')} />
           </label>
 
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('date')}</span>
             <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
-              <input ref={dateRef} type="date" value={form.date} onChange={(event) => updateField('date', event.target.value)} className="min-w-0 flex-1 px-4 py-3 text-sm font-medium outline-none" />
-              <button type="button" onClick={openDatePicker} className="border-l border-slate-200 px-3 text-slate-500 hover:bg-slate-50" aria-label={t('openDatePicker')}>
+              <input disabled={isSubmitting} ref={dateRef} type="date" value={form.date} onChange={(event) => updateField('date', event.target.value)} className="min-w-0 flex-1 px-4 py-3 text-sm font-medium outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+              <button type="button" disabled={isSubmitting} onClick={openDatePicker} className="border-l border-slate-200 px-3 text-slate-500 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label={t('openDatePicker')}>
                 <CalendarDays className="h-5 w-5" />
               </button>
             </div>
@@ -329,35 +348,35 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
 
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('reminder')}</span>
-            <SelectField value={form.reminder} onChange={(event) => updateField('reminder', event.target.value)} className="bg-white">
+            <SelectField disabled={isSubmitting} value={form.reminder} onChange={(event) => updateField('reminder', event.target.value)} className="bg-white">
               {reminderOptions.map((option) => <option key={option.value} value={option.value}>{t(option.labelKey)}</option>)}
             </SelectField>
           </label>
 
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('startTime')}</span>
-            <input type="time" value={form.startTime} onChange={(event) => updateField('startTime', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" />
+            <input disabled={isSubmitting} type="time" value={form.startTime} onChange={(event) => updateField('startTime', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60" />
           </label>
 
           <label>
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('endTime')}</span>
-            <input type="time" value={form.endTime} onChange={(event) => updateField('endTime', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" />
+            <input disabled={isSubmitting} type="time" value={form.endTime} onChange={(event) => updateField('endTime', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60" />
           </label>
 
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('locationAddress')}</span>
-            <input value={form.location} onChange={(event) => updateField('location', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" placeholder={selectedLead?.address || t('address')} />
+            <input disabled={isSubmitting} value={form.location} onChange={(event) => updateField('location', event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60" placeholder={selectedLead?.address || t('address')} />
           </label>
 
           <label className="md:col-span-2">
             <span className="mb-1 block text-sm font-bold text-slate-700">{t('notes')}</span>
-            <textarea value={form.notes} onChange={(event) => updateField('notes', event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100" placeholder={t('scheduleNotesPlaceholder')} />
+            <textarea disabled={isSubmitting} value={form.notes} onChange={(event) => updateField('notes', event.target.value)} rows={4} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-60" placeholder={t('scheduleNotesPlaceholder')} />
           </label>
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
-          <button type="button" onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button>
-          <button type="submit" className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700">{editingEvent ? t('saveChanges') : t(context === 'job' ? 'scheduleJob' : 'saveEvent')}</button>
+          <button type="button" disabled={isSubmitting} onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('cancel')}</button>
+          <button type="submit" disabled={isSubmitting} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSubmitting ? t('saving') : editingEvent ? t('saveChanges') : t(context === 'job' ? 'scheduleJob' : 'saveEvent')}</button>
         </div>
       </form>
     </ModalShell>

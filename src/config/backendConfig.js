@@ -1,4 +1,4 @@
-// ContractorFlow CRM backend configuration
+// Aymero CRM backend configuration
 //
 // Phase 1.9 backend preparation:
 // This layer is intentionally disabled for now so the free 1–5 contractor beta

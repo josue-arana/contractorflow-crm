@@ -3,7 +3,7 @@
 Purpose: a concise mapping of local/mock data to future Supabase tables and services. Keep this document small and actionable for future migration work and Codex prompts.
 
 Private beta goal
-- Target: migrate to a state where 1–3 contractors can use ContractorFlow with isolated, real data in Supabase (private beta).
+- Target: migrate to a state where 1–3 contractors can use Aymero with isolated, real data in Supabase (private beta).
 
 Recommended migration order
 1. company settings

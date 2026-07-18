@@ -2,7 +2,7 @@ import { backendConfig, isSupabaseAuthEnabled, isSupabaseDataEnabled } from '../
 import { SUPABASE_AUTH_OPTIONS } from '../services/authSessionStorage'
 import { getEnvironmentStatus, getSupabaseEnvironmentConfig } from '../services/system/environmentService'
 
-// Lightweight Supabase REST client for ContractorFlow CRM.
+// Lightweight Supabase REST client for Aymero CRM.
 //
 // This avoids adding @supabase/supabase-js until the beta is ready to connect
 // real authentication and database access. While the backend flags are off, the

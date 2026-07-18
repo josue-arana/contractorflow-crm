@@ -1,17 +1,17 @@
-ContractorFlow Milestone: First Successful Supabase Persistence
+Aymero Milestone: First Successful Supabase Persistence
 
 Date: 2026-06-17
 
 Milestone Summary
 
-ContractorFlow successfully completed its first end-to-end Supabase persistence test.
+Aymero successfully completed its first end-to-end Supabase persistence test.
 
 This was the first time application data was:
 
 1. Authenticated through Supabase Auth
 2. Authorized through Row Level Security (RLS)
 3. Loaded from Supabase into the React application
-4. Modified through the ContractorFlow UI
+4. Modified through the Aymero UI
 5. Saved back to Supabase
 6. Verified through page refresh persistence
 
@@ -148,9 +148,9 @@ Remaining:
 
 Significance
 
-This is the first verified production-style data flow in ContractorFlow.
+This is the first verified production-style data flow in Aymero.
 
-ContractorFlow is no longer solely a local React prototype.
+Aymero is no longer solely a local React prototype.
 
 The application can now:
 

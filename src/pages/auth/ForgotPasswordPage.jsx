@@ -93,6 +93,25 @@ function getFriendlyResetErrorMessage(error, t) {
   return error?.message || t('authPasswordResetFailed')
 }
 
+function isResetRateLimitError(error) {
+  const haystack = [
+    error?.message,
+    error?.details,
+    error?.code,
+    error?.raw?.message,
+    error?.raw?.error_description,
+    error?.raw?.error,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
+  return error?.status === 429
+    || haystack.includes('email rate limit exceeded')
+    || haystack.includes('rate limit exceeded')
+    || (haystack.includes('rate limit') && haystack.includes('email'))
+}
+
 export function ForgotPasswordPage({ t, language, setLanguage }) {
   const navigate = useNavigate()
   const { resetPassword, updatePassword, logout, session, isLoading, authMode } = useAuth()
@@ -140,7 +159,12 @@ export function ForgotPasswordPage({ t, language, setLanguage }) {
     setIsSubmitting(false)
 
     if (result.error && !result.skipped) {
-      showToast(result.error.message, 'error')
+      showToast(
+        isResetRateLimitError(result.error)
+          ? t('authPasswordResetRateLimit')
+          : getFriendlyResetErrorMessage(result.error, t),
+        'error',
+      )
       return
     }
 

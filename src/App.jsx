@@ -562,6 +562,7 @@ function ContractorFlowApp() {
   const [selectedMobileStage, setSelectedMobileStage] = useState(leadPipelineStageOrder[0])
   const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
+  const scheduleSaveInFlightRef = useRef(false)
   const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
     appLanguage: language,
     portal: {
@@ -3438,6 +3439,29 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     showToast(t('eventUpdated'))
   }
 
+  async function markScheduleEventComplete(eventId) {
+    const existingEvent = scheduleEvents.find((event) => event.id === eventId)
+
+    if (!existingEvent) {
+      return
+    }
+
+    const completionUpdates = {
+      ...existingEvent,
+      status: 'Complete',
+    }
+
+    const response = await dataProvider.events.update?.(eventId, completionUpdates, {
+      contractorId: eventsContractorId || projectsContractorId,
+    })
+
+    if (response?.error) {
+      throw response.error
+    }
+
+    updateScheduleEvent(eventId, response?.data || completionUpdates)
+  }
+
   function openScheduleModal({ leadId = '', context = 'event', event = null } = {}) {
     setScheduleModalState({ isOpen: true, leadId: leadId || event?.leadId || '', context, editingEvent: event })
   }
@@ -3591,7 +3615,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} estimates={persistedEstimates} contracts={persistedContracts} archivedIds={archives.leadIds} onOpenEstimate={openEstimateForLead} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} contracts={persistedContracts} onViewContract={openContractForLead} t={t} />} />
       <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
-      <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} t={t} />} />
+      <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} onMarkComplete={markScheduleEventComplete} t={t} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} t={t} />} />
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={handleAppLanguageChange} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} clients={clients} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} appLanguage={language} />} />
@@ -3742,6 +3766,12 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
           editingEvent={scheduleModalState.editingEvent}
           onClose={closeScheduleModal}
           onSave={async (event) => {
+            if (scheduleSaveInFlightRef.current) {
+              return
+            }
+
+            scheduleSaveInFlightRef.current = true
+
             try {
               const eventPayload = {
                 ...event,
@@ -3769,6 +3799,8 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
                 event,
                 context: scheduleModalState.context,
               })
+            } finally {
+              scheduleSaveInFlightRef.current = false
             }
           }}
           t={t}

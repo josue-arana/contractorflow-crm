@@ -1,12 +1,12 @@
-ContractorFlow Milestone: Leads Supabase Beta Success
+Aymero Milestone: Leads Supabase Beta Success
 
 Date: 2026-06-18
 
 Milestone Summary
 
-ContractorFlow successfully validated Leads against Supabase in controlled beta mode.
+Aymero successfully validated Leads against Supabase in controlled beta mode.
 
-This milestone confirms that the Leads entity can now operate through the ContractorFlow feature-flag rollout strategy while:
+This milestone confirms that the Leads entity can now operate through the Aymero feature-flag rollout strategy while:
 
 1. Keeping `USE_SUPABASE = false`
 2. Preserving local-first behavior for all other non-validated entities

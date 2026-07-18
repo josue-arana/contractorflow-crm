@@ -3,7 +3,7 @@ import { createBackendService } from './createBackendService'
 // Contracts Supabase service.
 // Real Supabase-ready CRUD functions are prepared for the free 1–5 contractor beta.
 // The UI is not connected to these functions yet; with USE_SUPABASE=false,
-// ContractorFlow continues to run from local React state and mock data.
+// Aymero continues to run from local React state and mock data.
 
 const service = createBackendService('contracts')
 

@@ -1,7 +1,7 @@
 import { USE_SUPABASE } from '../config/backendConfig'
 import { supabaseClient } from '../lib/supabaseClient'
 
-// Supabase-ready CRUD service factory for ContractorFlow CRM.
+// Supabase-ready CRUD service factory for Aymero CRM.
 //
 // The UI is intentionally not connected to these services yet. With
 // USE_SUPABASE=false, every service safely returns local-state skip responses so

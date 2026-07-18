@@ -1,6 +1,6 @@
 # BETA_AUTH_FLOW
 
-This document describes the current ContractorFlow beta auth and onboarding flow as implemented in the codebase today.
+This document describes the current Aymero beta auth and onboarding flow as implemented in the codebase today.
 
 ## 1. Supabase Setup Requirements
 

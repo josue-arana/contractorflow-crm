@@ -1,7 +1,7 @@
 # Private Beta Launch Checklist
 
 Goal
-- Get 1–3 contractors using ContractorFlow with isolated, real data to validate workflows and readiness for paid plans.
+- Get 1–3 contractors using Aymero with isolated, real data to validate workflows and readiness for paid plans.
 
 Must Have Before Inviting Contractors
 - Supabase Auth enabled (or equivalent secure auth).
