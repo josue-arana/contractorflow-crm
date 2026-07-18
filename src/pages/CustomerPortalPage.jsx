@@ -68,7 +68,7 @@ function CustomerPortalNotFound({ onBack, t }) {
       <h1 className="text-2xl font-bold text-slate-950">{t('clientPortalNotFound')}</h1>
       <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-slate-500">{t('clientPortalNotFoundHelp')}</p>
       <button onClick={onBack} className="mt-6 rounded-2xl bg-slate-950 px-5 py-3 text-sm font-bold text-white hover:bg-slate-800">
-        {t('backToDashboardAction')}
+        {t('back')}
       </button>
     </section>
   )
@@ -208,7 +208,7 @@ export function CustomerPortalPage({ projects = [], clients = [], onBack, t, lan
     <div className="mx-auto max-w-6xl space-y-6">
       <div className="flex items-center justify-between gap-3">
         <button onClick={() => onBack?.(project?.id || project?.projectId || resolvedPortalId)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950">
-          <ArrowLeft className="h-4 w-4" /> {t('projectWorkspace')}
+          <ArrowLeft className="h-4 w-4" /> {t('back')}
         </button>
         <button onClick={() => setLanguage(language === 'en' ? 'es' : 'en')} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50">{language === 'en' ? '🇪🇸 Español' : '🇺🇸 English'}</button>
       </div>

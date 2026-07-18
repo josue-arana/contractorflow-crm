@@ -244,6 +244,7 @@ function WorkBreakdownItem({ item, index, fallbackMaterialsIncluded, t }) {
           color: colors.white,
           fontSize: '15px',
           fontWeight: 700,
+          lineHeight: 1,
           marginTop: '1px',
         }}
       >

@@ -3,23 +3,34 @@ import { ModalShell } from './ModalShell'
 import { normalizePortalShareUrl } from '../../utils/portal'
 
 export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer = {}, projectTitle = '', amountLabel = '', amountValue = '', dueDate = '', portalUrl = '', documentLink = '', onClose, onSent, t, contentT = t }) {
+  const phone = customer.phone || ''
+  const email = customer.email || ''
+  const hasPhone = Boolean(phone)
+  const hasEmail = Boolean(email)
   const [channel, setChannel] = useState('text')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitGuardRef = useRef(false)
 
   useEffect(() => {
     if (isOpen) {
-      setChannel('text')
+      setChannel(hasPhone ? 'text' : hasEmail ? 'email' : 'text')
       setIsSubmitting(false)
       submitGuardRef.current = false
     }
-  }, [isOpen])
+  }, [hasEmail, hasPhone, isOpen])
 
   const firstName = (customer.name || '').split(' ')[0] || contentT('customer')
-  const phone = customer.phone || ''
-  const email = customer.email || ''
   const typeLabel = t(documentType)
   const resolvedPortalUrl = normalizePortalShareUrl(portalUrl)
+  const availableChannels = useMemo(() => (
+    [
+      hasPhone ? { id: 'text', label: t('textMessage') } : null,
+      hasEmail ? { id: 'email', label: t('email') } : null,
+    ].filter(Boolean)
+  ), [hasEmail, hasPhone, t])
+  const primaryActionLabel = channel === 'email'
+    ? (isSubmitting ? t('saving') : hasEmail ? t('sendEmailNow') : t('noEmailOnFile'))
+    : (isSubmitting ? t('saving') : hasPhone ? t('sendTextNow') : t('noPhoneOnFile'))
   const messageContent = useMemo(() => {
     const resolvedDocumentStatus = documentLink
       ? contentT('documentLinkIncluded', { link: documentLink })
@@ -117,23 +128,20 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
         <p className="mt-2 text-slate-700">{t('documentStatus')}: <span className="font-bold">{messageContent.resolvedDocumentStatus}</span></p>
       </div>
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={() => setChannel('text')}
-          className={`rounded-2xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 ${channel === 'text' ? 'bg-slate-950 text-white disabled:bg-slate-700' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-        >
-          {t('textMessage')}
-        </button>
-        <button
-          type="button"
-          disabled={isSubmitting}
-          onClick={() => setChannel('email')}
-          className={`rounded-2xl px-4 py-3 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-60 ${channel === 'email' ? 'bg-slate-950 text-white disabled:bg-slate-700' : 'border border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-        >
-          {t('email')}
-        </button>
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-1">
+        <div className={`grid gap-1 ${availableChannels.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {availableChannels.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => setChannel(option.id)}
+              className={`rounded-[1rem] px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-60 ${channel === option.id ? 'bg-white text-blue-700 shadow-sm ring-1 ring-blue-200' : 'text-slate-600 hover:bg-white/80 hover:text-slate-900'}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -152,25 +160,20 @@ export function SendToCustomerModal({ isOpen, documentType = 'invoice', customer
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <button
           type="button"
-          disabled={isSubmitting || !phone || channel !== 'text'}
-          onClick={sendText}
-          className="rounded-2xl bg-slate-950 px-4 py-4 text-sm font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          disabled={isSubmitting || (channel === 'text' ? !hasPhone : !hasEmail)}
+          onClick={channel === 'email' ? sendEmail : sendText}
+          className="rounded-2xl bg-blue-600 px-4 py-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
-          {isSubmitting && channel === 'text' ? t('saving') : phone ? t('sendTextNow') : t('noPhoneOnFile')}
+          {primaryActionLabel}
         </button>
         <button
-          type="button"
-          disabled={isSubmitting || !email || channel !== 'email'}
-          onClick={sendEmail}
-          className="rounded-2xl border border-slate-200 px-4 py-4 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+          disabled={isSubmitting}
+          onClick={onClose}
+          className="rounded-2xl border border-slate-200 px-4 py-4 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting && channel === 'email' ? t('saving') : email ? t('sendEmailNow') : t('noEmailOnFile')}
+          {t('cancel')}
         </button>
       </div>
-
-      <button disabled={isSubmitting} onClick={onClose} className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
-        {t('cancel')}
-      </button>
     </ModalShell>
   )
 }

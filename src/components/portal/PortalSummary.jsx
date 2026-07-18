@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, CircleAlert, FileText, Images, Wallet, X } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { DetailRow } from '../ui/DetailRow'
 import { InfoCard } from '../ui/InfoCard'
 import { ModalShell } from '../common/ModalShell'
 import { EstimatePdfTemplate } from '../estimates/EstimatePdfTemplate'
 import { ContractPdfTemplate } from '../contracts/ContractPdfTemplate'
+import { ScaledDocumentPreview, defaultDocumentPreviewWidth } from '../common/ScaledDocumentPreview'
 import { useToast } from '../common/ToastProvider'
 import { currency } from '../../utils/formatters'
 import { getContractDisplayNumber } from '../../utils/contractNumber'
 import { getEstimateDisplayNumber } from '../../utils/estimateNumber'
 import { downloadContractPdf } from '../../utils/contractPdf'
 import { downloadEstimatePdf } from '../../utils/estimatePdf'
+import { printDocumentElement } from '../../utils/printDocument'
+import { shouldUseGeneratedPdfForPrint } from '../../utils/documentOutput'
 import { createTranslator } from '../../translations'
 import { tStatus } from '../../translations'
 
@@ -172,11 +176,15 @@ function buildContractNotesAndTermsItems(contract = {}, t = (key) => key) {
   ]
 }
 
-function DocumentPreviewModal({ isOpen, documentType, title, onClose, onDownload, children, t = (key) => key }) {
+const portalDocumentPreviewPageWidth = defaultDocumentPreviewWidth
+
+function DocumentPreviewModal({ isOpen, title, onClose, onPrimaryAction, primaryLabel, onDownload, children, t = (key) => key }) {
+  const showsStandaloneDownload = primaryLabel !== t('downloadPdf')
+
   return (
-    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="sm:max-w-4xl sm:p-8">
-      <div className="space-y-5">
-        <div className="flex items-start justify-between gap-4">
+    <ModalShell isOpen={isOpen} onBackdropClick={onClose} panelClassName="p-2 sm:max-w-[64rem] sm:p-3 lg:max-w-[68rem]">
+      <div className="rounded-3xl bg-white text-slate-950">
+        <div className="flex items-start justify-between gap-4 px-4 pb-2 pt-4 sm:px-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-500">{t('documents')}</p>
             <h2 className="mt-2 text-2xl font-bold text-slate-950">{title}</h2>
@@ -185,18 +193,16 @@ function DocumentPreviewModal({ isOpen, documentType, title, onClose, onDownload
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-          <button onClick={onDownload} className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 sm:w-auto">
-            {t('downloadPdf')}
-          </button>
-          <button onClick={onClose} className="w-full rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800 sm:w-auto">
-            {t('close')}
-          </button>
+        <div className="p-1">
+          {children}
         </div>
-        {documentType === 'estimate' ? (
-          <p className="text-sm leading-6 text-slate-500">{t('estimatePreviewDesktopOnly')}</p>
-        ) : null}
-        {children}
+        <div className={`mt-6 grid gap-3 px-4 pb-4 sm:px-5 sm:pb-5 ${showsStandaloneDownload ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+          <button onClick={onPrimaryAction} className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-bold text-white hover:bg-slate-800">{primaryLabel}</button>
+          {showsStandaloneDownload ? (
+            <button onClick={onDownload} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('downloadPdf')}</button>
+          ) : null}
+          <button onClick={onClose} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50">{t('close')}</button>
+        </div>
       </div>
     </ModalShell>
   )
@@ -264,10 +270,11 @@ export function PortalSummary({
   t = (key) => key,
 }) {
   const { showToast } = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
   const estimatePreviewRef = useRef(null)
   const contractPreviewRef = useRef(null)
-  const [openDocument, setOpenDocument] = useState(null)
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(-1)
+  const shouldUsePdfForPrint = useMemo(() => shouldUseGeneratedPdfForPrint(), [])
   const hasEstimate = Boolean(estimate)
   const hasContract = Boolean(contract)
   const hasPayments = Boolean(paymentSummary?.payments?.length)
@@ -305,6 +312,19 @@ export function PortalSummary({
     total: Number(contract?.total ?? contract?.totalAmount ?? contract?.contractAmount ?? 0),
     t: contractDocumentT,
   }), [company, contract, contractDocumentT, contractNumber, estimate?.summary, previewLead])
+  const openDocument = searchParams.get('document') || ''
+
+  function setOpenDocument(nextDocument) {
+    const nextParams = new URLSearchParams(searchParams)
+
+    if (nextDocument) {
+      nextParams.set('document', nextDocument)
+    } else {
+      nextParams.delete('document')
+    }
+
+    setSearchParams(nextParams, { replace: true })
+  }
 
   async function handleDownloadEstimate() {
     if (!estimatePreviewRef.current) return
@@ -326,6 +346,21 @@ export function PortalSummary({
         t,
       })
       showToast(t('estimatePdfGenerated'))
+    } catch (error) {
+      showToast(error?.message || t('estimatePdfGenerateFailed'), 'error')
+    }
+  }
+
+  async function handlePrintEstimate() {
+    if (shouldUsePdfForPrint) {
+      await handleDownloadEstimate()
+      return
+    }
+
+    try {
+      await printDocumentElement(estimatePreviewRef.current, {
+        documentTitle: `${estimateNumber} ${previewLead.client || ''}`.trim(),
+      })
     } catch (error) {
       showToast(error?.message || t('estimatePdfGenerateFailed'), 'error')
     }
@@ -355,6 +390,21 @@ export function PortalSummary({
         t: contractDocumentT,
       })
       showToast(t('contractPdfGenerated'))
+    } catch (error) {
+      showToast(error?.message || t('contractPdfGenerateFailed'), 'error')
+    }
+  }
+
+  async function handlePrintContract() {
+    if (shouldUsePdfForPrint) {
+      await handleDownloadContract()
+      return
+    }
+
+    try {
+      await printDocumentElement(contractPreviewRef.current, {
+        documentTitle: `${contractNumber} ${previewLead.client || ''}`.trim(),
+      })
     } catch (error) {
       showToast(error?.message || t('contractPdfGenerateFailed'), 'error')
     }
@@ -531,7 +581,11 @@ export function PortalSummary({
 
       {hasEstimate ? (
         <div className="pointer-events-none fixed left-[-10000px] top-0 w-[850px] opacity-0">
-          <div ref={estimatePreviewRef} data-estimate-pdf-root="true">
+          <div
+            ref={estimatePreviewRef}
+            data-estimate-pdf-root="true"
+            style={{ width: `${portalDocumentPreviewPageWidth}px`, backgroundColor: '#ffffff', color: '#0f172a', padding: '18px', boxSizing: 'border-box' }}
+          >
             <EstimatePdfTemplate {...estimatePreviewProps} />
           </div>
         </div>
@@ -539,7 +593,11 @@ export function PortalSummary({
 
       {hasContract ? (
         <div className="pointer-events-none fixed left-[-10000px] top-0 w-[850px] opacity-0">
-          <div ref={contractPreviewRef} data-contract-pdf-root="true">
+          <div
+            ref={contractPreviewRef}
+            data-contract-pdf-root="true"
+            style={{ width: `${portalDocumentPreviewPageWidth}px`, backgroundColor: '#ffffff', color: '#0f172a', padding: '18px', boxSizing: 'border-box' }}
+          >
             <ContractPdfTemplate {...contractPreviewProps} />
           </div>
         </div>
@@ -548,30 +606,32 @@ export function PortalSummary({
       {hasEstimate ? (
         <DocumentPreviewModal
           isOpen={openDocument === 'estimate'}
-          documentType="estimate"
           title={t('viewEstimate')}
           onClose={() => setOpenDocument(null)}
+          onPrimaryAction={handlePrintEstimate}
+          primaryLabel={shouldUsePdfForPrint ? t('downloadPdf') : t('print')}
           onDownload={handleDownloadEstimate}
           t={t}
         >
-          <div data-estimate-pdf-root="true">
+          <ScaledDocumentPreview pageWidth={portalDocumentPreviewPageWidth} pagePadding={18}>
             <EstimatePdfTemplate {...estimatePreviewProps} />
-          </div>
+          </ScaledDocumentPreview>
         </DocumentPreviewModal>
       ) : null}
 
       {hasContract ? (
         <DocumentPreviewModal
           isOpen={openDocument === 'contract'}
-          documentType="contract"
           title={t('viewContract')}
           onClose={() => setOpenDocument(null)}
+          onPrimaryAction={handlePrintContract}
+          primaryLabel={shouldUsePdfForPrint ? t('downloadPdf') : t('print')}
           onDownload={handleDownloadContract}
           t={t}
         >
-          <div data-contract-pdf-root="true">
+          <ScaledDocumentPreview pageWidth={portalDocumentPreviewPageWidth} pagePadding={18}>
             <ContractPdfTemplate {...contractPreviewProps} />
-          </div>
+          </ScaledDocumentPreview>
         </DocumentPreviewModal>
       ) : null}
 
