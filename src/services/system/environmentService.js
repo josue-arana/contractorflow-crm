@@ -38,18 +38,29 @@ export function getSupabaseEnvironmentConfig() {
   }
 }
 
-export function getAuthRedirectUrl() {
+export function getAuthRedirectUrl(pathname = '') {
   const explicitRedirectUrl = readEnvValue(import.meta.env.VITE_AUTH_REDIRECT_URL)
+  const normalizedPath = typeof pathname === 'string' ? pathname.trim() : ''
+
+  function withPath(origin) {
+    if (!normalizedPath) return origin
+
+    try {
+      return new URL(normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`, origin).toString()
+    } catch {
+      return `${origin}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`
+    }
+  }
 
   if (explicitRedirectUrl) {
-    return normalizeAppOrigin(explicitRedirectUrl) || CANONICAL_APP_ORIGIN
+    return withPath(normalizeAppOrigin(explicitRedirectUrl) || CANONICAL_APP_ORIGIN)
   }
 
   if (typeof window !== 'undefined' && window.location?.origin) {
-    return normalizeAppOrigin(window.location.origin) || CANONICAL_APP_ORIGIN
+    return withPath(normalizeAppOrigin(window.location.origin) || CANONICAL_APP_ORIGIN)
   }
 
-  return import.meta.env.DEV ? 'http://localhost:5174' : CANONICAL_APP_ORIGIN
+  return withPath(import.meta.env.DEV ? 'http://localhost:5174' : CANONICAL_APP_ORIGIN)
 }
 
 export function getEnvironmentStatus() {

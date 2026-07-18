@@ -1,3 +1,4 @@
+import { appRoutes } from '../config/appRoutes'
 import { isSupabaseAuthConfigured, USE_AUTH, USE_SUPABASE } from '../config/backendConfig'
 import { configureSupabaseSessionHandlers, isSupabaseSessionError, supabaseClient } from '../lib/supabaseClient'
 import { clearStoredSession, readStoredSession, SUPABASE_AUTH_OPTIONS, writeStoredSession } from './authSessionStorage'
@@ -522,7 +523,7 @@ export async function resetPassword(email) {
   }
 
   try {
-    const redirectTo = getAuthRedirectUrl()
+    const redirectTo = getAuthRedirectUrl(appRoutes.forgotPassword)
     const data = await authRequest('/recover', {
       method: 'POST',
       body: { email },
@@ -536,6 +537,54 @@ export async function resetPassword(email) {
     return { data, error: null, skipped: false }
   } catch (error) {
     return { data: null, error: recordAuthError(error, 'Unable to send a password reset email.'), skipped: false }
+  }
+}
+
+export async function updatePassword(password) {
+  if (!USE_AUTH) {
+    return { data: { passwordUpdated: true }, error: createAuthDisabledError(), skipped: true }
+  }
+
+  try {
+    const session = readAvailableSession()
+
+    if (session?.access_token) {
+      writeStoredSession(session)
+    }
+
+    if (!session?.access_token) {
+      return {
+        data: null,
+        error: recordAuthError(new Error('No authenticated recovery session is available.'), 'This password reset link is invalid or has expired.'),
+        skipped: false,
+      }
+    }
+
+    const data = await authRequest('/user', {
+      method: 'PUT',
+      body: { password },
+      accessToken: session.access_token,
+      skipSessionRecovery: true,
+    })
+
+    const nextSession = {
+      ...readStoredSession(),
+      user: data || readStoredSession()?.user || session.user || {},
+    }
+    writeStoredSession(nextSession)
+    emitAuthChange('USER_UPDATED', nextSession, { reason: 'PASSWORD_UPDATED' })
+
+    return { data, error: null, skipped: false }
+  } catch (error) {
+    if (authRuntimeState.lastSessionError || isSupabaseSessionError(error)) {
+      return {
+        data: null,
+        error: authRuntimeState.lastSessionError || recordSessionError(error, 'This password reset link is invalid or has expired.'),
+        skipped: false,
+      }
+    }
+
+    return { data: null, error: recordAuthError(error, 'Unable to update the password.'), skipped: false }
   }
 }
 
