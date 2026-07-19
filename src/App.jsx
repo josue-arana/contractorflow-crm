@@ -692,16 +692,18 @@ function ContractorFlowApp() {
   }
 
   async function refreshWorkspaceEntities(contractorId = settingsContractorId) {
-    if (!contractorId) return
+    if (!contractorId) return { data: null, error: { code: 'MISSING_CONTRACTOR_ID' } }
 
-    const [clientsResponse, leadsResponse, estimatesResponse, contractsResponse, invoicesResponse, paymentsResponse, eventsResponse] = await Promise.all([
+    const [clientsResponse, leadsResponse, estimatesResponse, projectsResponse, contractsResponse, invoicesResponse, paymentsResponse, eventsResponse, settingsResponse] = await Promise.all([
       dataProvider.clients.list({ contractorId, includeArchived: true }),
       dataProvider.leads.list({ contractorId, includeArchived: true }),
       dataProvider.estimates.list({ contractorId, includeArchived: true }),
+      dataProvider.projects.list({ contractorId, includeArchived: true }),
       dataProvider.contracts.list({ contractorId, includeArchived: true }),
       dataProvider.invoices.list({ contractorId, includeArchived: true }),
       dataProvider.payments.list({ contractorId, includeArchived: true }),
       dataProvider.events.list({ contractorId, includeArchived: true }),
+      dataProvider.settings.getSettings({ contractorId }),
     ])
 
     if (!clientsResponse?.error && Array.isArray(clientsResponse?.data)) setCustomClients(clientsResponse.data)
@@ -714,6 +716,36 @@ function ContractorFlowApp() {
     }
     if (!paymentsResponse?.error && Array.isArray(paymentsResponse?.data)) setPersistedPayments(paymentsResponse.data)
     if (!eventsResponse?.error && Array.isArray(eventsResponse?.data)) setScheduleEvents(sortScheduleEventRecords(eventsResponse.data))
+    if (!settingsResponse?.error && settingsResponse?.data) setCompanySettings(createDefaultCompanySettings(settingsResponse.data))
+
+    const refreshResponses = {
+      clients: clientsResponse,
+      leads: leadsResponse,
+      estimates: estimatesResponse,
+      projects: projectsResponse,
+      contracts: contractsResponse,
+      invoices: invoicesResponse,
+      payments: paymentsResponse,
+      events: eventsResponse,
+      settings: settingsResponse,
+    }
+    const failedEntry = Object.entries(refreshResponses).find(([, response]) => response?.error)
+
+    if (failedEntry) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Sample workspace state refresh failed.', {
+          stage: failedEntry[0],
+          contractorId,
+          code: failedEntry[1]?.error?.code || null,
+          message: failedEntry[1]?.error?.message || null,
+          details: failedEntry[1]?.error?.details || null,
+        })
+      }
+      return { data: { projects: projectsResponse?.data || [] }, error: { code: 'SAMPLE_DATA_REFRESH_FAILED' } }
+    }
+
+    return { data: { projects: projectsResponse?.data || [] }, error: null }
   }
 
   async function installSampleWorkspace(onProgress) {
@@ -727,8 +759,9 @@ function ContractorFlowApp() {
     if (result?.data?.settings) {
       setCompanySettings(createDefaultCompanySettings(result.data.settings))
     }
-    if (!result?.error) {
-      await refreshWorkspaceEntities(settingsContractorId)
+    if (!result?.error && !result?.upgradeRequired) {
+      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
+      if (refreshResult?.error) return { ...result, error: refreshResult.error }
     }
     return result
   }
@@ -744,7 +777,8 @@ function ContractorFlowApp() {
       setCompanySettings(createDefaultCompanySettings(result.data.settings))
     }
     if (!result?.error) {
-      await refreshWorkspaceEntities(settingsContractorId)
+      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
+      if (refreshResult?.error) return { ...result, error: refreshResult.error }
     }
     return result
   }
@@ -761,7 +795,8 @@ function ContractorFlowApp() {
       setCompanySettings(createDefaultCompanySettings(result.data.settings))
     }
     if (!result?.error) {
-      await refreshWorkspaceEntities(settingsContractorId)
+      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
+      if (refreshResult?.error) return { ...result, error: refreshResult.error }
     }
     return result
   }

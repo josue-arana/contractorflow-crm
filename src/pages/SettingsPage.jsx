@@ -10,7 +10,11 @@ import settingsHeroBackground from '../assets/page-heroes/settings-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 import { getPaymentTermOptions } from '../utils/paymentTerms'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
-import { hasSampleWorkspace, needsSampleWorkspaceUpgrade } from '../services/sampleWorkspaceService'
+import {
+  hasCompleteSampleWorkspaceManifest,
+  hasSampleWorkspace,
+  needsSampleWorkspaceUpgrade,
+} from '../services/sampleWorkspaceService'
 
 function getSettingsUiErrorMessage(error, t) {
   if (error?.code === 'ANALYTICS_MODE_COLUMN_MISSING') {
@@ -196,7 +200,7 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onC
   const portal = draft?.portal || {}
   const paymentTermOptions = getPaymentTermOptions(t, defaults.paymentTerms)
   const sampleWorkspaceExists = hasSampleWorkspace(draft)
-  const sampleWorkspaceInstalled = draft?.sampleWorkspace?.status === 'installed'
+  const sampleWorkspaceInstalled = hasCompleteSampleWorkspaceManifest(draft)
   const sampleWorkspaceNeedsUpgrade = needsSampleWorkspaceUpgrade(draft)
 
   async function runSampleAction() {
@@ -207,6 +211,13 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onC
       : sampleAction === 'update'
         ? await onUpdateSampleData?.(setSampleProgress)
       : await onCreateSampleData?.(setSampleProgress)
+
+    if (result?.upgradeRequired) {
+      setSampleProgress(null)
+      setSampleAction('update')
+      showToast(t('sampleDataUpdateRequired'))
+      return
+    }
 
     if (result?.error) {
       setSampleProgress(null)
