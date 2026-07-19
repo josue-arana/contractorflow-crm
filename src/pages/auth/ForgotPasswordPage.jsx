@@ -90,7 +90,7 @@ function getFriendlyResetErrorMessage(error, t) {
     }
   }
 
-  return error?.message || t('authPasswordResetFailed')
+  return t('authPasswordResetFailed')
 }
 
 function isResetRateLimitError(error) {

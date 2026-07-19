@@ -271,14 +271,6 @@ export async function list({ contractorId, includeArchived = false, status, clie
     const rows = Array.isArray(data) ? data : []
     const mappedRows = rows.map(mapProjectRowToUiProject)
 
-    if (isDev() && USE_SUPABASE_PROJECTS) {
-      // eslint-disable-next-line no-console
-      console.info('[dev] projectsSupabaseService.list counts', {
-        rawProjectRowCount: rows.length,
-        mappedProjectRowCount: mappedRows.length,
-      })
-    }
-
     return {
       data: mappedRows,
       error: null,

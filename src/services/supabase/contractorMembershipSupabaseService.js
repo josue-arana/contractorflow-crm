@@ -1,5 +1,6 @@
 import { USE_AUTH } from '../../config/backendConfig'
 import { supabaseClient } from '../../lib/supabaseClient'
+import { normalizeSupportedLanguage } from '../../utils/language'
 
 const MEMBERS_TABLE = 'contractor_members'
 const CONTRACTORS_TABLE = 'contractors'
@@ -148,6 +149,53 @@ export async function resolveAuthenticatedContractorAccess(userId) {
   }
 }
 
+export async function updateAuthenticatedPreferredLanguage(userId, preferredLanguage) {
+  if (!USE_AUTH) {
+    return createSkippedResponse('Contractor membership language update skipped because USE_AUTH=false')
+  }
+
+  if (!userId) {
+    return {
+      data: null,
+      error: {
+        message: 'A user id is required to update the preferred language.',
+        details: null,
+        code: 'MISSING_USER_ID',
+        status: null,
+      },
+      skipped: false,
+    }
+  }
+
+  try {
+    const memberships = await supabaseClient.request(MEMBERS_TABLE, {
+      method: 'PATCH',
+      query: {
+        select: 'id, contractor_id, role, status, name, email, preferred_language, joined_at, created_at',
+        user_id: `eq.${userId}`,
+        archived_at: 'is.null',
+        status: 'eq.active',
+      },
+      body: {
+        preferred_language: normalizeSupportedLanguage(preferredLanguage, 'en'),
+      },
+    })
+
+    return {
+      data: readSingleRow(memberships),
+      error: null,
+      skipped: false,
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: normalizeError(error, 'Unable to update the preferred language for the authenticated user.'),
+      skipped: false,
+    }
+  }
+}
+
 export default {
   resolveAuthenticatedContractorAccess,
+  updateAuthenticatedPreferredLanguage,
 }

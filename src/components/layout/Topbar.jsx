@@ -11,6 +11,7 @@ import { LanguageToggleButton } from '../common/LanguageToggleButton'
 import { ModalShell } from '../common/ModalShell'
 import { AccountMenu } from './AccountMenu'
 import { NotificationCenter } from './NotificationCenter'
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrors'
 import { buildLanguageOptions, normalizeSupportedLanguage } from '../../utils/language'
 
 export function Topbar({
@@ -121,7 +122,7 @@ export function Topbar({
         console.error('[dev] Sign out failed unexpectedly.', error)
       }
 
-      showToast(error?.message || t('authSignOutFailed'), 'error')
+      showToast(getFriendlyAuthErrorMessage(error, t, 'authSignOutFailed'), 'error')
     } finally {
       setIsSigningOut(false)
     }

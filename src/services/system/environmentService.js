@@ -1,13 +1,13 @@
 import { USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from '../../config/backendConfig'
 
-const CANONICAL_APP_ORIGIN = 'https://contractorflowcrm.netlify.app'
+const DEFAULT_DEV_ORIGIN = 'http://localhost:5174'
 const LOCALHOST_HOSTS = new Set(['localhost', '127.0.0.1'])
 
 function readEnvValue(value) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function normalizeAppOrigin(origin = '') {
+function normalizeOrigin(origin = '') {
   const value = readEnvValue(origin).replace(/\/$/, '')
   if (!value) return ''
 
@@ -17,17 +17,38 @@ function normalizeAppOrigin(origin = '') {
       return parsedUrl.origin
     }
 
-    if (parsedUrl.hostname === 'contractorflowcrm.netlify.app') {
-      return CANONICAL_APP_ORIGIN
-    }
-
-    if (parsedUrl.hostname === 'contractorflow.app' || parsedUrl.hostname === 'www.contractorflow.app') {
-      return CANONICAL_APP_ORIGIN
-    }
-
     return parsedUrl.origin
   } catch {
     return value
+  }
+}
+
+function readWindowOrigin() {
+  if (typeof window === 'undefined' || !window.location?.origin) {
+    return ''
+  }
+
+  return normalizeOrigin(window.location.origin)
+}
+
+function joinOriginWithPath(origin = '', pathname = '') {
+  const normalizedOrigin = normalizeOrigin(origin)
+  const normalizedPath = typeof pathname === 'string' ? pathname.trim() : ''
+
+  if (!normalizedPath) {
+    return normalizedOrigin
+  }
+
+  const relativePath = normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`
+
+  if (!normalizedOrigin) {
+    return relativePath
+  }
+
+  try {
+    return new URL(relativePath, normalizedOrigin).toString()
+  } catch {
+    return `${normalizedOrigin}${relativePath}`
   }
 }
 
@@ -38,29 +59,46 @@ export function getSupabaseEnvironmentConfig() {
   }
 }
 
+export function getPublicEnvironmentConfig() {
+  const appUrl = normalizeOrigin(import.meta.env.VITE_APP_URL) || readWindowOrigin() || (import.meta.env.DEV ? DEFAULT_DEV_ORIGIN : '')
+  const siteUrl = normalizeOrigin(import.meta.env.VITE_SITE_URL) || appUrl
+  const portalUrl = normalizeOrigin(import.meta.env.VITE_PORTAL_URL) || appUrl
+  const authUrl = normalizeOrigin(import.meta.env.VITE_AUTH_URL) || appUrl
+
+  return {
+    siteUrl,
+    appUrl,
+    portalUrl,
+    authUrl,
+  }
+}
+
+export function buildPublicUrl(pathname = '', originType = 'app') {
+  const publicConfig = getPublicEnvironmentConfig()
+  const origin = originType === 'site'
+    ? publicConfig.siteUrl
+    : originType === 'portal'
+      ? publicConfig.portalUrl
+      : originType === 'auth'
+        ? publicConfig.authUrl
+        : publicConfig.appUrl
+
+  return joinOriginWithPath(origin, pathname)
+}
+
 export function getAuthRedirectUrl(pathname = '') {
   const explicitRedirectUrl = readEnvValue(import.meta.env.VITE_AUTH_REDIRECT_URL)
-  const normalizedPath = typeof pathname === 'string' ? pathname.trim() : ''
-
-  function withPath(origin) {
-    if (!normalizedPath) return origin
-
-    try {
-      return new URL(normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`, origin).toString()
-    } catch {
-      return `${origin}${normalizedPath.startsWith('/') ? normalizedPath : `/${normalizedPath}`}`
-    }
-  }
+  const publicConfig = getPublicEnvironmentConfig()
 
   if (explicitRedirectUrl) {
-    return withPath(normalizeAppOrigin(explicitRedirectUrl) || CANONICAL_APP_ORIGIN)
+    return joinOriginWithPath(explicitRedirectUrl, pathname)
   }
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return withPath(normalizeAppOrigin(window.location.origin) || CANONICAL_APP_ORIGIN)
+  if (publicConfig.authUrl) {
+    return buildPublicUrl(pathname, 'auth')
   }
 
-  return withPath(import.meta.env.DEV ? 'http://localhost:5174' : CANONICAL_APP_ORIGIN)
+  return buildPublicUrl(pathname, 'app')
 }
 
 export function getEnvironmentStatus() {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { BriefcaseBusiness, ClipboardList, DollarSign, Settings, Users } from 'lucide-react'
 import { Sidebar } from './components/layout/Sidebar'
@@ -19,7 +19,6 @@ import { useLeadsBootstrap } from './hooks/useLeadsBootstrap'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { createTranslator } from './translations'
 import { currency } from './utils/formatters'
-import { ComingSoonPage } from './pages/ComingSoonPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { CustomerPortalPage } from './pages/CustomerPortalPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -35,7 +34,6 @@ import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { InvoicesPage } from './pages/InvoicesPage'
 import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { CalendarPage } from './pages/CalendarPage'
-import { TranslationAuditPage } from './pages/TranslationAuditPage'
 import { AuthSetupPage } from './pages/AuthSetupPage'
 import { AuthOnboardingPage } from './pages/AuthOnboardingPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
@@ -46,7 +44,7 @@ import { AnalyticsModeProvider } from './contexts/SimpleModeContext'
 import { LoginPage } from './pages/auth/LoginPage'
 import { SignupPage } from './pages/auth/SignupPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_INVOICES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
+import { ENABLE_DEVELOPER_ROUTES, USE_AUTH, USE_SUPABASE, USE_SUPABASE_CLIENTS, USE_SUPABASE_CONTRACTS, USE_SUPABASE_ESTIMATES, USE_SUPABASE_EVENTS, USE_SUPABASE_INVOICES, USE_SUPABASE_LEADS, USE_SUPABASE_PAYMENTS, USE_SUPABASE_PROJECTS, USE_SUPABASE_SETTINGS } from './config/backendConfig'
 import { createDefaultCompanySettings } from './data/defaultCompanySettings'
 import { getClientsContractorId } from './services/system/clientsRuntimeService'
 import { getLeadsContractorId } from './services/system/leadsRuntimeService'
@@ -60,7 +58,7 @@ import { buildEstimateLookupIds, hasEstimateData, readLinkedEstimateDraft, resol
 import { generateContractNumber } from './utils/contractNumber'
 import { generateEstimateNumber } from './utils/estimateNumber'
 import { dedupeInvoiceRecords, hydrateInvoiceRecord } from './utils/invoiceRecords'
-import { normalizeClientPreferredLanguageFields, normalizeDocumentLanguageOverride, normalizeLeadClientLanguageFields, normalizeSupportedLanguage, resolvePreferredClientLanguage } from './utils/language'
+import { normalizeClientPreferredLanguageFields, normalizeDocumentLanguageOverride, normalizeLeadClientLanguageFields, normalizeSupportedLanguage, normalizeSupportedLanguageOrEmpty, readStoredSupportedLanguage, resolveInitialSupportedLanguage, resolvePreferredClientLanguage } from './utils/language'
 import { buildLeadPipelineTransition, getLeadPipelineStage, getLeadPipelineStageCounts, leadPipelineStageOrder, leadPipelineStages, normalizeLeadPipelineStage } from './utils/leadPipeline'
 import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord } from './utils/projectPayments'
 import { createLocalRecordId, dedupeById, findLeadByProjectLookup, resolveLinkedLeadId, resolveLinkedProjectId } from './utils/projectIdentity'
@@ -77,6 +75,8 @@ const emptyArchiveState = {
   deletedInvoiceIds: [],
   deletedScheduleEventIds: [],
 }
+
+const TranslationAuditPage = lazy(() => import('./pages/TranslationAuditPage').then((module) => ({ default: module.TranslationAuditPage })))
 
 function logLeadConversionDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -560,7 +560,7 @@ function ContractorFlowApp() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(leadPipelineStageOrder[0])
-  const [language, setLanguage] = useLocalStorage('contractorflow.language', 'en')
+  const [language, setLanguage] = useLocalStorage('contractorflow.language', resolveInitialSupportedLanguage('contractorflow.language', 'en'))
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
   const scheduleSaveInFlightRef = useRef(false)
   const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
@@ -592,8 +592,9 @@ function ContractorFlowApp() {
   const navigate = useNavigate()
   const location = useLocation()
   const { showToast } = useToast()
-  const { authSetupError, company, contractor, contractorAccess, hasContractorAccess, isAuthenticated, isLoading, logout, onboardingRequired, session, user } = useAuth()
+  const { authSetupError, company, contractor, contractorAccess, hasContractorAccess, isAuthenticated, isLoading, logout, onboardingRequired, persistPreferredLanguage, session, user } = useAuth()
   const activeUserProfileKey = USE_AUTH ? (user?.id || session?.user?.id || 'anonymous-auth') : 'mock-user'
+  const preferredLanguageSyncRef = useRef('')
   const {
     profile: userProfile,
   } = useMemo(() => buildDisplayedUserProfile({
@@ -618,11 +619,46 @@ function ContractorFlowApp() {
   )
   const isAuthPage = [appRoutes.login, appRoutes.signup, appRoutes.forgotPassword].includes(location.pathname)
   const isPortalRoute = Boolean(matchPath(appRoutes.portal, location.pathname))
-  const isDeveloperRoute = [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
+  const isDeveloperRoute = ENABLE_DEVELOPER_ROUTES
+    && [appRoutes.developerHealth, appRoutes.developerTranslations].includes(location.pathname)
   const isMobileClientProfileRoute = Boolean(matchPath(appRoutes.clientProfile, location.pathname))
+  const localProfilePreferredLanguage = normalizeSupportedLanguageOrEmpty(userProfilesByUserId[activeUserProfileKey]?.preferredLanguage || '')
+  const remotePreferredLanguage = normalizeSupportedLanguageOrEmpty(
+    contractorAccess?.membership?.preferred_language || user?.user_metadata?.preferred_language || ''
+  )
+  const storedAppLanguage = readStoredSupportedLanguage('contractorflow.language')
+  const resolvedAuthenticatedLanguage = localProfilePreferredLanguage
+    || remotePreferredLanguage
+    || storedAppLanguage
+    || resolveInitialSupportedLanguage('contractorflow.language', 'en')
   const mainLayoutClassName = isMobileClientProfileRoute
     ? 'px-0 py-0 lg:px-8 lg:py-6'
     : 'px-4 py-6 sm:px-6 lg:px-8'
+
+  function syncActiveUserProfileLanguage(nextLanguage) {
+    if (!activeUserProfileKey || (USE_AUTH && !isAuthenticated)) {
+      return
+    }
+
+    const normalizedLanguage = normalizeSupportedLanguage(nextLanguage, 'en')
+
+    setUserProfilesByUserId((current) => {
+      const existingProfile = current[activeUserProfileKey]
+
+      if (existingProfile?.preferredLanguage === normalizedLanguage) {
+        return current
+      }
+
+      return {
+        ...current,
+        [activeUserProfileKey]: {
+          ...(existingProfile || {}),
+          preferredLanguage: normalizedLanguage,
+          timezone: existingProfile?.timezone || 'America/New_York',
+        },
+      }
+    })
+  }
 
   async function syncStoredLanguageSettings(nextAppLanguage = language) {
     const normalizedAppLanguage = normalizeSupportedLanguage(nextAppLanguage, language)
@@ -668,6 +704,13 @@ function ContractorFlowApp() {
   function handleAppLanguageChange(nextLanguage) {
     const normalizedLanguage = normalizeSupportedLanguage(nextLanguage, language)
     setLanguage(normalizedLanguage)
+    syncActiveUserProfileLanguage(normalizedLanguage)
+
+    if (isAuthenticated || !USE_AUTH) {
+      preferredLanguageSyncRef.current = `${activeUserProfileKey}:${normalizedLanguage}:${remotePreferredLanguage || 'none'}`
+      void persistPreferredLanguage(normalizedLanguage)
+    }
+
     void syncStoredLanguageSettings(normalizedLanguage)
   }
 
@@ -744,24 +787,41 @@ function ContractorFlowApp() {
   useLeadsBootstrap(setLeads)
 
   useEffect(() => {
-    setUserProfilesByUserId((current) => {
-      const existingProfile = current[activeUserProfileKey]
-      const normalizedLanguage = normalizeSupportedLanguage(language, 'en')
+    if (!USE_AUTH || !isAuthenticated || isLoading) {
+      return
+    }
 
-      if (existingProfile?.preferredLanguage === normalizedLanguage) {
-        return current
-      }
+    const normalizedLanguage = normalizeSupportedLanguage(resolvedAuthenticatedLanguage, 'en')
 
-      return {
-        ...current,
-        [activeUserProfileKey]: {
-          ...(existingProfile || {}),
-          preferredLanguage: normalizedLanguage,
-          timezone: existingProfile?.timezone || 'America/New_York',
-        },
-      }
-    })
-  }, [activeUserProfileKey, language])
+    if (normalizedLanguage === language) {
+      return
+    }
+
+    setLanguage(normalizedLanguage)
+    syncActiveUserProfileLanguage(normalizedLanguage)
+  }, [isAuthenticated, isLoading, language, resolvedAuthenticatedLanguage])
+
+  useEffect(() => {
+    if (!USE_AUTH || !isAuthenticated || isLoading) {
+      return
+    }
+
+    const preferredLanguageToPersist = localProfilePreferredLanguage || storedAppLanguage || ''
+
+    if (!preferredLanguageToPersist || preferredLanguageToPersist === remotePreferredLanguage) {
+      preferredLanguageSyncRef.current = ''
+      return
+    }
+
+    const syncKey = `${activeUserProfileKey}:${preferredLanguageToPersist}:${remotePreferredLanguage || 'none'}`
+
+    if (preferredLanguageSyncRef.current === syncKey) {
+      return
+    }
+
+    preferredLanguageSyncRef.current = syncKey
+    void persistPreferredLanguage(preferredLanguageToPersist)
+  }, [activeUserProfileKey, isAuthenticated, isLoading, localProfilePreferredLanguage, persistPreferredLanguage, remotePreferredLanguage, storedAppLanguage])
 
   useEffect(() => {
     writeStoredUserProfiles(userProfilesByUserId)
@@ -833,9 +893,6 @@ function ContractorFlowApp() {
 
       if (response?.data) {
         setCompanySettings(createDefaultCompanySettings(response.data))
-        if (response.data.appLanguage) {
-          setLanguage(normalizeSupportedLanguage(response.data.appLanguage, 'en'))
-        }
         if (response.data.portal?.defaultLanguage) {
           setPortalLanguage(normalizeSupportedLanguage(response.data.portal.defaultLanguage, 'en'))
         }
@@ -3629,8 +3686,12 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.login} element={<LoginPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.signup} element={<SignupPage t={t} language={language} setLanguage={setLanguage} />} />
       <Route path={appRoutes.forgotPassword} element={<ForgotPasswordPage t={t} language={language} setLanguage={setLanguage} />} />
-      <Route path={appRoutes.developerHealth} element={<TranslationAuditPage t={t} />} />
-      <Route path={appRoutes.developerTranslations} element={<TranslationAuditPage t={t} />} />
+      {ENABLE_DEVELOPER_ROUTES ? (
+        <>
+          <Route path={appRoutes.developerHealth} element={<Suspense fallback={null}><TranslationAuditPage t={t} /></Suspense>} />
+          <Route path={appRoutes.developerTranslations} element={<Suspense fallback={null}><TranslationAuditPage t={t} /></Suspense>} />
+        </>
+      ) : null}
       <Route path="*" element={<Navigate to={appRoutes.dashboard} replace />} />
     </Routes>
   )

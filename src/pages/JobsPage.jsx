@@ -48,13 +48,6 @@ function toSupabaseJobStatus(status) {
   return displayStatusToSupabaseMap[status] || String(status).toLowerCase().replace(/\s+/g, '_')
 }
 
-function logSupabaseJobsDebug(message, meta) {
-  if (!import.meta.env.DEV || !USE_SUPABASE_PROJECTS) return
-
-  // eslint-disable-next-line no-console
-  console.info(message, meta)
-}
-
 export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
@@ -91,10 +84,6 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
         if (isCancelled) return
 
         const nextProjects = Array.isArray(response?.data) ? response.data : []
-        logSupabaseJobsDebug('[dev] JobsPage Supabase load counts', {
-          rawProjectRowCount: nextProjects.length,
-          mappedProjectRowCount: nextProjects.length,
-        })
         setProjects(nextProjects)
       } finally {
         if (!isCancelled) {
