@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
+import { AlertTriangle, CalendarDays, Check, CheckCircle2, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { PipelineBoard } from '../components/pipeline/PipelineBoard'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
@@ -108,6 +108,79 @@ function DashboardActionItem({ item }) {
   )
 }
 
+const sampleGuideItems = [
+  { key: 'lead', labelKey: 'sampleGuideReviewLead' },
+  { key: 'estimate', labelKey: 'sampleGuideOpenEstimate' },
+  { key: 'job', labelKey: 'sampleGuideSeeJob' },
+  { key: 'event', labelKey: 'sampleGuideReviewVisit' },
+  { key: 'client', labelKey: 'sampleGuideOpenClient' },
+  { key: 'financial', labelKey: 'sampleGuideReviewFinancials' },
+]
+
+function SampleWorkspaceGuide({ guide, onOpenItem, onDismiss, onCreateLead, t }) {
+  if (!guide || guide.dismissed) return null
+
+  const completedItems = Array.isArray(guide.completedItems) ? guide.completedItems : []
+  const completedCount = sampleGuideItems.filter((item) => completedItems.includes(item.key)).length
+  const isComplete = completedCount === sampleGuideItems.length
+  const progress = Math.round((completedCount / sampleGuideItems.length) * 100)
+
+  return (
+    <section className="mb-6 rounded-3xl border border-cyan-200 bg-gradient-to-br from-white via-cyan-50/70 to-blue-50 p-5 shadow-sm sm:p-6" aria-labelledby="sample-workspace-guide-title">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-600 text-white"><Sparkles className="h-5 w-5" /></span>
+          <div>
+            <h2 id="sample-workspace-guide-title" className="text-lg font-bold text-slate-950">{t('sampleGuideTitle')}</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">{t(isComplete ? 'sampleGuideCompleteBody' : 'sampleGuideBody')}</p>
+          </div>
+        </div>
+        <button type="button" onClick={onDismiss} aria-label={t('sampleGuideDismiss')} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-white focus:outline-none focus:ring-4 focus:ring-cyan-100"><X className="h-4 w-4" /></button>
+      </div>
+
+      <div className="mt-5" aria-label={t('sampleGuideProgress', { current: completedCount, total: sampleGuideItems.length })}>
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-bold text-slate-600">
+          <span>{t('sampleGuideProgress', { current: completedCount, total: sampleGuideItems.length })}</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-white" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}>
+          <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 transition-[width] duration-500" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+
+      {isComplete ? (
+        <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 text-emerald-800">
+            <CheckCircle2 className="h-5 w-5 shrink-0" />
+            <p className="text-sm font-bold">{t('sampleGuideCompleteTitle')}</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button type="button" onClick={onCreateLead} className="min-h-11 rounded-xl bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800">{t('sampleGuideCreateLead')}</button>
+            <button type="button" onClick={onDismiss} className="min-h-11 rounded-xl border border-emerald-200 bg-white px-4 text-sm font-bold text-emerald-800 hover:bg-emerald-100">{t('sampleGuideDismiss')}</button>
+          </div>
+        </div>
+      ) : (
+        <ul className="mt-5 grid gap-2 sm:grid-cols-2" aria-label={t('sampleGuideChecklistLabel')}>
+          {sampleGuideItems.map((item) => {
+            const isChecked = completedItems.includes(item.key)
+            return (
+              <li key={item.key}>
+                <button type="button" onClick={() => onOpenItem?.(item.key)} className="flex min-h-12 w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50 focus:outline-none focus:ring-4 focus:ring-cyan-100">
+                  <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${isChecked ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-slate-50 text-transparent'}`}>
+                    <Check className="h-4 w-4" />
+                  </span>
+                  <span className={isChecked ? 'text-slate-500 line-through' : ''}>{t(item.labelKey)}</span>
+                  <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-slate-400" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export function DashboardPage({
   leads,
   metrics,
@@ -125,6 +198,9 @@ export function DashboardPage({
   successMessage,
   showOnboardingReminder = false,
   onResumeOnboarding,
+  sampleGuide,
+  onOpenSampleGuideItem,
+  onDismissSampleGuide,
   t,
   userProfile,
 }) {
@@ -417,6 +493,14 @@ export function DashboardPage({
           </div>
         </section>
       ) : null}
+
+      <SampleWorkspaceGuide
+        guide={sampleGuide}
+        onOpenItem={onOpenSampleGuideItem}
+        onDismiss={onDismissSampleGuide}
+        onCreateLead={onCreateLeadClick}
+        t={t}
+      />
 
       {successMessage && (
         <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">

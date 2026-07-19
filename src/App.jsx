@@ -63,6 +63,7 @@ import { calculateProjectPaymentSummary, dedupePayments, normalizePaymentRecord 
 import { createLocalRecordId, dedupeById, findLeadByProjectLookup, resolveLinkedLeadId, resolveLinkedProjectId } from './utils/projectIdentity'
 import { resolvePortalRouteId } from './utils/portal'
 import { buildContractWorkBreakdownFromEstimate, isGeneratedContractScopeText } from './utils/contractDocument'
+import { SAMPLE_GUIDE_ITEM_KEYS, SAMPLE_WORKSPACE_VERSION, createSampleWorkspace, removeSampleWorkspace, updateSampleWorkspaceGuide, upgradeSampleWorkspace as upgradeSampleWorkspaceRecords } from './services/sampleWorkspaceService'
 
 const emptyArchiveState = {
   leadIds: [],
@@ -73,6 +74,18 @@ const emptyArchiveState = {
   deletedClientIds: [],
   deletedInvoiceIds: [],
   deletedScheduleEventIds: [],
+}
+
+function isSampleGuideDestination(itemKey, pathname, records = {}) {
+  const expectedPaths = {
+    lead: records.lead ? `/leads/${records.lead}` : '',
+    estimate: records.project ? `/projects/${records.project}/estimate` : '',
+    job: records.project ? `/projects/${records.project}` : '',
+    event: records.project ? `/projects/${records.project}` : '',
+    client: records.client ? `/clients/${records.client}` : '',
+    financial: records.invoice ? `/invoices/${records.invoice}` : '',
+  }
+  return Boolean(expectedPaths[itemKey] && pathname === expectedPaths[itemKey])
 }
 
 const TranslationAuditPage = lazy(() => import('./pages/TranslationAuditPage').then((module) => ({ default: module.TranslationAuditPage })))
@@ -566,6 +579,7 @@ function ContractorFlowApp() {
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
   const scheduleSaveInFlightRef = useRef(false)
   const settingsMutationVersionRef = useRef(0)
+  const sampleGuideVisitRef = useRef('')
   const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
     appLanguage: language,
     portal: {
@@ -676,6 +690,134 @@ function ContractorFlowApp() {
     setOnboardingSessionActive(false)
     setIsCompanySetupReopen(false)
   }
+
+  async function refreshWorkspaceEntities(contractorId = settingsContractorId) {
+    if (!contractorId) return
+
+    const [clientsResponse, leadsResponse, estimatesResponse, contractsResponse, invoicesResponse, paymentsResponse, eventsResponse] = await Promise.all([
+      dataProvider.clients.list({ contractorId, includeArchived: true }),
+      dataProvider.leads.list({ contractorId, includeArchived: true }),
+      dataProvider.estimates.list({ contractorId, includeArchived: true }),
+      dataProvider.contracts.list({ contractorId, includeArchived: true }),
+      dataProvider.invoices.list({ contractorId, includeArchived: true }),
+      dataProvider.payments.list({ contractorId, includeArchived: true }),
+      dataProvider.events.list({ contractorId, includeArchived: true }),
+    ])
+
+    if (!clientsResponse?.error && Array.isArray(clientsResponse?.data)) setCustomClients(clientsResponse.data)
+    if (!leadsResponse?.error && Array.isArray(leadsResponse?.data)) setLeads(leadsResponse.data)
+    if (!estimatesResponse?.error && Array.isArray(estimatesResponse?.data)) setPersistedEstimates(estimatesResponse.data)
+    if (!contractsResponse?.error && Array.isArray(contractsResponse?.data)) setPersistedContracts(contractsResponse.data)
+    if (!invoicesResponse?.error && Array.isArray(invoicesResponse?.data)) {
+      setInvoiceRecords(dedupeInvoiceRecords(invoicesResponse.data))
+      setAreInvoicesLoaded(true)
+    }
+    if (!paymentsResponse?.error && Array.isArray(paymentsResponse?.data)) setPersistedPayments(paymentsResponse.data)
+    if (!eventsResponse?.error && Array.isArray(eventsResponse?.data)) setScheduleEvents(sortScheduleEventRecords(eventsResponse.data))
+  }
+
+  async function installSampleWorkspace(onProgress) {
+    const result = await createSampleWorkspace({
+      contractorId: settingsContractorId,
+      settings: companySettings,
+      onProgress,
+      sampleLabel: t('sampleDataBadge'),
+    })
+
+    if (result?.data?.settings) {
+      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+    }
+    if (!result?.error) {
+      await refreshWorkspaceEntities(settingsContractorId)
+    }
+    return result
+  }
+
+  async function uninstallSampleWorkspace(onProgress) {
+    const result = await removeSampleWorkspace({
+      contractorId: settingsContractorId,
+      settings: companySettings,
+      onProgress,
+    })
+
+    if (result?.data?.settings) {
+      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+    }
+    if (!result?.error) {
+      await refreshWorkspaceEntities(settingsContractorId)
+    }
+    return result
+  }
+
+  async function updateInstalledSampleWorkspace(onProgress) {
+    const result = await upgradeSampleWorkspaceRecords({
+      contractorId: settingsContractorId,
+      settings: companySettings,
+      onProgress,
+      sampleLabel: t('sampleDataBadge'),
+    })
+
+    if (result?.data?.settings) {
+      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+    }
+    if (!result?.error) {
+      await refreshWorkspaceEntities(settingsContractorId)
+    }
+    return result
+  }
+
+  async function persistSampleGuide(updates) {
+    const result = await updateSampleWorkspaceGuide({
+      contractorId: settingsContractorId,
+      settings: companySettings,
+      guide: updates,
+    })
+
+    if (result?.data?.settings) {
+      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+    }
+    return result
+  }
+
+  function openSampleGuideItem(itemKey) {
+    const records = companySettings?.sampleWorkspace?.records || {}
+    const routes = {
+      lead: records.lead ? `/leads/${records.lead}` : appRoutes.leads,
+      estimate: records.project ? `/projects/${records.project}/estimate` : appRoutes.estimates,
+      job: records.project ? `/projects/${records.project}` : appRoutes.jobs,
+      event: records.project ? `/projects/${records.project}` : appRoutes.calendar,
+      client: records.client ? `/clients/${records.client}` : appRoutes.clients,
+      financial: records.invoice ? `/invoices/${records.invoice}` : appRoutes.invoices,
+    }
+    const target = routes[itemKey] || appRoutes.dashboard
+    const separator = target.includes('?') ? '&' : '?'
+    navigate(`${target}${separator}sampleGuide=${encodeURIComponent(itemKey)}`)
+  }
+
+  useEffect(() => {
+    const itemKey = new URLSearchParams(location.search).get('sampleGuide') || ''
+    const guide = companySettings?.sampleWorkspace?.guide || {}
+    const records = companySettings?.sampleWorkspace?.records || {}
+    const completedItems = Array.isArray(guide.completedItems) ? guide.completedItems : []
+    const visitKey = `${settingsContractorId}:${location.pathname}:${itemKey}`
+
+    if (
+      companySettings?.sampleWorkspace?.status !== 'installed'
+      || Number(companySettings?.sampleWorkspace?.version || 0) !== SAMPLE_WORKSPACE_VERSION
+      || !SAMPLE_GUIDE_ITEM_KEYS.includes(itemKey)
+      || !isSampleGuideDestination(itemKey, location.pathname, records)
+      || completedItems.includes(itemKey)
+      || sampleGuideVisitRef.current === visitKey
+    ) return
+
+    sampleGuideVisitRef.current = visitKey
+    persistSampleGuide({
+      ...guide,
+      completedItems: [...completedItems, itemKey],
+    }).then((result) => {
+      if (result?.error) sampleGuideVisitRef.current = ''
+    })
+  }, [companySettings, location.pathname, location.search, settingsContractorId])
 
   function syncActiveUserProfileLanguage(nextLanguage) {
     if (!activeUserProfileKey || (USE_AUTH && !isAuthenticated)) {
@@ -3706,6 +3848,15 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
         setIsCompanySetupReopen(true)
         setOnboardingSessionActive(true)
       }}
+      sampleGuide={companySettings?.sampleWorkspace?.status === 'installed'
+        && Number(companySettings?.sampleWorkspace?.version || 0) === SAMPLE_WORKSPACE_VERSION
+        ? companySettings.sampleWorkspace.guide
+        : null}
+      onOpenSampleGuideItem={openSampleGuideItem}
+      onDismissSampleGuide={() => persistSampleGuide({
+        ...(companySettings?.sampleWorkspace?.guide || {}),
+        dismissed: true,
+      })}
       t={t}
       userProfile={userProfile}
     />
@@ -3725,7 +3876,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={handleAppLanguageChange} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} clients={clients} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} appLanguage={language} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} clients={clients} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} appLanguage={language} />} />
-      <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} onOpenCompanySetup={() => { setIsCompanySetupReopen(true); setOnboardingSessionActive(true) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
+      <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} onOpenCompanySetup={() => { setIsCompanySetupReopen(true); setOnboardingSessionActive(true) }} onCreateSampleData={installSampleWorkspace} onUpdateSampleData={updateInstalledSampleWorkspace} onRemoveSampleData={uninstallSampleWorkspace} onReopenSampleGuide={async () => { const result = await persistSampleGuide({ ...(companySettings?.sampleWorkspace?.guide || {}), dismissed: false }); if (!result?.error) navigate(appRoutes.dashboard); return result }} onOpenSampleWorkspace={() => navigate(appRoutes.dashboard)} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onSyncEstimateContract={async (leadId, estimate, options = {}) => syncContractFromEstimate(leadId, estimate, options)} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} clients={clients} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} onArchiveContract={archiveContractRecord} t={t} appLanguage={language} />} />
@@ -3768,6 +3919,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
             setLanguage={handleAppLanguageChange}
             settings={companySettings}
             onPersist={persistOnboardingSettings}
+            onAddSampleData={installSampleWorkspace}
             onClose={() => {
               closeOnboarding()
               navigate(appRoutes.dashboard, { replace: true })

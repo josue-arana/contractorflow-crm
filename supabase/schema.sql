@@ -178,6 +178,7 @@ create table clients (
   postal_code text,
   preferred_language text default 'en' check (preferred_language in ('en', 'es')),
   notes text,
+  sample_data_key text,
   status text not null default 'active' check (status in ('active', 'inactive', 'archived')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -199,6 +200,7 @@ create table leads (
   status lead_status not null default 'new',
   priority text default 'normal' check (priority in ('low', 'normal', 'high', 'urgent')),
   notes text,
+  sample_data_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -220,6 +222,7 @@ create table projects (
   target_end_date date,
   completed_at timestamptz,
   notes text,
+  sample_data_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -231,6 +234,7 @@ alter table leads
 create table estimates (
   id uuid primary key default gen_random_uuid(),
   contractor_id uuid not null references contractors(id) on delete cascade,
+  lead_id uuid references leads(id) on delete set null,
   client_id uuid references clients(id) on delete set null,
   project_id uuid references projects(id) on delete set null,
   estimate_number text,
@@ -244,6 +248,7 @@ create table estimates (
   deposit_percentage numeric(5,2),
   materials_included boolean not null default true,
   payment_terms text,
+  sample_data_key text,
   status estimate_status not null default 'draft',
   sent_at timestamptz,
   approved_at timestamptz,
@@ -267,6 +272,7 @@ create table contracts (
   total_amount numeric(12,2) not null default 0,
   deposit_amount numeric(12,2),
   payment_terms text,
+  sample_data_key text,
   status contract_status not null default 'draft',
   sent_at timestamptz,
   signed_at timestamptz,
@@ -296,6 +302,7 @@ create table invoices (
   due_date date,
   sent_at timestamptz,
   paid_at timestamptz,
+  sample_data_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -318,6 +325,7 @@ create table payments (
   reference_number text,
   status payment_status not null default 'recorded',
   notes text,
+  sample_data_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -342,6 +350,7 @@ create table events (
   location text,
   notes text,
   reminder text,
+  sample_data_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz
@@ -395,6 +404,7 @@ create table company_settings (
   onboarding_completed boolean not null default false,
   onboarding_dismissed boolean not null default false,
   onboarding_step integer not null default 1 check (onboarding_step between 1 and 5),
+  sample_workspace jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz,
@@ -434,6 +444,7 @@ create index idx_project_photos_client_id on project_photos(client_id);
 -- project_id indexes
 create index idx_leads_project_id on leads(project_id);
 create index idx_estimates_project_id on estimates(project_id);
+create index idx_estimates_lead_id on estimates(lead_id);
 create index idx_contracts_project_id on contracts(project_id);
 create index idx_invoices_project_id on invoices(project_id);
 create index idx_payments_project_id on payments(project_id);
@@ -474,6 +485,16 @@ create index idx_contractor_members_status on contractor_members(status);
 create index idx_clients_email on clients(email) where email is not null;
 create index idx_invoices_due_date on invoices(due_date) where due_date is not null;
 create index idx_events_starts_at on events(starts_at);
+
+-- Prevent duplicate Aymero demo records while keeping ordinary records unrestricted.
+create unique index clients_contractor_sample_data_key_idx on clients(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index leads_contractor_sample_data_key_idx on leads(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index projects_contractor_sample_data_key_idx on projects(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index estimates_contractor_sample_data_key_idx on estimates(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index contracts_contractor_sample_data_key_idx on contracts(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index invoices_contractor_sample_data_key_idx on invoices(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index payments_contractor_sample_data_key_idx on payments(contractor_id, sample_data_key) where sample_data_key is not null;
+create unique index events_contractor_sample_data_key_idx on events(contractor_id, sample_data_key) where sample_data_key is not null;
 
 -- -----------------------------------------------------------------------------
 -- updated_at triggers

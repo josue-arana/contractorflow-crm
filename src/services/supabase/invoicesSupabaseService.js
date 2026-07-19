@@ -21,6 +21,7 @@ const INVOICE_TABLE_COLUMNS = new Set([
   'due_date',
   'sent_at',
   'paid_at',
+  'sample_data_key',
   'created_at',
   'updated_at',
   'archived_at',
@@ -390,6 +391,7 @@ function toAppInvoice(row) {
     sentAt: row?.sent_at || null,
     paidAt: row?.paid_at || null,
     paymentHistory: parsedDescription.paymentHistory,
+    sampleDataKey: row?.sample_data_key || '',
     archivedAt: row?.archived_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
@@ -528,6 +530,10 @@ function toSupabasePayload(contractorId, invoice = {}, { isCreate = false } = {}
 
   if (dueDateInput !== undefined || isCreate) {
     payload.due_date = parseDateToIso(dueDateInput)
+  }
+
+  if (isCreate || readField(invoice, ['sampleDataKey', 'sample_data_key']) !== undefined) {
+    payload.sample_data_key = readField(invoice, ['sampleDataKey', 'sample_data_key']) || null
   }
 
   return applyStatusDates(payload, invoice)

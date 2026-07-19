@@ -33,6 +33,16 @@ const baseCompanySettings = {
     dismissed: false,
     step: 1,
   },
+  sampleWorkspace: {
+    status: 'not_installed',
+    identifier: '',
+    version: 0,
+    records: {},
+    guide: {
+      dismissed: true,
+      completedItems: [],
+    },
+  },
 }
 
 export function resolveAnalyticsModeSetting(settings = {}, fallback = baseCompanySettings.analyticsMode) {
@@ -71,6 +81,21 @@ export function createDefaultCompanySettings(overrides = {}) {
     onboarding: {
       ...baseCompanySettings.onboarding,
       ...(safeOverrides.onboarding || {}),
+    },
+    sampleWorkspace: {
+      ...baseCompanySettings.sampleWorkspace,
+      ...(safeOverrides.sampleWorkspace || {}),
+      records: {
+        ...baseCompanySettings.sampleWorkspace.records,
+        ...(safeOverrides.sampleWorkspace?.records || {}),
+      },
+      guide: {
+        ...baseCompanySettings.sampleWorkspace.guide,
+        ...(safeOverrides.sampleWorkspace?.guide || {}),
+        completedItems: Array.isArray(safeOverrides.sampleWorkspace?.guide?.completedItems)
+          ? safeOverrides.sampleWorkspace.guide.completedItems
+          : baseCompanySettings.sampleWorkspace.guide.completedItems,
+      },
     },
   }
 }

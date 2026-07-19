@@ -166,6 +166,13 @@ function toAppSettings(row) {
       dismissed: row?.onboarding_dismissed ?? defaults.onboarding.dismissed,
       step: Number(row?.onboarding_step ?? defaults.onboarding.step),
     },
+    sampleWorkspace: {
+      ...defaults.sampleWorkspace,
+      ...(row?.sample_workspace && typeof row.sample_workspace === 'object' ? row.sample_workspace : {}),
+      records: row?.sample_workspace?.records && typeof row.sample_workspace.records === 'object'
+        ? row.sample_workspace.records
+        : {},
+    },
   })
 }
 
@@ -199,6 +206,7 @@ function toSupabasePayload(contractorId, settings = {}) {
     onboarding_completed: Boolean(normalized.onboarding.completed),
     onboarding_dismissed: Boolean(normalized.onboarding.dismissed),
     onboarding_step: Math.min(5, Math.max(1, Number(normalized.onboarding.step) || 1)),
+    sample_workspace: normalized.sampleWorkspace || {},
   }
 }
 

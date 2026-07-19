@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ModalShell } from './ModalShell'
 
-export function ConfirmRecordModal({ isOpen, mode = 'archive', title, message, confirmLabel, cancelLabel, onCancel, onConfirm, t }) {
+export function ConfirmRecordModal({ isOpen, mode = 'archive', title, message, confirmLabel, submittingLabel, cancelLabel, onCancel, onConfirm, t }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const submitGuardRef = useRef(false)
 
@@ -43,7 +43,7 @@ export function ConfirmRecordModal({ isOpen, mode = 'archive', title, message, c
           {cancelLabel || t('cancel')}
         </button>
         <button disabled={isSubmitting} onClick={handleConfirm} className={`rounded-2xl px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60 ${isDelete ? 'bg-red-600 hover:bg-red-700 disabled:bg-red-400' : 'bg-slate-950 hover:bg-slate-800 disabled:bg-slate-400'}`}>
-          {isSubmitting ? t('saving') : confirmLabel}
+          {isSubmitting ? (submittingLabel || t('saving')) : confirmLabel}
         </button>
       </div>
     </ModalShell>

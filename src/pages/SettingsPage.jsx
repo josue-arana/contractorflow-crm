@@ -9,6 +9,8 @@ import { getSettingsContractorId } from '../services/system/settingsRuntimeServi
 import settingsHeroBackground from '../assets/page-heroes/settings-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 import { getPaymentTermOptions } from '../utils/paymentTerms'
+import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
+import { hasSampleWorkspace, needsSampleWorkspaceUpgrade } from '../services/sampleWorkspaceService'
 
 function getSettingsUiErrorMessage(error, t) {
   if (error?.code === 'ANALYTICS_MODE_COLUMN_MISSING') {
@@ -18,12 +20,14 @@ function getSettingsUiErrorMessage(error, t) {
   return error?.message || t('settingsSaveFailed')
 }
 
-export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
+export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onCreateSampleData, onUpdateSampleData, onRemoveSampleData, onReopenSampleGuide, onOpenSampleWorkspace, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const { contractor, company: authCompany, contractorAccess, session } = useAuth()
   const { showToast } = useToast()
   const [draft, setDraft] = useState(settings)
   const [successMessage, setSuccessMessage] = useState('')
   const [settingsLoadError, setSettingsLoadError] = useState('')
+  const [sampleAction, setSampleAction] = useState('')
+  const [sampleProgress, setSampleProgress] = useState(null)
 
   const contractorId = useMemo(() => (
     getSettingsContractorId({
@@ -191,6 +195,34 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, lan
   const defaults = draft?.defaults || {}
   const portal = draft?.portal || {}
   const paymentTermOptions = getPaymentTermOptions(t, defaults.paymentTerms)
+  const sampleWorkspaceExists = hasSampleWorkspace(draft)
+  const sampleWorkspaceInstalled = draft?.sampleWorkspace?.status === 'installed'
+  const sampleWorkspaceNeedsUpgrade = needsSampleWorkspaceUpgrade(draft)
+
+  async function runSampleAction() {
+    const completedAction = sampleAction
+    setSampleProgress({ current: 0, total: 8, key: sampleAction === 'remove' ? 'sampleDataRemoving' : 'sampleDataChecking' })
+    const result = sampleAction === 'remove'
+      ? await onRemoveSampleData?.(setSampleProgress)
+      : sampleAction === 'update'
+        ? await onUpdateSampleData?.(setSampleProgress)
+      : await onCreateSampleData?.(setSampleProgress)
+
+    if (result?.error) {
+      setSampleProgress(null)
+      showToast(t(sampleAction === 'remove' ? 'sampleDataRemoveError' : sampleAction === 'update' ? 'sampleDataUpdateError' : 'sampleDataErrorBody'), 'error')
+      return
+    }
+
+    setSampleAction('')
+    setSampleProgress(null)
+    if (result?.duplicate) {
+      showToast(t('sampleDataDuplicateBody'))
+      return
+    }
+    showToast(t(completedAction === 'remove' ? 'sampleDataRemovedToast' : completedAction === 'update' ? 'sampleDataUpdatedToast' : 'sampleDataReadyToast'))
+    if (completedAction !== 'remove') onOpenSampleWorkspace?.()
+  }
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -221,10 +253,46 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, lan
           <h2 className="mt-2 text-lg font-bold text-slate-950">{t('onboardingCompanySetupTitle')}</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">{t('onboardingCompanySetupBody')}</p>
         </div>
-        <button type="button" onClick={onOpenCompanySetup} className="min-h-11 shrink-0 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">
-          {settings?.onboarding?.completed ? t('onboardingReviewSetup') : t('onboardingResumeSetup')}
-        </button>
+        <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+          <button type="button" onClick={onOpenCompanySetup} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">
+            {settings?.onboarding?.completed ? t('onboardingReviewSetup') : t('onboardingResumeSetup')}
+          </button>
+          {sampleWorkspaceNeedsUpgrade ? (
+            <button type="button" onClick={() => setSampleAction('update')} className="min-h-10 rounded-2xl border border-amber-200 bg-white px-4 text-sm font-bold text-amber-800 hover:bg-amber-50">
+              {t('sampleDataUpdateAction')}
+            </button>
+          ) : !sampleWorkspaceInstalled ? (
+            <button type="button" onClick={() => setSampleAction('install')} className="min-h-10 rounded-2xl border border-blue-200 bg-white px-4 text-sm font-bold text-blue-700 hover:bg-blue-50">
+              {t(sampleWorkspaceExists ? 'sampleDataContinueAction' : 'sampleDataExploreAction')}
+            </button>
+          ) : null}
+          {sampleWorkspaceInstalled && !sampleWorkspaceNeedsUpgrade ? (
+            <button type="button" onClick={async () => {
+              const result = await onReopenSampleGuide?.()
+              if (result?.error) showToast(t('sampleGuideSaveError'), 'error')
+            }} className="min-h-10 rounded-2xl border border-cyan-200 bg-white px-4 text-sm font-bold text-cyan-800 hover:bg-cyan-50">
+              {t('sampleGuideReopen')}
+            </button>
+          ) : null}
+          {sampleWorkspaceExists ? (
+            <button type="button" onClick={() => setSampleAction('remove')} className="min-h-10 rounded-2xl border border-rose-200 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50">
+              {t('sampleDataRemoveAction')}
+            </button>
+          ) : null}
+        </div>
       </section>
+
+      <ConfirmRecordModal
+        isOpen={Boolean(sampleAction)}
+        mode={sampleAction === 'remove' ? 'delete' : 'archive'}
+        title={t(sampleAction === 'remove' ? 'sampleDataRemoveConfirmTitle' : sampleAction === 'update' ? 'sampleDataUpdateConfirmTitle' : 'sampleDataConfirmTitle')}
+        message={sampleProgress ? t(sampleProgress.key || 'sampleDataCreating') : t(sampleAction === 'remove' ? 'sampleDataRemoveConfirmBody' : sampleAction === 'update' ? 'sampleDataUpdateConfirmBody' : 'sampleDataConfirmBody')}
+        confirmLabel={t(sampleAction === 'remove' ? 'sampleDataRemoveAction' : sampleAction === 'update' ? 'sampleDataUpdateAction' : 'sampleDataAddAction')}
+        submittingLabel={t(sampleAction === 'remove' ? 'sampleDataRemoving' : sampleAction === 'update' ? 'sampleDataUpdating' : 'sampleDataCreating')}
+        onCancel={() => { setSampleAction(''); setSampleProgress(null) }}
+        onConfirm={runSampleAction}
+        t={t}
+      />
 
       <section className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">

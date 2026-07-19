@@ -259,6 +259,7 @@ function toAppContract(row) {
     scopeOfWork: row?.scope_of_work || '',
     terms: parsedTerms.termsText,
     paymentTerms: row?.payment_terms || '',
+    sampleDataKey: row?.sample_data_key || '',
     contractLanguage: parsedTerms.contractLanguage || '',
     acceptanceLegalText: parsedTerms.acceptanceLegalText || '',
     workBreakdown: normalizeContractWorkBreakdown(parsedTerms.workBreakdown || []),
@@ -329,6 +330,10 @@ function toSupabasePayload(contractorId, contract = {}, { isCreate = false } = {
 
   if (paymentTermsInput !== undefined || isCreate) {
     payload.payment_terms = paymentTermsInput || null
+  }
+
+  if (isCreate || readField(contract, ['sampleDataKey', 'sample_data_key']) !== undefined) {
+    payload.sample_data_key = readField(contract, ['sampleDataKey', 'sample_data_key']) || null
   }
 
   if (termsInput !== undefined) {

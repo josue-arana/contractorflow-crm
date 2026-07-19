@@ -208,6 +208,7 @@ function toAppEstimate(row) {
     depositPercentage: row?.deposit_percentage === null || row?.deposit_percentage === undefined ? null : toNumber(row?.deposit_percentage),
     materialsIncluded: Boolean(row?.materials_included),
     paymentTerms: row?.payment_terms || '',
+    sampleDataKey: row?.sample_data_key || '',
     estimateLanguage: normalizeSupportedLanguageOrEmpty(row?.estimate_language),
     status: mapStatusToUi(row?.status),
     sentAt: row?.sent_at || null,
@@ -244,7 +245,7 @@ function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {
     payload.client_id = readField(estimate, ['clientId', 'client_id']) || null
   }
 
-  if (isCreate || readField(estimate, ['leadId', 'lead_id']) !== undefined) {
+  if (readField(estimate, ['leadId', 'lead_id']) !== undefined) {
     payload.lead_id = readField(estimate, ['leadId', 'lead_id']) || null
   }
 
@@ -314,6 +315,10 @@ function toSupabasePayload(contractorId, estimate = {}, { isCreate = false } = {
 
   if (isCreate || readField(estimate, ['paymentTerms', 'payment_terms']) !== undefined) {
     payload.payment_terms = readField(estimate, ['paymentTerms', 'payment_terms']) || null
+  }
+
+  if (isCreate || readField(estimate, ['sampleDataKey', 'sample_data_key']) !== undefined) {
+    payload.sample_data_key = readField(estimate, ['sampleDataKey', 'sample_data_key']) || null
   }
 
   if (isCreate || estimateLanguageInput !== undefined) {

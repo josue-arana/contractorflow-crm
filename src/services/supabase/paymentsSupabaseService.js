@@ -199,6 +199,7 @@ function toAppPayment(row) {
     method: paymentMethod,
     date: parsedNotes.displayPaymentDate || (paymentDate ? formatDisplayDate(paymentDate) : ''),
     referenceNumber: row?.reference_number || '',
+    sampleDataKey: row?.sample_data_key || '',
     archivedAt: row?.archived_at || null,
     createdAt: row?.created_at || null,
     updatedAt: row?.updated_at || null,
@@ -276,6 +277,10 @@ function toSupabasePayload(contractorId, payment = {}, { isCreate = false } = {}
     payload.notes = notesInput || null
   } else if (isCreate) {
     payload.notes = null
+  }
+
+  if (isCreate || readField(payment, ['sampleDataKey', 'sample_data_key']) !== undefined) {
+    payload.sample_data_key = readField(payment, ['sampleDataKey', 'sample_data_key']) || null
   }
 
   return payload
