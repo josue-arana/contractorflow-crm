@@ -202,6 +202,7 @@ export function mapLeadRowToUiLead(row) {
     clientLanguage: normalizeSupportedLanguageOrEmpty(row?.client_language),
     priority: mapPriorityToUi(row?.priority),
     notes: row?.notes || '',
+    sampleDataKey: row?.sample_data_key || '',
     nextStep: '',
     status: mapStatusToUi(row?.status),
     projectStatus: row?.status === 'won' ? 'Signed' : 'Lead',
@@ -240,6 +241,7 @@ export function mapUiLeadToLeadRow(contractorId, lead = {}) {
     status: mapStatusToDb(lead.status),
     priority: mapPriorityToDb(lead.priority),
     notes: lead.notes || lead.nextStep || null,
+    sample_data_key: lead.sampleDataKey || lead.sample_data_key || null,
   }
 }
 

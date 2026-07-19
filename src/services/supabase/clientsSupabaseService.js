@@ -145,6 +145,7 @@ export function mapClientRowToUiClient(row) {
     preferred_language: preferredLanguage,
     language: preferredLanguage,
     notes: row?.notes || '',
+    sampleDataKey: row?.sample_data_key || '',
     status: row?.status || 'active',
     archivedAt,
     archived_at: archivedAt,
@@ -170,6 +171,7 @@ export function mapUiClientToClientRow(contractorId, client = {}) {
       'en'
     ),
     notes: client.notes || null,
+    sample_data_key: client.sampleDataKey || client.sample_data_key || null,
     status: client.status || 'active',
   }
 }

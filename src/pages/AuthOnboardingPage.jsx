@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Building2, Check, CheckCircle2, Clock3, ImageUp, Palette, PartyPopper, SlidersHorizontal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Building2, Check, CheckCircle2, Clock3, Database, ImageUp, LoaderCircle, Palette, PartyPopper, SlidersHorizontal, X } from 'lucide-react'
 import { BrandLogo } from '../components/common/BrandLogo'
 import { LanguageToggleButton } from '../components/common/LanguageToggleButton'
 import { useToast } from '../components/common/ToastProvider'
@@ -83,6 +83,7 @@ export function AuthOnboardingPage({
   onPersist,
   onClose,
   onCreateClient,
+  onAddSampleData,
   onGoToDashboard,
   isReopen = false,
 }) {
@@ -98,6 +99,7 @@ export function AuthOnboardingPage({
   const [isSaving, setIsSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
+  const [sampleDataState, setSampleDataState] = useState({ mode: 'idle', progress: null })
   const headingRef = useRef(null)
   const autosaveTimerRef = useRef(null)
   const hasEditedRef = useRef(false)
@@ -299,6 +301,28 @@ export function AuthOnboardingPage({
     reader.readAsDataURL(file)
   }
 
+  async function addSampleData() {
+    if (sampleDataState.mode === 'loading') return
+    setSampleDataState({ mode: 'loading', progress: { current: 0, total: 8, key: 'sampleDataChecking' } })
+
+    const result = await onAddSampleData?.((progress) => {
+      setSampleDataState({ mode: 'loading', progress })
+    })
+
+    if (result?.error) {
+      setSampleDataState({ mode: 'error', progress: null })
+      return
+    }
+
+    if (result?.duplicate) {
+      setSampleDataState({ mode: 'duplicate', progress: null })
+      return
+    }
+
+    showToast(t('sampleDataReadyToast'))
+    onGoToDashboard?.()
+  }
+
   const stepMeta = [
     { label: t('onboardingStepWelcome'), icon: PartyPopper },
     { label: t('onboardingStepCompany'), icon: Building2 },
@@ -408,14 +432,39 @@ export function AuthOnboardingPage({
                   </button>
                 </div>
               </footer>
-            ) : (
+            ) : sampleDataState.mode === 'idle' ? (
               <footer className="grid gap-3 sm:grid-cols-2">
                 <button type="button" onClick={onCreateClient} className="min-h-12 rounded-2xl bg-blue-600 px-6 text-sm font-bold text-white shadow-lg shadow-blue-500/20 hover:bg-blue-700">
                   {t('onboardingCreateFirstClient')}
                 </button>
-                <button type="button" onClick={onGoToDashboard} className="min-h-12 rounded-2xl border border-slate-200 bg-white px-6 text-sm font-bold text-slate-700 hover:bg-slate-50">
+                <button type="button" onClick={() => setSampleDataState({ mode: 'confirm', progress: null })} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-6 text-sm font-bold text-blue-700 hover:bg-blue-100">
+                  <Database className="h-4 w-4" /> {t('sampleDataExploreAction')}
+                </button>
+                <button type="button" onClick={onGoToDashboard} className="min-h-12 rounded-2xl px-6 text-sm font-bold text-slate-600 hover:bg-white sm:col-span-2">
                   {t('onboardingGoToDashboard')}
                 </button>
+              </footer>
+            ) : (
+              <footer className="rounded-3xl border border-blue-200 bg-white p-5 shadow-lg shadow-slate-950/5" role="status" aria-live="polite">
+                <div className="flex items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
+                    {sampleDataState.mode === 'loading' ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Database className="h-5 w-5" />}
+                  </span>
+                  <div>
+                    <h2 className="font-bold text-slate-950">{t(sampleDataState.mode === 'duplicate' ? 'sampleDataDuplicateTitle' : sampleDataState.mode === 'error' ? 'sampleDataErrorTitle' : sampleDataState.mode === 'loading' ? 'sampleDataCreatingTitle' : 'sampleDataConfirmTitle')}</h2>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      {sampleDataState.mode === 'loading'
+                        ? t(sampleDataState.progress?.key || 'sampleDataCreating')
+                        : t(sampleDataState.mode === 'duplicate' ? 'sampleDataDuplicateBody' : sampleDataState.mode === 'error' ? 'sampleDataErrorBody' : 'sampleDataConfirmBody')}
+                    </p>
+                    {sampleDataState.mode === 'loading' ? <p className="mt-2 text-xs font-bold text-blue-700">{t('sampleDataProgress', { current: sampleDataState.progress?.current || 0, total: sampleDataState.progress?.total || 8 })}</p> : null}
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                  {sampleDataState.mode !== 'loading' ? <button type="button" onClick={() => setSampleDataState({ mode: 'idle', progress: null })} className="min-h-11 rounded-2xl border border-slate-200 px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button> : null}
+                  {sampleDataState.mode === 'confirm' || sampleDataState.mode === 'error' ? <button type="button" onClick={addSampleData} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">{t('sampleDataAddAction')}</button> : null}
+                  {sampleDataState.mode === 'duplicate' ? <button type="button" onClick={onGoToDashboard} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">{t('onboardingGoToDashboard')}</button> : null}
+                </div>
               </footer>
             )}
           </div>

@@ -166,13 +166,6 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
           : job.jobStatus === selectedFilter
       ))
 
-  useEffect(() => {
-    logSupabaseJobsDebug('[dev] JobsPage filter counts', {
-      activeProjectCount: activeJobsList.length,
-      selectedFilter,
-    })
-  }, [activeJobsList.length, selectedFilter])
-
   const activeJobs = activeJobsList.filter((job) => !['Completed', 'Paid'].includes(job.jobStatus)).length
   const inProgressJobs = activeJobsList.filter((job) => job.jobStatus === 'In Progress').length
   const waitingJobs = activeJobsList.filter((job) => ['Waiting on Client', 'Waiting on Materials'].includes(job.jobStatus)).length

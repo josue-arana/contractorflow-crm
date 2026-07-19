@@ -1027,6 +1027,15 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
     projectEventRecords.filter((event) => archivedScheduleEventIds.includes(event.id) || event.archivedAt)
   ), [archivedScheduleEventIds, projectEventRecords])
 
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('sampleGuide') !== 'event' || activeScheduleEvents.length === 0) return
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('project-schedule')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeScheduleEvents.length, location.search])
+
   if (USE_SUPABASE_PROJECTS && isLoadingProject) {
     return (
       <section className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -1701,7 +1710,7 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section id="project-schedule" className="scroll-mt-24 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-xl font-bold text-slate-950">{t('projectSchedule')}</h2>

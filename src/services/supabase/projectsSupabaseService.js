@@ -158,6 +158,7 @@ export function mapProjectRowToUiProject(row) {
     location: address,
     address,
     notes,
+    sampleDataKey: row?.sample_data_key || '',
     description,
     events: [],
     schedule: [],
@@ -209,6 +210,7 @@ export function mapUiProjectToProjectRow(contractorId, project = {}) {
     target_end_date: project.targetCompletion || project.target_end_date || null,
     completed_at: project.completedAt || project.completed_at || null,
     notes: project.notes || project.nextStep || null,
+    sample_data_key: project.sampleDataKey || project.sample_data_key || null,
   }
 }
 

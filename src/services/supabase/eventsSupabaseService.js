@@ -333,6 +333,7 @@ function toAppEvent(row) {
     location: row?.location || '',
     notes: row?.notes || '',
     reminder: row?.reminder || parsedDescription.reminder || 'none',
+    sampleDataKey: row?.sample_data_key || '',
     clientName: parsedDescription.clientName || '',
     projectTitle: parsedDescription.projectTitle || '',
     startsAt: row?.starts_at || buildEventTimestamp(eventDate, startTime),
@@ -436,6 +437,10 @@ function toSupabasePayload(contractorId, event = {}, { isCreate = false } = {}) 
 
   if (isCreate || reminderInput !== undefined) {
     payload.reminder = reminderInput || null
+  }
+
+  if (isCreate || readField(event, ['sampleDataKey', 'sample_data_key']) !== undefined) {
+    payload.sample_data_key = readField(event, ['sampleDataKey', 'sample_data_key']) || null
   }
 
   return payload
