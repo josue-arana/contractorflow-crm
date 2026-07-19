@@ -309,7 +309,7 @@ export function AuthOnboardingPage({
       setSampleDataState({ mode: 'loading', progress })
     })
 
-    if (result?.error) {
+    if (result?.error || result?.upgradeRequired) {
       setSampleDataState({ mode: 'error', progress: null })
       return
     }
