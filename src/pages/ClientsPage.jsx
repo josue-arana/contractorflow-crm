@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Archive, DollarSign, MoreVertical, Plus, Search, Trash2, Undo2, UserCheck, Users, WalletCards } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -28,6 +29,8 @@ function isClientArchived(client, archivedClientIds = []) {
 }
 
 export function ClientsPage({ leads, customClients = [], archivedClientIds = [], onOpenClient, onCreateClient, onArchiveClient, onRestoreClient, onDeleteClient, language = 'en', t }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('Active')
   const [isCreateOpen, setIsCreateOpen] = useState(false)
@@ -38,6 +41,12 @@ export function ClientsPage({ leads, customClients = [], archivedClientIds = [],
   const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getClientsContractorId({ contractor, company, session })
+
+  useEffect(() => {
+    if (!location.state?.createClient) return
+    setIsCreateOpen(true)
+    navigate(location.pathname, { replace: true, state: {} })
+  }, [location.pathname, location.state, navigate])
   const clients = useMemo(() => buildClientProfiles(leads, customClients), [leads, customClients])
   const activeClientsList = useMemo(() => clients.filter((client) => !isClientArchived(client, archivedClientIds)), [clients, archivedClientIds])
 

@@ -7,13 +7,17 @@ const baseCompanySettings = {
     ownerName: 'Josue Arana',
     phone: '(410) 555-0199',
     email: 'office@northline.example',
-    address: 'Baltimore, MD 21201',
+    address: '',
     website: 'www.northline.example',
     licenseNumber: 'MHIC-000000',
     logo: '',
+    primaryColor: '#2563eb',
   },
   defaults: {
     paymentTerms: '50% downpayment with remaining balance due weekly based on work progress.',
+    taxRate: 0,
+    estimateExpirationDays: 30,
+    currency: 'USD',
     depositPercentage: 50,
     invoiceDueDays: 7,
     materialsIncluded: true,
@@ -23,6 +27,11 @@ const baseCompanySettings = {
     showPayments: true,
     showPhotos: true,
     showDocuments: true,
+  },
+  onboarding: {
+    completed: true,
+    dismissed: false,
+    step: 1,
   },
 }
 
@@ -58,6 +67,10 @@ export function createDefaultCompanySettings(overrides = {}) {
     portal: {
       ...baseCompanySettings.portal,
       ...(safeOverrides.portal || {}),
+    },
+    onboarding: {
+      ...baseCompanySettings.onboarding,
+      ...(safeOverrides.onboarding || {}),
     },
   }
 }

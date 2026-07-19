@@ -138,15 +138,19 @@ function toAppSettings(row) {
     company: {
       name: row?.company_name || defaults.company.name,
       ownerName: row?.owner_name || defaults.company.ownerName,
-      phone: row?.phone || defaults.company.phone,
+      phone: row?.phone || '',
       email: row?.email || defaults.company.email,
-      address: row?.business_address || defaults.company.address,
-      website: row?.website || defaults.company.website,
-      licenseNumber: row?.license_number || defaults.company.licenseNumber,
+      address: row?.business_address || '',
+      website: row?.website || '',
+      licenseNumber: row?.license_number || '',
       logo: row?.logo_file_path || defaults.company.logo,
+      primaryColor: row?.primary_brand_color || defaults.company.primaryColor,
     },
     defaults: {
       paymentTerms: row?.default_payment_terms || defaults.defaults.paymentTerms,
+      taxRate: Number(row?.default_tax_rate ?? defaults.defaults.taxRate),
+      estimateExpirationDays: Number(row?.default_estimate_expiration_days ?? defaults.defaults.estimateExpirationDays),
+      currency: row?.default_currency || defaults.defaults.currency,
       depositPercentage: Number(row?.default_deposit_percentage ?? defaults.defaults.depositPercentage),
       invoiceDueDays: Number(row?.default_invoice_due_days ?? defaults.defaults.invoiceDueDays),
       materialsIncluded: row?.default_materials_included ?? defaults.defaults.materialsIncluded,
@@ -156,6 +160,11 @@ function toAppSettings(row) {
       showPayments: row?.show_payments_in_portal ?? defaults.portal.showPayments,
       showPhotos: row?.show_photos_in_portal ?? defaults.portal.showPhotos,
       showDocuments: row?.show_documents_in_portal ?? defaults.portal.showDocuments,
+    },
+    onboarding: {
+      completed: row?.onboarding_completed ?? defaults.onboarding.completed,
+      dismissed: row?.onboarding_dismissed ?? defaults.onboarding.dismissed,
+      step: Number(row?.onboarding_step ?? defaults.onboarding.step),
     },
   })
 }
@@ -173,7 +182,11 @@ function toSupabasePayload(contractorId, settings = {}) {
     website: normalized.company.website || null,
     license_number: normalized.company.licenseNumber || null,
     logo_file_path: normalized.company.logo || null,
+    primary_brand_color: normalized.company.primaryColor || null,
     default_payment_terms: normalized.defaults.paymentTerms || null,
+    default_tax_rate: Number(normalized.defaults.taxRate ?? 0),
+    default_estimate_expiration_days: Number(normalized.defaults.estimateExpirationDays ?? 30),
+    default_currency: normalized.defaults.currency || 'USD',
     default_deposit_percentage: Number(normalized.defaults.depositPercentage ?? 0),
     default_invoice_due_days: Number(normalized.defaults.invoiceDueDays ?? 14),
     default_materials_included: Boolean(normalized.defaults.materialsIncluded),
@@ -183,6 +196,9 @@ function toSupabasePayload(contractorId, settings = {}) {
     show_payments_in_portal: Boolean(normalized.portal.showPayments),
     show_photos_in_portal: Boolean(normalized.portal.showPhotos),
     show_documents_in_portal: Boolean(normalized.portal.showDocuments),
+    onboarding_completed: Boolean(normalized.onboarding.completed),
+    onboarding_dismissed: Boolean(normalized.onboarding.dismissed),
+    onboarding_step: Math.min(5, Math.max(1, Number(normalized.onboarding.step) || 1)),
   }
 }
 
@@ -210,7 +226,14 @@ async function findSettingsRow(contractorId) {
 }
 
 async function createDefaultSettingsRecord(contractorId, seedSettings = {}) {
-  const data = await requestSettingsMutation('POST', contractorId, seedSettings)
+  const data = await requestSettingsMutation('POST', contractorId, createDefaultCompanySettings({
+    ...seedSettings,
+    onboarding: {
+      completed: seedSettings?.onboarding?.completed ?? true,
+      dismissed: seedSettings?.onboarding?.dismissed ?? false,
+      step: seedSettings?.onboarding?.step ?? 5,
+    },
+  }))
 
   return readSingleRow(data)
 }

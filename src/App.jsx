@@ -35,7 +35,6 @@ import { InvoicesPage } from './pages/InvoicesPage'
 import { InvoiceDetailRoute } from './pages/InvoiceDetailPage'
 import { CalendarPage } from './pages/CalendarPage'
 import { AuthSetupPage } from './pages/AuthSetupPage'
-import { AuthOnboardingPage } from './pages/AuthOnboardingPage'
 import { buildClientProfiles, getClientSlug } from './utils/clients'
 import { appRoutes } from './config/appRoutes'
 import { AuthProvider } from './contexts/AuthContext'
@@ -77,6 +76,7 @@ const emptyArchiveState = {
 }
 
 const TranslationAuditPage = lazy(() => import('./pages/TranslationAuditPage').then((module) => ({ default: module.TranslationAuditPage })))
+const AuthOnboardingPage = lazy(() => import('./pages/AuthOnboardingPage').then((module) => ({ default: module.AuthOnboardingPage })))
 
 function logLeadConversionDevError(message, error, meta) {
   if (!import.meta.env.DEV) return
@@ -558,11 +558,14 @@ function ContractorFlowApp() {
   const [dashboardSuccessMessage, setDashboardSuccessMessage] = useState('')
   const [archives, setArchives] = useState(emptyArchiveState)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [onboardingSessionActive, setOnboardingSessionActive] = useState(false)
+  const [isCompanySetupReopen, setIsCompanySetupReopen] = useState(false)
   const [draggedLeadId, setDraggedLeadId] = useState(null)
   const [selectedMobileStage, setSelectedMobileStage] = useState(leadPipelineStageOrder[0])
   const [language, setLanguage] = useLocalStorage('contractorflow.language', resolveInitialSupportedLanguage('contractorflow.language', 'en'))
   const [portalLanguage, setPortalLanguage] = useLocalStorage('contractorflow.portalLanguage', 'en')
   const scheduleSaveInFlightRef = useRef(false)
+  const settingsMutationVersionRef = useRef(0)
   const [companySettings, setCompanySettings] = useState(() => createDefaultCompanySettings({
     appLanguage: language,
     portal: {
@@ -634,6 +637,45 @@ function ContractorFlowApp() {
   const mainLayoutClassName = isMobileClientProfileRoute
     ? 'px-0 py-0 lg:px-8 lg:py-6'
     : 'px-4 py-6 sm:px-6 lg:px-8'
+
+  const hasResolvedOnboardingSettings = Boolean(
+    contractorAccess?.membershipStatus === 'active'
+      && settingsContractorId
+      && companySettings?.contractorId === settingsContractorId
+  )
+  const shouldAutoOpenOnboarding = Boolean(
+    hasResolvedOnboardingSettings
+      && companySettings?.onboarding?.completed === false
+      && companySettings?.onboarding?.dismissed !== true
+  )
+
+  useEffect(() => {
+    if (onboardingRequired) {
+      setOnboardingSessionActive(true)
+    }
+  }, [onboardingRequired])
+
+  async function persistOnboardingSettings(nextSettings, contractorIdOverride = '') {
+    const contractorId = contractorIdOverride || settingsContractorId
+    settingsMutationVersionRef.current += 1
+    const response = await dataProvider?.settings?.updateSettings?.(nextSettings, { contractorId })
+    settingsMutationVersionRef.current += 1
+
+    if (!response?.error) {
+      const persistedSettings = createDefaultCompanySettings(response?.data || {
+        ...nextSettings,
+        contractorId,
+      })
+      setCompanySettings(persistedSettings)
+    }
+
+    return response || { data: nextSettings, error: null, skipped: true }
+  }
+
+  function closeOnboarding() {
+    setOnboardingSessionActive(false)
+    setIsCompanySetupReopen(false)
+  }
 
   function syncActiveUserProfileLanguage(nextLanguage) {
     if (!activeUserProfileKey || (USE_AUTH && !isAuthenticated)) {
@@ -855,7 +897,6 @@ function ContractorFlowApp() {
 
     setCompanySettings((current) => createDefaultCompanySettings({
       ...current,
-      contractorId: settingsContractorId,
       company: {
         ...(current?.company || {}),
         name: company?.name || contractorAccess?.contractorRecord?.company_name || current?.company?.name || '',
@@ -875,13 +916,14 @@ function ContractorFlowApp() {
     }
 
     async function loadCompanySettings() {
+      const loadVersion = settingsMutationVersionRef.current
       const response = await dataProvider?.settings?.getSettings?.(
         USE_SUPABASE_SETTINGS
           ? { contractorId: settingsContractorId }
           : {}
       )
 
-      if (isCancelled) return
+      if (isCancelled || loadVersion !== settingsMutationVersionRef.current) return
 
       if (response?.error) {
         if (import.meta.env.DEV) {
@@ -3659,6 +3701,11 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       onOpenInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)}
       onCreateLeadClick={() => setIsDashboardLeadModalOpen(true)}
       successMessage={dashboardSuccessMessage}
+      showOnboardingReminder={companySettings?.onboarding?.completed === false}
+      onResumeOnboarding={() => {
+        setIsCompanySetupReopen(true)
+        setOnboardingSessionActive(true)
+      }}
       t={t}
       userProfile={userProfile}
     />
@@ -3678,7 +3725,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={handleAppLanguageChange} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} clients={clients} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} appLanguage={language} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} clients={clients} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} appLanguage={language} />} />
-      <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
+      <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} onOpenCompanySetup={() => { setIsCompanySetupReopen(true); setOnboardingSessionActive(true) }} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
       <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onSyncEstimateContract={async (leadId, estimate, options = {}) => syncContractFromEstimate(leadId, estimate, options)} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} clients={clients} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} onArchiveContract={archiveContractRecord} t={t} appLanguage={language} />} />
@@ -3712,39 +3759,35 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     return <Navigate to={appRoutes.login} replace state={{ from: location.pathname }} />
   }
 
-  if (isAwaitingResolvedSettings && !isDeveloperRoute) {
-    return null
-  }
-
-  if (USE_AUTH && isAuthenticated && onboardingRequired && !isDeveloperRoute) {
+  if (USE_AUTH && isAuthenticated && (onboardingRequired || onboardingSessionActive || isCompanySetupReopen || shouldAutoOpenOnboarding) && !isDeveloperRoute) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-950">
-        <main className="px-4 py-6 sm:px-6 lg:px-8">
+      <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
           <AuthOnboardingPage
             t={t}
             language={language}
-            setLanguage={setLanguage}
-            onCompleted={(payload) => {
-              setCompanySettings(createDefaultCompanySettings({
-                contractorId: payload.contractorId,
-                appLanguage: language,
-                company: {
-                  name: payload.companyName,
-                  ownerName: payload.ownerName,
-                  phone: payload.phone,
-                  email: payload.businessEmail,
-                  address: payload.businessAddress,
-                },
-                portal: {
-                  defaultLanguage: portalLanguage,
-                },
-              }))
+            setLanguage={handleAppLanguageChange}
+            settings={companySettings}
+            onPersist={persistOnboardingSettings}
+            onClose={() => {
+              closeOnboarding()
               navigate(appRoutes.dashboard, { replace: true })
             }}
+            onCreateClient={() => {
+              closeOnboarding()
+              navigate(appRoutes.clients, { replace: true, state: { createClient: true } })
+            }}
+            onGoToDashboard={() => {
+              closeOnboarding()
+              navigate(appRoutes.dashboard, { replace: true })
+            }}
+            isReopen={isCompanySetupReopen}
           />
-        </main>
-      </div>
+      </Suspense>
     )
+  }
+
+  if (isAwaitingResolvedSettings && !isDeveloperRoute) {
+    return null
   }
 
   if (USE_AUTH && isAuthenticated && !hasContractorAccess && !isDeveloperRoute) {

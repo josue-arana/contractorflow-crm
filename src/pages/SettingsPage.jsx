@@ -8,6 +8,7 @@ import dataProvider from '../services/dataProvider'
 import { getSettingsContractorId } from '../services/system/settingsRuntimeService'
 import settingsHeroBackground from '../assets/page-heroes/settings-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
+import { getPaymentTermOptions } from '../utils/paymentTerms'
 
 function getSettingsUiErrorMessage(error, t) {
   if (error?.code === 'ANALYTICS_MODE_COLUMN_MISSING') {
@@ -17,7 +18,7 @@ function getSettingsUiErrorMessage(error, t) {
   return error?.message || t('settingsSaveFailed')
 }
 
-export function SettingsPage({ settings, onSaveSettings, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
+export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, language, setLanguage, portalLanguage, setPortalLanguage, t }) {
   const { contractor, company: authCompany, contractorAccess, session } = useAuth()
   const { showToast } = useToast()
   const [draft, setDraft] = useState(settings)
@@ -189,6 +190,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
   const company = draft?.company || {}
   const defaults = draft?.defaults || {}
   const portal = draft?.portal || {}
+  const paymentTermOptions = getPaymentTermOptions(t, defaults.paymentTerms)
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -213,6 +215,17 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
         </div>
       )}
 
+      <section className="flex flex-col gap-4 rounded-3xl border border-blue-200 bg-blue-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-700">{t('onboardingCompanySetup')}</p>
+          <h2 className="mt-2 text-lg font-bold text-slate-950">{t('onboardingCompanySetupTitle')}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{t('onboardingCompanySetupBody')}</p>
+        </div>
+        <button type="button" onClick={onOpenCompanySetup} className="min-h-11 shrink-0 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">
+          {settings?.onboarding?.completed ? t('onboardingReviewSetup') : t('onboardingResumeSetup')}
+        </button>
+      </section>
+
       <section className="grid gap-5 lg:grid-cols-[1fr_340px]">
         <div className="space-y-5">
           <InfoCard title={t('companyProfile')} icon={Building2}>
@@ -225,7 +238,7 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
               <SettingsInput label={t('licenseNumber')} value={company.licenseNumber} onChange={(value) => updateCompany('licenseNumber', value)} />
               <label className="block text-sm font-bold text-slate-700 sm:col-span-2">
                 {t('businessAddress')}
-                <textarea value={company.address || ''} onChange={(event) => updateCompany('address', event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+                <textarea value={company.address || ''} onChange={(event) => updateCompany('address', event.target.value)} placeholder={t('businessAddressPlaceholder')} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
               </label>
             </div>
           </InfoCard>
@@ -233,8 +246,10 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
           <InfoCard title={t('estimateInvoiceDefaults')} icon={FileText}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm font-bold text-slate-700 sm:col-span-2">
-                {t('defaultPaymentTerms')}
-                <textarea value={defaults.paymentTerms || ''} onChange={(event) => updateDefaults('paymentTerms', event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+                {t('onboardingDefaultPaymentTerms')}
+                <select value={defaults.paymentTerms || ''} onChange={(event) => updateDefaults('paymentTerms', event.target.value)} className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100">
+                  {paymentTermOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
               </label>
               <SettingsInput type="number" label={t('defaultDepositPercentage')} value={defaults.depositPercentage} onChange={(value) => updateDefaults('depositPercentage', Number(value || 0))} />
               <SettingsInput type="number" label={t('defaultInvoiceDueDays')} value={defaults.invoiceDueDays} onChange={(value) => updateDefaults('invoiceDueDays', Number(value || 0))} />
@@ -244,10 +259,10 @@ export function SettingsPage({ settings, onSaveSettings, language, setLanguage, 
 
           <InfoCard title={t('customerPortalSettings')} icon={Globe2}>
             <div className="grid gap-4 sm:grid-cols-2">
-              <LanguageSelect label={t('defaultPortalLanguage')} value={portalLanguage} onChange={setPortalLanguage} t={t} />
-              <ToggleRow label={t('showPaymentsInPortal')} checked={portal.showPayments !== false} onChange={(checked) => updatePortal('showPayments', checked)} t={t} />
-              <ToggleRow label={t('showPhotosInPortal')} checked={portal.showPhotos !== false} onChange={(checked) => updatePortal('showPhotos', checked)} t={t} />
-              <ToggleRow label={t('showDocumentsInPortal')} checked={portal.showDocuments !== false} onChange={(checked) => updatePortal('showDocuments', checked)} t={t} />
+              <LanguageSelect label={t('defaultPortalLanguage')} value={portalLanguage} onChange={setPortalLanguage} t={t} alignedCard />
+              <ToggleRow label={t('showPaymentsInPortal')} checked={portal.showPayments !== false} onChange={(checked) => updatePortal('showPayments', checked)} t={t} alignedCard />
+              <ToggleRow label={t('showPhotosInPortal')} checked={portal.showPhotos !== false} onChange={(checked) => updatePortal('showPhotos', checked)} t={t} alignedCard />
+              <ToggleRow label={t('showDocumentsInPortal')} checked={portal.showDocuments !== false} onChange={(checked) => updatePortal('showDocuments', checked)} t={t} alignedCard />
             </div>
           </InfoCard>
 
@@ -307,16 +322,16 @@ function SettingsInput({ label, value, onChange, type = 'text' }) {
   )
 }
 
-function LanguageSelect({ label, value, onChange, t }) {
+function LanguageSelect({ label, value, onChange, t, alignedCard = false }) {
   const normalizedValue = value === 'es' ? 'es' : 'en'
 
   return (
-    <label className="block text-sm font-bold text-slate-700">
+    <label className={`${alignedCard ? 'flex min-h-28 flex-col rounded-2xl border border-slate-200 bg-slate-50 p-4' : 'block'} text-sm font-bold text-slate-700`}>
       {label}
       <select
         value={normalizedValue}
         onChange={(event) => onChange(event.target.value === 'es' ? 'es' : 'en')}
-        className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+        className={`${alignedCard ? 'mt-auto bg-white' : 'mt-2 bg-slate-50'} w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100`}
       >
         <option value="en">🇺🇸 {t('english')}</option>
         <option value="es">🇪🇸 {t('spanish')}</option>
@@ -325,15 +340,15 @@ function LanguageSelect({ label, value, onChange, t }) {
   )
 }
 
-function ToggleRow({ label, description = '', checked, onChange, t }) {
+function ToggleRow({ label, description = '', checked, onChange, t, alignedCard = false }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-center justify-between gap-3">
+    <div className={`${alignedCard ? 'min-h-28' : ''} rounded-2xl border border-slate-200 bg-slate-50 p-4`}>
+      <div className={`${alignedCard ? 'h-full min-h-20 flex-col items-start' : 'items-center justify-between'} flex gap-3`}>
         <div className="min-w-0">
           <span className="text-sm font-bold text-slate-700">{label}</span>
           {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
         </div>
-        <button onClick={() => onChange(!checked)} className={`rounded-full px-4 py-2 text-xs font-bold ${checked ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'}`} type="button">
+        <button onClick={() => onChange(!checked)} className={`${alignedCard ? 'mt-auto' : ''} rounded-full px-4 py-2 text-xs font-bold ${checked ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'}`} type="button">
           {checked ? t('yes') : t('no')}
         </button>
       </div>
