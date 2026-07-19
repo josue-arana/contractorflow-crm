@@ -1,25 +1,42 @@
-const LEGACY_PORTAL_HOSTS = ['contractorflow.app', 'www.contractorflow.app']
-const PORTAL_HOST = 'contractorflowcrm.netlify.app'
+import { buildPublicUrl, getPublicEnvironmentConfig } from '../services/system/environmentService'
+
+const LEGACY_PORTAL_HOSTS = new Set([
+  'contractorflow.app',
+  'www.contractorflow.app',
+  'contractorflowcrm.netlify.app',
+])
+
+function getPortalOrigin() {
+  const { portalUrl, appUrl } = getPublicEnvironmentConfig()
+  return portalUrl || appUrl || ''
+}
+
+export function buildPortalShareUrl(portalRouteId = '') {
+  const normalizedPortalRouteId = String(portalRouteId || '').trim()
+  if (!normalizedPortalRouteId) return ''
+
+  return buildPublicUrl(`/portal/${normalizedPortalRouteId}`, 'portal')
+}
 
 export function normalizePortalShareUrl(shareUrl = '') {
   const value = String(shareUrl || '').trim()
   if (!value) return ''
 
+  const portalOrigin = getPortalOrigin()
   const normalizedValue = value.startsWith('http://') || value.startsWith('https://')
     ? value
-    : `https://${value.replace(/^\/+/, '')}`
+    : buildPublicUrl(value.startsWith('/') ? value : `/${value.replace(/^\/+/, '')}`, 'portal')
 
   try {
     const parsedUrl = new URL(normalizedValue)
-    if (LEGACY_PORTAL_HOSTS.includes(parsedUrl.hostname)) {
-      parsedUrl.protocol = 'https:'
-      parsedUrl.hostname = PORTAL_HOST
+    if (LEGACY_PORTAL_HOSTS.has(parsedUrl.hostname) && portalOrigin) {
+      return new URL(`${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`, portalOrigin).toString()
     }
+
     return parsedUrl.toString()
   } catch {
-    return normalizedValue
-      .replace(/^https?:\/\/(www\.)?contractorflow\.app/i, `https://${PORTAL_HOST}`)
-      .replace(/^(www\.)?contractorflow\.app/i, `https://${PORTAL_HOST}`)
+    const routeId = extractPortalRouteIdFromShareUrl(normalizedValue)
+    return routeId ? buildPortalShareUrl(routeId) : normalizedValue
   }
 }
 
@@ -69,7 +86,7 @@ export function getPortalData(lead) {
   const otherPaymentsTotal = Number(sourcePortal?.otherPaymentsTotal ?? Math.max(totalPaid - depositPaid, 0)) || 0
 
   return {
-    shareUrl: normalizePortalShareUrl(sourcePortal?.shareUrl || (portalRouteId ? `https://${PORTAL_HOST}/portal/${portalRouteId}` : '')),
+    shareUrl: normalizePortalShareUrl(sourcePortal?.shareUrl || buildPortalShareUrl(portalRouteId)),
     percentComplete: Number(sourcePortal?.percentComplete ?? 0) || 0,
     contractAmount: Number(sourcePortal?.contractAmount ?? fallbackContract) || 0,
     depositRequired,

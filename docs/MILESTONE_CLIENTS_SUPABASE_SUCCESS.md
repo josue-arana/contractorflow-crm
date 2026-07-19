@@ -1,12 +1,12 @@
-ContractorFlow Milestone: Clients Supabase Beta Success
+Aymero Milestone: Clients Supabase Beta Success
 
 Date: 2026-06-18
 
 Milestone Summary
 
-ContractorFlow successfully validated Clients against Supabase in controlled beta mode.
+Aymero successfully validated Clients against Supabase in controlled beta mode.
 
-This milestone confirms that the Clients entity can now operate through the ContractorFlow feature-flag rollout strategy while:
+This milestone confirms that the Clients entity can now operate through the Aymero feature-flag rollout strategy while:
 
 1. Keeping `USE_SUPABASE = false`
 2. Preserving local-first behavior for all other non-validated entities

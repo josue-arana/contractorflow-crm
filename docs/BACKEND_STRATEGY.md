@@ -1,10 +1,10 @@
-# ContractorFlow Backend Strategy
+# Aymero Backend Strategy
 
 Date: 2026-06-17
 
 ## Purpose
 
-This document defines the current backend strategy for ContractorFlow CRM.
+This document defines the current backend strategy for Aymero CRM.
 
 The goal is to move from local React state to Supabase safely, incrementally, and without breaking existing UI flows during active product development.
 
@@ -12,7 +12,7 @@ The goal is to move from local React state to Supabase safely, incrementally, an
 
 ### 1. Local-First Development
 
-ContractorFlow remains local-first by default.
+Aymero remains local-first by default.
 
 That means:
 
@@ -53,7 +53,7 @@ This prevents partially ready services from changing app-wide behavior before th
 
 ### 4. Entity-Specific Flags
 
-ContractorFlow should use entity-specific enablement flags for incremental migration.
+Aymero should use entity-specific enablement flags for incremental migration.
 
 Current and planned examples:
 
@@ -93,7 +93,7 @@ RLS is not optional hardening. It is part of the acceptance criteria for a real 
 
 ### 6. Contractor-Scoped Multi-Tenancy
 
-ContractorFlow is a multi-tenant SaaS and every business entity must be scoped to a contractor.
+Aymero is a multi-tenant SaaS and every business entity must be scoped to a contractor.
 
 Required model:
 
@@ -118,7 +118,7 @@ Reasons:
 - it validates the full backend chain: auth, contractor context, RLS, service routing, and write persistence
 - it creates confidence in the Supabase foundation without risking higher-volume operational flows like leads, projects, invoices, or payments
 
-The successful Settings milestone proved that ContractorFlow can:
+The successful Settings milestone proved that Aymero can:
 
 - authenticate with Supabase Auth
 - enforce contractor-aware access through RLS
@@ -209,7 +209,7 @@ An entity is not done if:
 
 As of 2026-06-17:
 
-- ContractorFlow remains local-first overall
+- Aymero remains local-first overall
 - `USE_SUPABASE` should remain `false`
 - Settings is the first validated Supabase-backed entity
 - future entities should be migrated one at a time behind their own flags

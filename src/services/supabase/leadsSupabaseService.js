@@ -57,19 +57,6 @@ function warnDev(message, meta) {
   console.warn(message, meta)
 }
 
-function logDev(message, meta) {
-  if (!isDev() || !USE_SUPABASE_LEADS) return
-
-  if (meta === undefined) {
-    // eslint-disable-next-line no-console
-    console.log(message)
-    return
-  }
-
-  // eslint-disable-next-line no-console
-  console.log(message, meta)
-}
-
 function createSkippedResponse(message, data = null) {
   return {
     data,
@@ -451,20 +438,9 @@ export async function create(leadData, { contractorId } = {}) {
   try {
     const payload = mapUiLeadToLeadRow(contractorId, leadData)
 
-    logDev('[dev] leadsSupabaseService.create payload', {
-      contractorId,
-      leadData,
-      payload,
-    })
-
     const data = await supabaseClient.request(TABLE_NAME, {
       method: 'POST',
       body: payload,
-    })
-
-    logDev('[dev] leadsSupabaseService.create response', {
-      contractorId,
-      data,
     })
 
     return {
@@ -473,12 +449,6 @@ export async function create(leadData, { contractorId } = {}) {
       skipped: false,
     }
   } catch (error) {
-    logDev('[dev] leadsSupabaseService.create error', {
-      contractorId,
-      error: normalizeError(error, 'Unable to create the lead in Supabase.'),
-      leadData,
-    })
-
     return {
       data: null,
       error: normalizeError(error, 'Unable to create the lead in Supabase.'),

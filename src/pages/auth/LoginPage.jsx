@@ -5,6 +5,7 @@ import { LanguageToggleButton } from '../../components/common/LanguageToggleButt
 import { appRoutes } from '../../config/appRoutes'
 import { useAuth } from '../../contexts/AuthContext'
 import { useToast } from '../../components/common/ToastProvider'
+import { getFriendlyAuthErrorMessage } from '../../utils/authErrors'
 
 export function LoginPage({ t, language, setLanguage }) {
   const navigate = useNavigate()
@@ -29,7 +30,7 @@ export function LoginPage({ t, language, setLanguage }) {
     setIsSubmitting(false)
 
     if (result.error && !result.skipped) {
-      showToast(result.error.message, 'error')
+      showToast(getFriendlyAuthErrorMessage(result.error, t, 'authSignInFailed'), 'error')
       return
     }
 

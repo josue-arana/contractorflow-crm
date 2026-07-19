@@ -12,6 +12,49 @@ export function normalizeSupportedLanguageOrEmpty(value) {
   return ''
 }
 
+function normalizeBrowserLanguage(value = '') {
+  const normalizedValue = String(value || '').trim().toLowerCase()
+
+  if (normalizedValue.startsWith('es')) return 'es'
+  if (normalizedValue.startsWith('en')) return 'en'
+  return ''
+}
+
+export function detectBrowserSupportedLanguage(fallback = 'en') {
+  if (typeof navigator === 'undefined') {
+    return normalizeSupportedLanguage(fallback, 'en')
+  }
+
+  const candidates = [
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+    navigator.language,
+    navigator.userLanguage,
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeBrowserLanguage(candidate)
+    if (normalizedCandidate) {
+      return normalizedCandidate
+    }
+  }
+
+  return normalizeSupportedLanguage(fallback, 'en')
+}
+
+export function readStoredSupportedLanguage(key) {
+  if (!key || typeof window === 'undefined') return ''
+
+  try {
+    return normalizeSupportedLanguageOrEmpty(window.localStorage.getItem(key) || '')
+  } catch {
+    return ''
+  }
+}
+
+export function resolveInitialSupportedLanguage(key, fallback = 'en') {
+  return readStoredSupportedLanguage(key) || detectBrowserSupportedLanguage(fallback)
+}
+
 export function getLanguageLocale(value = 'en') {
   return normalizeSupportedLanguage(value, 'en') === 'es' ? 'es-ES' : 'en-US'
 }
@@ -115,13 +158,16 @@ export function buildLanguageOptions(t) {
 
 export default {
   buildLanguageOptions,
+  detectBrowserSupportedLanguage,
   getLanguageLocale,
   normalizeClientPreferredLanguageFields,
   normalizeDocumentLanguageOverride,
   normalizeLeadClientLanguageFields,
   normalizeSupportedLanguage,
   normalizeSupportedLanguageOrEmpty,
+  readStoredSupportedLanguage,
   readRecordLanguage,
+  resolveInitialSupportedLanguage,
   resolveClientFacingLanguage,
   resolvePreferredClientLanguage,
   supportedLanguageCodes,

@@ -6,8 +6,9 @@ import { MOCK_CONTRACTOR } from '../constants/mockContractor'
 import { useToast } from '../components/common/ToastProvider'
 import { createTranslator } from '../translations'
 import { getAuthServiceStatus, getCurrentUser, resendSignUpVerificationEmail as authResendSignUpVerificationEmail, resetPassword as authResetPassword, signInWithEmail, signOut, signUpWithEmail, subscribeToAuthChanges, updatePassword as authUpdatePassword, updateProfile as authUpdateProfile } from '../services/authService'
-import { resolveAuthenticatedContractorAccess } from '../services/supabase/contractorMembershipSupabaseService'
+import { resolveAuthenticatedContractorAccess, updateAuthenticatedPreferredLanguage } from '../services/supabase/contractorMembershipSupabaseService'
 import { completeBetaContractorOnboarding } from '../services/supabase/contractorOnboardingSupabaseService'
+import { normalizeSupportedLanguage, resolveInitialSupportedLanguage } from '../utils/language'
 
 const AuthContext = createContext(null)
 
@@ -162,11 +163,7 @@ function buildCompanyState(nextUser, contractorAccess, currentCompany = mockComp
 }
 
 function getAuthTranslator() {
-  if (typeof window === 'undefined') {
-    return createTranslator('en')
-  }
-
-  return createTranslator(window.localStorage.getItem('contractorflow.language') || 'en')
+  return createTranslator(resolveInitialSupportedLanguage('contractorflow.language', 'en'))
 }
 
 export function AuthProvider({ children }) {
@@ -320,6 +317,7 @@ export function AuthProvider({ children }) {
             full_name: payload.fullName || mockContractor.fullName,
             company_name: payload.companyName || mockCompany.name,
             contractor_id: BETA_CONTRACTOR_ID,
+            preferred_language: normalizeSupportedLanguage(payload.preferredLanguage, 'en'),
           },
         },
       })
@@ -331,11 +329,22 @@ export function AuthProvider({ children }) {
           full_name: payload.fullName || mockContractor.fullName,
           company_name: payload.companyName || mockCompany.name,
           contractor_id: BETA_CONTRACTOR_ID,
+          preferred_language: normalizeSupportedLanguage(payload.preferredLanguage, 'en'),
         },
       }))
       setCompany((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, name: payload.companyName || current.name }))
       setContractor((current) => ({ ...current, contractorId: current.contractorId || BETA_CONTRACTOR_ID, fullName: payload.fullName || current.fullName, email: payload.email }))
-      setContractorAccess(mockContractorAccess)
+      setContractorAccess({
+        ...mockContractorAccess,
+        membership: {
+          ...mockContractorAccess.membership,
+          preferred_language: normalizeSupportedLanguage(payload.preferredLanguage, 'en'),
+        },
+      })
+    }
+
+    if (USE_AUTH && !result.error && payload?.preferredLanguage) {
+      void persistPreferredLanguage(payload.preferredLanguage)
     }
 
     return result
@@ -451,6 +460,7 @@ export function AuthProvider({ children }) {
           ...(current?.user_metadata || mockSession.user.user_metadata),
           ...(updates?.fullName !== undefined ? { full_name: updates.fullName } : {}),
           ...(updates?.companyName !== undefined ? { company_name: updates.companyName } : {}),
+          ...(updates?.preferredLanguage !== undefined ? { preferred_language: normalizeSupportedLanguage(updates.preferredLanguage, 'en') } : {}),
           contractor_id: current?.user_metadata?.contractor_id || mockSession.user.user_metadata.contractor_id,
         },
       }))
@@ -461,10 +471,95 @@ export function AuthProvider({ children }) {
         fullName: updates?.fullName || current.fullName,
         email: updates?.email || current.email,
       }))
-      setContractorAccess(mockContractorAccess)
+      setContractorAccess((current) => ({
+        ...(current || mockContractorAccess),
+        membership: {
+          ...((current?.membership) || mockContractorAccess.membership),
+          ...(updates?.preferredLanguage !== undefined ? { preferred_language: normalizeSupportedLanguage(updates.preferredLanguage, 'en') } : {}),
+        },
+      }))
     }
 
     return result
+  }
+
+  async function persistPreferredLanguage(nextLanguage) {
+    const normalizedLanguage = normalizeSupportedLanguage(nextLanguage, 'en')
+
+    if (!USE_AUTH) {
+      setUser((current) => ({
+        ...(current || mockSession.user),
+        user_metadata: {
+          ...(current?.user_metadata || mockSession.user.user_metadata),
+          preferred_language: normalizedLanguage,
+        },
+      }))
+      setContractorAccess((current) => ({
+        ...(current || mockContractorAccess),
+        membership: {
+          ...((current?.membership) || mockContractorAccess.membership),
+          preferred_language: normalizedLanguage,
+        },
+      }))
+
+      return {
+        data: {
+          preferredLanguage: normalizedLanguage,
+        },
+        error: null,
+        skipped: true,
+      }
+    }
+
+    let authProfileResult = {
+      data: null,
+      error: null,
+      skipped: true,
+    }
+
+    if (session?.access_token) {
+      authProfileResult = await authUpdateProfile({
+        preferredLanguage: normalizedLanguage,
+      })
+
+      if (authProfileResult.error && import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Auth profile language persistence failed.', authProfileResult.error)
+      }
+    }
+
+    let membershipResult = {
+      data: null,
+      error: null,
+      skipped: contractorAccess?.membershipStatus !== 'active',
+    }
+
+    if (user?.id && contractorAccess?.membershipStatus === 'active') {
+      membershipResult = await updateAuthenticatedPreferredLanguage(user.id, normalizedLanguage)
+
+      if (membershipResult.data) {
+        setContractorAccess((current) => ({
+          ...current,
+          membership: {
+            ...(current?.membership || {}),
+            ...membershipResult.data,
+          },
+        }))
+      } else if (membershipResult.error && import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Contractor membership language persistence failed.', membershipResult.error)
+      }
+    }
+
+    return {
+      data: {
+        preferredLanguage: normalizedLanguage,
+        authProfile: authProfileResult.data,
+        membership: membershipResult.data,
+      },
+      error: authProfileResult.error || membershipResult.error || null,
+      skipped: Boolean(authProfileResult.skipped && membershipResult.skipped),
+    }
   }
 
   const authMode = USE_AUTH ? 'supabase' : 'mock'
@@ -496,6 +591,7 @@ export function AuthProvider({ children }) {
     resetPassword,
     updatePassword,
     updateProfile,
+    persistPreferredLanguage,
   }), [user, session, company, contractor, contractorAccess, isAuthenticated, hasContractorAccess, onboardingRequired, onboardingCompleted, isLoading, authMode])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

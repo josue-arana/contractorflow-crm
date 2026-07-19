@@ -5,7 +5,7 @@ Project URL: https://qespkkmxaxzsfqrlghev.supabase.co
 
 ## Auth Redirect Setup
 
-ContractorFlow now resolves company data from the authenticated user's `contractor_members` row. New confirmed users who do not have a membership yet can complete beta onboarding inside the app, which creates their `contractors`, `contractor_members`, and `company_settings` records automatically.
+Aymero now resolves company data from the authenticated user's `contractor_members` row. New confirmed users who do not have a membership yet can complete beta onboarding inside the app, which creates their `contractors`, `contractor_members`, and `company_settings` records automatically.
 
 ### Supabase Dashboard
 

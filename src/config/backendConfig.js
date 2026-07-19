@@ -1,4 +1,4 @@
-// ContractorFlow CRM backend configuration
+// Aymero CRM backend configuration
 //
 // Phase 1.9 backend preparation:
 // This layer is intentionally disabled for now so the free 1–5 contractor beta
@@ -29,6 +29,7 @@
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL?.trim() || ''
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() || ''
+const ENABLE_DEVELOPER_ROUTES_FLAG = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEVELOPER_ROUTES === 'true'
 
 export const USE_SUPABASE = false
 export const USE_SUPABASE_SETTINGS = true
@@ -46,6 +47,7 @@ export const USE_REAL_EMAIL = false
 export const USE_REAL_SMS = false
 export const USE_PDF_EXPORT = false
 export const BETA_CONTRACTOR_ID = '00000000-0000-0000-0000-000000000001'
+export const ENABLE_DEVELOPER_ROUTES = ENABLE_DEVELOPER_ROUTES_FLAG
 
 export const backendConfig = {
   useSupabase: USE_SUPABASE,
@@ -63,6 +65,7 @@ export const backendConfig = {
   useRealEmail: USE_REAL_EMAIL,
   useRealSms: USE_REAL_SMS,
   usePdfExport: USE_PDF_EXPORT,
+  enableDeveloperRoutes: ENABLE_DEVELOPER_ROUTES,
   supabaseUrl: SUPABASE_URL,
   supabaseAnonKey: SUPABASE_ANON_KEY,
   betaContractorId: BETA_CONTRACTOR_ID,

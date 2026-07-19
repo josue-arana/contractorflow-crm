@@ -614,6 +614,7 @@ export async function updateProfile(updates) {
         ...(updates?.fullName !== undefined ? { full_name: updates.fullName } : {}),
         ...(updates?.companyName !== undefined ? { company_name: updates.companyName } : {}),
         ...(updates?.phone !== undefined ? { phone: updates.phone } : {}),
+        ...(updates?.preferredLanguage !== undefined ? { preferred_language: updates.preferredLanguage } : {}),
       },
     }
 

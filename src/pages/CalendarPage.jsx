@@ -4,6 +4,7 @@ import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
+import { useToast } from '../components/common/ToastProvider'
 import { getEventsContractorId } from '../services/system/eventsRuntimeService'
 import { MetricCard } from '../components/ui/MetricCard'
 import { SelectField } from '../components/ui/SelectField'
@@ -57,10 +58,11 @@ function getEventStatus(event) {
   return event.status || 'Scheduled'
 }
 
-export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExportEvent, onViewProject, t }) {
+export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExportEvent, onViewProject, onMarkComplete, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
-  const [completedEventIds, setCompletedEventIds] = useState([])
+  const [completingEventIds, setCompletingEventIds] = useState([])
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
+  const { showToast } = useToast()
   const { contractor, company, session } = useAuth()
   const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getEventsContractorId({ contractor, company, session })
@@ -74,12 +76,9 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
       location: event.location || lead?.address || lead?.location || t('unknownAddress'),
       displayDate: event.displayDate || formatDisplayDate(event.date),
       time: formatEventTime(event),
-      status: getEventStatus({
-        ...event,
-        status: completedEventIds.includes(event.id) ? 'Complete' : event.status,
-      }),
+      status: getEventStatus(event),
     }
-  }), [completedEventIds, leads, scheduleEvents, t])
+  }), [leads, scheduleEvents, t])
 
   const filteredEvents = useMemo(() => {
     if (selectedFilter === 'All') return events
@@ -96,8 +95,18 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
 
   const monthDays = useMemo(() => getMonthDays(events), [events])
 
-  function markComplete(eventId) {
-    setCompletedEventIds((current) => current.includes(eventId) ? current : [...current, eventId])
+  async function markComplete(eventId) {
+    if (!eventId || completingEventIds.includes(eventId)) return
+
+    setCompletingEventIds((current) => [...current, eventId])
+
+    try {
+      await onMarkComplete?.(eventId)
+    } catch (error) {
+      showToast(error?.message || t('eventUpdateFailed'), 'error')
+    } finally {
+      setCompletingEventIds((current) => current.filter((id) => id !== eventId))
+    }
   }
 
   return (
@@ -158,6 +167,8 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
             <tbody className="divide-y divide-slate-100">
               {filteredEvents.map((event) => {
                 const Icon = typeIcons[event.type] || CalendarDays
+                const isCompleted = event.status === 'Completed'
+                const isCompleting = completingEventIds.includes(event.id)
 
                 return (
                   <tr key={event.id} className="bg-white transition hover:bg-blue-50/40">
@@ -183,7 +194,9 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
                         <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
-                        <button onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('markComplete')}</button>
+                        {!isCompleted ? (
+                          <button disabled={isCompleting} onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isCompleting ? t('saving') : t('markComplete')}</button>
+                        ) : null}
                         <button onClick={() => onExportEvent(event)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"><Download className="mr-1 inline h-3 w-3" />{t('exportToCalendar')}</button>
                       </div>
                     </td>
@@ -197,6 +210,8 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
         <div className="space-y-3 lg:hidden">
           {filteredEvents.map((event) => {
             const Icon = typeIcons[event.type] || CalendarDays
+            const isCompleted = event.status === 'Completed'
+            const isCompleting = completingEventIds.includes(event.id)
 
             return (
               <article key={event.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -222,7 +237,9 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
-                  <button onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50">{t('markComplete')}</button>
+                  {!isCompleted ? (
+                    <button disabled={isCompleting} onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isCompleting ? t('saving') : t('markComplete')}</button>
+                  ) : null}
                   <button onClick={() => onExportEvent(event)} className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100"><Download className="mr-1 inline h-3 w-3" />{t('exportToCalendar')}</button>
                 </div>
               </article>

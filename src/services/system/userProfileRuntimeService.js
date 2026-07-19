@@ -93,7 +93,7 @@ export function buildDisplayedUserProfile({
     email,
     phone: contractorAccess?.contractorRecord?.phone || profileOverrides?.phone || '',
     preferredLanguage: normalizeSupportedLanguage(
-      profileOverrides?.preferredLanguage || contractorAccess?.membership?.preferred_language,
+      profileOverrides?.preferredLanguage || contractorAccess?.membership?.preferred_language || user?.user_metadata?.preferred_language,
       'en'
     ),
     timezone: profileOverrides?.timezone || 'America/New_York',

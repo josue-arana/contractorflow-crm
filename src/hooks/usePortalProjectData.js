@@ -217,6 +217,13 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
       return undefined
     }
 
+    if (!projectsContractorId) {
+      setProject(initialProject || null)
+      setIsLoading(false)
+      setHasLoaded(true)
+      return undefined
+    }
+
     let isCancelled = false
 
     async function loadProject() {
@@ -274,6 +281,13 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
       const knownEstimateId = project?.estimateId || project?.estimate_id || project?.portal?.estimate?.id || projectDraft?.id || null
       let nextEstimate = normalizeEstimateRecord(projectDraft || project?.portal?.estimate)
 
+      if (!projectsContractorId) {
+        if (!isCancelled) {
+          setEstimate(nextEstimate)
+        }
+        return
+      }
+
       try {
         if (knownEstimateId) {
           const byIdResponse = await dataProvider.estimates.getById?.(knownEstimateId, { contractorId: projectsContractorId })
@@ -324,6 +338,13 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
       const projectDraft = readLinkedContractDraft(project || portalId, [portalId, linkedProjectId, linkedLeadId, linkedEstimateId])
       const knownContractId = project?.contractId || project?.contract_id || project?.portal?.contract?.id || projectDraft?.id || null
       let nextContract = normalizeContractRecord(projectDraft || project?.portal?.contract)
+
+      if (!projectsContractorId) {
+        if (!isCancelled) {
+          setContract(nextContract)
+        }
+        return
+      }
 
       try {
         if (knownContractId) {
@@ -378,6 +399,10 @@ export function usePortalProjectData({ portalId = '', projects = [], clients = [
       }
 
       setClient(fallbackClient || null)
+
+      if (!clientsContractorId) {
+        return
+      }
 
       try {
         const response = await dataProvider.clients.getById?.(clientId, { contractorId: clientsContractorId })
