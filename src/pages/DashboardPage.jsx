@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { AlertTriangle, CalendarDays, ChevronRight, Plus, Sparkles } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { AlertTriangle, CalendarDays, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { MetricCard } from '../components/ui/MetricCard'
 import { PipelineBoard } from '../components/pipeline/PipelineBoard'
 import { useAnalyticsMode } from '../contexts/SimpleModeContext'
@@ -123,10 +123,13 @@ export function DashboardPage({
   onOpenInvoice,
   onCreateLeadClick,
   successMessage,
+  showOnboardingReminder = false,
+  onResumeOnboarding,
   t,
   userProfile,
 }) {
   const { isAnalyticsMode } = useAnalyticsMode()
+  const [isReminderDismissed, setIsReminderDismissed] = useState(false)
   const firstName = (userProfile?.name || '').trim().split(/\s+/)[0] || t('userName')
   const todayKey = buildDateKey(new Date())
 
@@ -398,6 +401,22 @@ export function DashboardPage({
           </div>
         </div>
       </section>
+
+      {showOnboardingReminder && !isReminderDismissed ? (
+        <section className="mb-6 flex flex-col gap-4 rounded-3xl border border-blue-200 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5" aria-label={t('onboardingReminderTitle')}>
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white"><Sparkles className="h-5 w-5" /></span>
+            <div>
+              <h2 className="font-bold text-slate-950">{t('onboardingReminderTitle')}</h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">{t('onboardingReminderBody')}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pl-13 sm:pl-0">
+            <button type="button" onClick={onResumeOnboarding} className="min-h-11 flex-1 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 sm:flex-none">{t('onboardingResumeSetup')}</button>
+            <button type="button" onClick={() => setIsReminderDismissed(true)} aria-label={t('onboardingDismissReminder')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 hover:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100"><X className="h-4 w-4" /></button>
+          </div>
+        </section>
+      ) : null}
 
       {successMessage && (
         <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
