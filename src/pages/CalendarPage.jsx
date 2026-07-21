@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { CalendarDays, CheckCircle2, ClipboardCheck, Clock, Download, MapPin, Package, PlayCircle } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardCheck, Clock, Download, MapPin, Package, PlayCircle } from 'lucide-react'
 import { ScheduleEventModal } from '../components/calendar/ScheduleEventModal'
 import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
@@ -14,8 +14,17 @@ import { tStatus } from '../translations'
 import calendarHeroBackground from '../assets/page-heroes/calendar-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
 
-const today = '2026-06-04'
-const weekEnd = '2026-06-10'
+function toDateKey(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const currentDate = new Date()
+const today = toDateKey(currentDate)
+const weekEndDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate() + 6)
+const weekEnd = toDateKey(weekEndDate)
 
 const typeIcons = {
   'Site Visit': CalendarDays,
@@ -31,12 +40,20 @@ function isInCurrentWeek(event) {
   return event.date >= today && event.date <= weekEnd
 }
 
-function getMonthDays(events) {
-  return Array.from({ length: 30 }, (_, index) => {
+function getMonthDays(events, selectedMonth) {
+  const year = selectedMonth.getFullYear()
+  const month = selectedMonth.getMonth()
+  const numberOfDays = new Date(year, month + 1, 0).getDate()
+
+  return Array.from({ length: numberOfDays }, (_, index) => {
     const day = index + 1
-    const isoDay = String(day).padStart(2, '0')
-    const date = `2026-06-${isoDay}`
-    return { day, date, events: events.filter((event) => event.date === date) }
+    const date = toDateKey(new Date(year, month, day))
+    return {
+      day,
+      date,
+      weekday: new Date(year, month, day).getDay(),
+      events: events.filter((event) => event.date === date),
+    }
   })
 }
 
@@ -58,8 +75,9 @@ function getEventStatus(event) {
   return event.status || 'Scheduled'
 }
 
-export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExportEvent, onViewProject, onMarkComplete, t }) {
+export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExportEvent, onViewProject, onViewLead, onMarkComplete, t, language = 'en' }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1))
   const [completingEventIds, setCompletingEventIds] = useState([])
   const [isScheduleOpen, setIsScheduleOpen] = useState(false)
   const { showToast } = useToast()
@@ -71,6 +89,8 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
     const lead = leads.find((item) => item.id === event.leadId)
     return {
       ...event,
+      projectId: event.projectId || event.project_id || null,
+      leadId: event.leadId || event.lead_id || null,
       clientName: event.clientName || lead?.client || t('unknownClient'),
       projectTitle: event.projectTitle || lead?.projectTitle || lead?.projectType || t('unknownProject'),
       location: event.location || lead?.address || lead?.location || t('unknownAddress'),
@@ -93,7 +113,38 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
     { label: t('calendarProjectStarts'), value: events.filter((event) => event.type === 'Project Start').length, helper: t('calendarProjectStartsHelper'), icon: PlayCircle },
   ], [events, t])
 
-  const monthDays = useMemo(() => getMonthDays(events), [events])
+  const monthDays = useMemo(() => getMonthDays(filteredEvents, selectedMonth), [filteredEvents, selectedMonth])
+  const selectedMonthKey = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}`
+  const selectedMonthLabel = useMemo(() => selectedMonth.toLocaleDateString(language === 'es' ? 'es-US' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+  }), [language, selectedMonth])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const sampleEvent = events.find((event) => event.sampleDataKey === 'aymero_sample_data:event')
+    if (!sampleEvent) return
+
+    // eslint-disable-next-line no-console
+    console.debug('[dev] Calendar normalized the Aymero sample event.', {
+      id: sampleEvent.id,
+      contractorId: sampleEvent.contractorId || null,
+      projectId: sampleEvent.projectId || null,
+      leadId: sampleEvent.leadId || null,
+      date: sampleEvent.date || null,
+      type: sampleEvent.type || null,
+      status: sampleEvent.status || null,
+      archivedAt: sampleEvent.archivedAt || null,
+      includedInAgenda: filteredEvents.some((event) => event.id === sampleEvent.id),
+      includedInSelectedMonth: sampleEvent.date?.startsWith(selectedMonthKey) || false,
+      selectedMonth: selectedMonthKey,
+      selectedFilter,
+    })
+  }, [events, filteredEvents, selectedFilter, selectedMonthKey])
+
+  function moveSelectedMonth(offset) {
+    setSelectedMonth((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1))
+  }
 
   async function markComplete(eventId) {
     if (!eventId || completingEventIds.includes(eventId)) return
@@ -193,7 +244,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
                     <td className="px-4 py-3 text-slate-600">{event.location}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
-                        <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
+                        {event.projectId ? <button onClick={() => onViewProject(event.projectId, event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button> : event.leadId ? <button onClick={() => onViewLead(event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button> : null}
                         {!isCompleted ? (
                           <button disabled={isCompleting} onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isCompleting ? t('saving') : t('markComplete')}</button>
                         ) : null}
@@ -236,7 +287,7 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
                 </div>
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <button onClick={() => onViewProject(event.projectId || event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button>
+                  {event.projectId ? <button onClick={() => onViewProject(event.projectId, event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewProject')}</button> : event.leadId ? <button onClick={() => onViewLead(event.leadId)} className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewLead')}</button> : null}
                   {!isCompleted ? (
                     <button disabled={isCompleting} onClick={() => markComplete(event.id)} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{isCompleting ? t('saving') : t('markComplete')}</button>
                   ) : null}
@@ -256,23 +307,31 @@ export function CalendarPage({ leads, scheduleEvents = [], onCreateEvent, onExpo
       </section>
 
       <section className="hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm xl:block">
-        <div className="mb-5 flex items-center justify-between">
+        <div className="mb-5 flex items-center justify-between gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-950">{t('monthlyPreview')}</h2>
             <p className="text-sm text-slate-500">{t('monthlyPreviewHelp')}</p>
           </div>
-          <p className="rounded-full bg-slate-100 px-3 py-1 text-sm font-bold text-slate-600">{t('june2026')}</p>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => moveSelectedMonth(-1)} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" aria-label={t('previousMonth')}>
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="min-w-32 rounded-full bg-slate-100 px-3 py-1 text-center text-sm font-bold capitalize text-slate-600">{selectedMonthLabel}</p>
+            <button type="button" onClick={() => moveSelectedMonth(1)} className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50" aria-label={t('nextMonth')}>
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold uppercase tracking-wide text-slate-400">
           {[t('sun'), t('mon'), t('tue'), t('wed'), t('thu'), t('fri'), t('sat')].map((day) => <div key={day}>{day}</div>)}
         </div>
         <div className="mt-3 grid grid-cols-7 gap-2">
           {monthDays.map((day) => (
-            <div key={day.date} className={`min-h-24 rounded-2xl border p-2 text-sm ${day.events.length ? 'border-blue-200 bg-blue-50/50' : 'border-slate-100 bg-slate-50'}`}>
+            <div key={day.date} style={day.day === 1 ? { gridColumnStart: day.weekday + 1 } : undefined} className={`min-h-24 rounded-2xl border p-2 text-sm ${day.events.length ? 'border-blue-200 bg-blue-50/50' : 'border-slate-100 bg-slate-50'}`}>
               <p className="font-bold text-slate-700">{day.day}</p>
               <div className="mt-2 space-y-1">
                 {day.events.slice(0, 2).map((event) => (
-                  <button key={event.id} onClick={() => onViewProject(event.projectId || event.leadId)} className="block w-full truncate rounded-lg bg-white px-2 py-1 text-left text-xs font-semibold text-blue-700 shadow-sm">
+                  <button key={event.id} onClick={() => event.projectId ? onViewProject(event.projectId, event.leadId) : onViewLead(event.leadId)} disabled={!event.projectId && !event.leadId} className="block w-full truncate rounded-lg bg-white px-2 py-1 text-left text-xs font-semibold text-blue-700 shadow-sm disabled:cursor-default disabled:text-slate-500">
                     {tStatus(t, event.clientName) }
                   </button>
                 ))}

@@ -701,6 +701,8 @@ export const en = {
   "noScheduleEventsHelp": "Try another filter or add a site visit, delivery, payment due date, or walkthrough.",
   "monthlyPreview": "Monthly Preview",
   "monthlyPreviewHelp": "Optional desktop view for a quick look across the month.",
+  "previousMonth": "Previous month",
+  "nextMonth": "Next month",
   "june2026": "June 2026",
   "sun": "Sun",
   "mon": "Mon",
@@ -1593,4 +1595,10 @@ export const en = {
   ,"sampleGuideDismiss": "Dismiss Guide"
   ,"sampleGuideReopen": "Reopen Sample Guide"
   ,"sampleGuideSaveError": "We couldn't save the sample guide. Try again."
+  ,"noLeadLinked": "No lead linked"
+  ,"projectUnavailable": "Project unavailable"
+  ,"deleteProjectConfirmTitle": "Delete this project permanently?"
+  ,"deleteProjectConfirmBody": "This permanently deletes the project after Aymero confirms that no related records depend on it. This action cannot be undone."
+  ,"projectDeleteBlocked": "This project has related records and can't be deleted yet. Remove or reassign those records first."
+  ,"projectDeleteFailed": "We couldn't delete this project. Please try again."
 }

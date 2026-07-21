@@ -25,6 +25,7 @@ import { createTranslator } from '../translations'
 import { findLeadByProjectLookup } from '../utils/projectIdentity'
 import { findRelatedClient } from '../utils/clients'
 import { normalizeDocumentLanguageOverride, resolveClientFacingLanguage } from '../utils/language'
+import { getPaymentTermLabel, getPaymentTermOptions, isKnownPaymentTermValue } from '../utils/paymentTerms'
 
 const simplePricingMode = 'simple'
 const detailedPricingMode = 'detailed'
@@ -225,6 +226,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
   const linkedContract = lead?.portal?.contract || portal.contract || {}
   const linkedContractIsArchived = Boolean(linkedContract?.archivedAt || linkedContract?.archived_at || linkedContract?.isArchived || linkedContract?.archived)
   const estimateT = useMemo(() => createTranslator(estimateOutputLanguage), [estimateOutputLanguage])
+  const paymentTermOptions = useMemo(() => getPaymentTermOptions(estimateT, paymentTerms), [estimateT, paymentTerms])
   const shouldUsePdfForPrint = useMemo(() => shouldUseGeneratedPdfForPrint(), [])
   const previewEstimateNumber = formatEstimateDisplayNumber(
     savedEstimate.number || savedEstimate.estimateNumber || generateEstimateNumber(lead),
@@ -263,7 +265,7 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
     estimateDate: previewEstimateDate,
     scope,
     materialsIncluded,
-    paymentTerms,
+    paymentTerms: getPaymentTermLabel(paymentTerms, estimateT),
     total: estimateTotal,
     lineItems: isDetailedPricing ? lineItems : [],
     language: estimateOutputLanguage,
@@ -736,9 +738,15 @@ export function EstimateBuilderPage({ lead, clientRecord = null, t, appLanguage 
 
           <InfoCard title={t('paymentTerms')}>
             {isEditing ? (
-              <textarea value={paymentTerms} onChange={(event) => { markDraftDirty(); setPaymentTerms(event.target.value) }} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+              isKnownPaymentTermValue(paymentTerms) ? (
+                <SelectField value={paymentTerms} onChange={(event) => { markDraftDirty(); setPaymentTerms(event.target.value) }} className="bg-slate-50">
+                  {paymentTermOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </SelectField>
+              ) : (
+                <textarea value={paymentTerms} onChange={(event) => { markDraftDirty(); setPaymentTerms(event.target.value) }} rows={4} className="w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100" />
+              )
             ) : (
-              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{paymentTerms}</div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-700 whitespace-pre-line">{getPaymentTermLabel(paymentTerms, estimateT)}</div>
             )}
           </InfoCard>
         </section>

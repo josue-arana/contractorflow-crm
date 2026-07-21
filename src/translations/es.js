@@ -701,6 +701,8 @@ export const es = {
   "noScheduleEventsHelp": "Prueba otro filtro o agrega una visita, entrega, pago pendiente o revisión final.",
   "monthlyPreview": "Vista mensual",
   "monthlyPreviewHelp": "Vista opcional de escritorio para revisar el mes rápidamente.",
+  "previousMonth": "Mes anterior",
+  "nextMonth": "Mes siguiente",
   "june2026": "Junio 2026",
   "sun": "Dom",
   "mon": "Lun",
@@ -1593,4 +1595,10 @@ export const es = {
   ,"sampleGuideDismiss": "Descartar guía"
   ,"sampleGuideReopen": "Volver a abrir la guía de muestra"
   ,"sampleGuideSaveError": "No pudimos guardar la guía de muestra. Inténtalo de nuevo."
+  ,"noLeadLinked": "Sin prospecto vinculado"
+  ,"projectUnavailable": "Trabajo no disponible"
+  ,"deleteProjectConfirmTitle": "¿Eliminar este trabajo permanentemente?"
+  ,"deleteProjectConfirmBody": "Esto elimina permanentemente el trabajo después de que Aymero confirme que ningún registro relacionado depende de él. Esta acción no se puede deshacer."
+  ,"projectDeleteBlocked": "Este trabajo tiene registros relacionados y todavía no se puede eliminar. Elimina o reasigna esos registros primero."
+  ,"projectDeleteFailed": "No pudimos eliminar este trabajo. Inténtalo de nuevo."
 }

@@ -59,6 +59,13 @@ function warnDev(message, meta) {
   console.warn(message, meta)
 }
 
+function debugDev(message, meta) {
+  if (!isDev()) return
+
+  // eslint-disable-next-line no-console
+  console.debug(message, meta)
+}
+
 function createSkippedResponse(message, data = null) {
   return {
     data,
@@ -502,9 +509,30 @@ export async function list({ contractorId, includeArchived = false, status, type
       method: 'GET',
       query,
     })
+    const rows = Array.isArray(data) ? data : []
+    const normalizedEvents = sortEvents(rows.map(toAppEvent))
+    const sampleEvents = normalizedEvents.filter((event) => event.sampleDataKey === 'aymero_sample_data:event')
+
+    if (sampleEvents.length > 0) {
+      debugDev('[dev] Calendar event query included the Aymero sample event.', {
+        contractorId,
+        query,
+        events: sampleEvents.map((event) => ({
+          id: event.id,
+          contractorId: event.contractorId,
+          projectId: event.projectId,
+          leadId: event.leadId,
+          date: event.date,
+          startsAt: event.startsAt,
+          type: event.type,
+          status: event.status,
+          archivedAt: event.archivedAt,
+        })),
+      })
+    }
 
     return {
-      data: sortEvents(Array.isArray(data) ? data.map(toAppEvent) : []),
+      data: normalizedEvents,
       error: null,
       skipped: false,
     }

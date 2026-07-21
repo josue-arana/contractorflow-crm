@@ -17,6 +17,7 @@ import { printDocumentElement } from '../../utils/printDocument'
 import { shouldUseGeneratedPdfForPrint } from '../../utils/documentOutput'
 import { createTranslator } from '../../translations'
 import { tStatus } from '../../translations'
+import { getPaymentTermLabel } from '../../utils/paymentTerms'
 
 function EmptyState({ message }) {
   return (
@@ -171,7 +172,7 @@ function buildContractNotesAndTermsItems(contract = {}, t = (key) => key) {
     { title: t('materialsAndScheduling'), content: contract?.materials || t('materialsText') },
     { title: t('projectTimeline'), content: contract?.timeline || '' },
     { title: t('clientCommunicationAndAdjustments'), content: [contract?.changeOrders, contract?.clientResponsibilities].filter(Boolean).join('\n\n') || t('changeOrdersText') },
-    { title: t('paymentTerms'), content: contract?.paymentTerms || t('contractTermsText') },
+    { title: t('paymentTerms'), content: getPaymentTermLabel(contract?.paymentTerms, t) || t('contractTermsText') },
     { title: t('acceptanceLegalConfirmation'), content: [t('compactContractAcceptanceText'), contract?.warrantyDisclaimer || t('warrantyDisclaimerText')].filter(Boolean).join('\n\n') },
   ]
 }
@@ -297,7 +298,7 @@ export function PortalSummary({
     estimateDate: estimate?.dateCreated || estimate?.createdAt || estimate?.created_at || new Date(),
     scope: estimate?.summary || estimate?.scopeOfWork || '',
     materialsIncluded: estimate?.materialsIncluded ?? estimate?.materials_included ?? true,
-    paymentTerms: estimate?.paymentTerms || t('contractTermsText'),
+    paymentTerms: getPaymentTermLabel(estimate?.paymentTerms, t) || t('contractTermsText'),
     total: Number(estimate?.total ?? estimate?.totalAmount ?? estimate?.amount ?? 0),
     lineItems: Array.isArray(estimate?.lineItems) ? estimate.lineItems : [],
     t,
@@ -380,7 +381,7 @@ export function PortalSummary({
         company,
         lead: previewLead,
         scope: contractPreviewProps.scope,
-        paymentTerms: contract?.paymentTerms || t('contractTermsText'),
+        paymentTerms: getPaymentTermLabel(contract?.paymentTerms, contractDocumentT) || contractDocumentT('contractTermsText'),
         materials: contract?.materials || contractDocumentT('materialsText'),
         timeline: contract?.timeline || '',
         changeOrders: contract?.changeOrders || contractDocumentT('changeOrdersText'),

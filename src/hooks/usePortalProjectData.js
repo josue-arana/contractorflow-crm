@@ -119,10 +119,6 @@ function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId
     return true
   }
 
-  if (projectId && event.leadId === projectId) {
-    return true
-  }
-
   if (!event.projectId && !event.leadId && !projectId && !relatedLeadId) {
     if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
       return true

@@ -334,10 +334,18 @@ export async function updateSettings(contractorId, settings) {
     const data = await requestSettingsMutation('PATCH', contractorId, settings, {
       contractor_id: `eq.${contractorId}`,
     })
+    const updatedRow = readSingleRow(data)
+
+    if (!updatedRow) {
+      throw Object.assign(new Error('The company settings update did not return an updated row.'), {
+        code: 'SETTINGS_UPDATE_NO_ROWS',
+        details: { contractorId },
+      })
+    }
 
     setSettingsRuntimeStatus('save', 'success', null)
     return {
-      data: toAppSettings(readSingleRow(data) || existingRow),
+      data: toAppSettings(updatedRow),
       error: null,
       skipped: false,
     }

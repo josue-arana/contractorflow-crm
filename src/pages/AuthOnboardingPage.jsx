@@ -100,6 +100,7 @@ export function AuthOnboardingPage({
   const [errorMessage, setErrorMessage] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [sampleDataState, setSampleDataState] = useState({ mode: 'idle', progress: null })
+  const sampleDataActionGuardRef = useRef(false)
   const headingRef = useRef(null)
   const autosaveTimerRef = useRef(null)
   const hasEditedRef = useRef(false)
@@ -302,25 +303,62 @@ export function AuthOnboardingPage({
   }
 
   async function addSampleData() {
-    if (sampleDataState.mode === 'loading') return
+    if (sampleDataActionGuardRef.current || sampleDataState.mode === 'loading') return
+    sampleDataActionGuardRef.current = true
     setSampleDataState({ mode: 'loading', progress: { current: 0, total: 8, key: 'sampleDataChecking' } })
 
-    const result = await onAddSampleData?.((progress) => {
-      setSampleDataState({ mode: 'loading', progress })
-    })
+    try {
+      const result = await onAddSampleData?.((progress) => {
+        setSampleDataState({ mode: 'loading', progress })
+      })
 
-    if (result?.error || result?.upgradeRequired) {
+      if (result?.upgradeRequired || result?.success !== true || result?.installed !== true) {
+        setSampleDataState({ mode: 'error', progress: null })
+        return
+      }
+
+      // Close confirmation and clear any stale retry state before optional UI
+      // work such as toasts and navigation runs.
+      setSampleDataState({ mode: 'idle', progress: null })
+
+      try {
+        showToast(t('sampleDataReadyToast'))
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] Sample workspace installed; the onboarding success toast failed.', {
+            failingFunction: 'showToast',
+            code: error?.code || 'SAMPLE_DATA_SUCCESS_TOAST_FAILED',
+            message: error?.message || null,
+          })
+        }
+      }
+
+      try {
+        await onGoToDashboard?.()
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] Sample workspace installed; onboarding navigation failed.', {
+            failingFunction: 'onGoToDashboard',
+            code: error?.code || 'SAMPLE_DATA_NAVIGATION_FAILED',
+            message: error?.message || null,
+          })
+        }
+      }
+    } catch (error) {
       setSampleDataState({ mode: 'error', progress: null })
-      return
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Sample workspace installation caller failed before returning a result.', {
+          failingFunction: 'onAddSampleData',
+          code: error?.code || 'SAMPLE_DATA_CREATE_FAILED',
+          message: error?.message || null,
+        })
+      }
+    } finally {
+      sampleDataActionGuardRef.current = false
     }
-
-    if (result?.duplicate) {
-      setSampleDataState({ mode: 'duplicate', progress: null })
-      return
-    }
-
-    showToast(t('sampleDataReadyToast'))
-    onGoToDashboard?.()
   }
 
   const stepMeta = [
@@ -462,7 +500,7 @@ export function AuthOnboardingPage({
                 </div>
                 <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                   {sampleDataState.mode !== 'loading' ? <button type="button" onClick={() => setSampleDataState({ mode: 'idle', progress: null })} className="min-h-11 rounded-2xl border border-slate-200 px-4 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('cancel')}</button> : null}
-                  {sampleDataState.mode === 'confirm' || sampleDataState.mode === 'error' ? <button type="button" onClick={addSampleData} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">{t('sampleDataAddAction')}</button> : null}
+                  {sampleDataState.mode === 'confirm' || sampleDataState.mode === 'error' ? <button type="button" onClick={addSampleData} disabled={sampleDataActionGuardRef.current} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{t('sampleDataAddAction')}</button> : null}
                   {sampleDataState.mode === 'duplicate' ? <button type="button" onClick={onGoToDashboard} className="min-h-11 rounded-2xl bg-blue-600 px-5 text-sm font-bold text-white hover:bg-blue-700">{t('onboardingGoToDashboard')}</button> : null}
                 </div>
               </footer>

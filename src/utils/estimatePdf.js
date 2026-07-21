@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 import { currency } from './formatters'
+import { getPaymentTermLabel } from './paymentTerms'
 
 const safeColors = {
   white: '#ffffff',
@@ -347,7 +348,7 @@ function buildFallbackPdf({
     })
   }
 
-  drawSectionBlock(t('paymentTerms'), paymentTerms)
+  drawSectionBlock(t('paymentTerms'), getPaymentTermLabel(paymentTerms, t))
 
   const fileName = buildEstimatePdfFileName({
     estimateNumber,

@@ -52,10 +52,6 @@ function matchesProjectScheduleEvent(event = {}, { projectId = '', relatedLeadId
     return true
   }
 
-  if (projectId && event.leadId === projectId) {
-    return true
-  }
-
   if (!event.projectId && !event.leadId && !projectId && !relatedLeadId) {
     if (clientId && event.clientId === clientId && (event.projectTitle === projectTitle || event.projectTitle === projectType)) {
       return true
@@ -1398,7 +1394,11 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('projectWorkspace')}</p>
             <h1 className="mt-2 text-3xl font-bold tracking-tight">{currentLead.projectTitle || currentLead.projectType}</h1>
-            <p className="mt-2 text-slate-300">{currentLead.client} · {currentLead.location}</p>
+            <p className="mt-2 text-slate-300">{currentLead.client || t('noClientLinked')}{currentLead.location ? ` · ${currentLead.location}` : ''}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!hasLeadLink ? <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-200">{t('noLeadLinked')}</span> : null}
+              {!hasClientLink ? <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-slate-200">{t('noClientLinked')}</span> : null}
+            </div>
             {projectIsArchived && <span className="mt-3 inline-flex rounded-full bg-amber-100 px-3 py-1 text-xs font-bold text-amber-800">{t('archived')}</span>}
           </div>
           {isAnalyticsMode && (
@@ -1446,8 +1446,8 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
 
       <section className="grid gap-4 lg:grid-cols-3">
         <InfoCard title={t('clientInformation')}>
-          <DetailRow label={t('name')} value={currentLead.client} />
-          <DetailRow label={t('phone')} value={currentLead.phone || '(410) 555-0198'} />
+          <DetailRow label={t('name')} value={currentLead.client || t('noClientLinked')} />
+          <DetailRow label={t('phone')} value={currentLead.phone || t('notAdded')} />
           <DetailRow label={t('email')} value={currentLead.email || t('notAdded')} />
           <DetailRow label={t('address')} value={currentLead.address || currentLead.location} />
           {hasClientLink && (
@@ -1937,17 +1937,25 @@ function ProjectDetailPageContent({ lead, companySettings, clients = [], schedul
         onConfirm={async () => {
           try {
             if (confirmAction?.mode === 'archive') {
-              await dataProvider?.projects?.archive?.(currentLead.id, { contractorId })
+              const response = await dataProvider?.projects?.archive?.(currentLead.id, { contractorId })
+              if (response?.error) throw response.error
               setProject((current) => (current ? { ...current, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true } : current))
               onArchiveProject?.()
             }
             if (confirmAction?.mode === 'delete') {
-              await dataProvider?.projects?.deletePermanently?.(currentLead.id, { contractorId })
+              const response = await dataProvider?.projects?.deletePermanently?.(currentLead.id, { contractorId })
+              if (response?.error) throw response.error
               onDeleteProject?.()
+              showToast(t('itemDeletedPermanently'))
               onBack?.()
             }
           } catch (err) {
-            // ignore in local mode
+            logProjectDetailDevError('[dev] Project action failed.', err, {
+              action: confirmAction?.mode,
+              projectId: currentLead.id,
+              contractorId,
+            })
+            showToast(t(confirmAction?.mode === 'delete' ? 'projectDeleteFailed' : 'archiveFailed'), 'error')
           }
           setConfirmAction(null)
         }}
