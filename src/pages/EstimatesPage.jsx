@@ -45,6 +45,8 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     hasLinkedContract: Boolean(lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber),
     nextAction: (lead.portal?.contract?.id || lead.portal?.contract?.number || lead.portal?.contract?.contractNumber) ? t('viewContract') : t('convertToContract'),
     isArchived: archivedIds.includes(lead.id),
+    routeUsesEstimateId: false,
+    canUseProjectActions: true,
   })), [archivedIds, leads, t])
 
   const persistedEstimates = useMemo(() => dedupeById(estimates, ['projectId', 'project_id', 'leadId', 'lead_id', 'number', 'estimateNumber']).map((estimate) => {
@@ -57,7 +59,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
       || ((estimate?.leadId || estimate?.lead_id) && (contract?.leadId === (estimate.leadId || estimate.lead_id) || contract?.lead_id === (estimate.leadId || estimate.lead_id)))
     )) || linkedLead?.portal?.contract || null
     const isArchived = Boolean(estimate?.archivedAt || estimate?.archived_at)
-    const routeId = resolveLinkedProjectId(linkedLead, estimate.projectId || estimate.project_id || estimate.leadId || estimate.lead_id || estimate.id)
+    const routeId = estimate.id
 
     return {
       ...estimate,
@@ -73,6 +75,8 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
       hasLinkedContract: Boolean(linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber),
       nextAction: (linkedContract?.id || linkedContract?.number || linkedContract?.contractNumber) ? t('viewContract') : t('convertToContract'),
       isArchived,
+      routeUsesEstimateId: true,
+      canUseProjectActions: Boolean(linkedLead),
     }
   }), [contracts, estimates, leads, t])
 
@@ -111,13 +115,16 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     if (!confirmAction) return
     try {
       if (confirmAction.mode === 'archive') {
-        await onArchiveEstimate?.(confirmAction.estimate.sourceLeadId, confirmAction.estimate)
+        await onArchiveEstimate?.(confirmAction.estimate.id, confirmAction.estimate)
       }
       if (confirmAction.mode === 'delete') {
-        await onDeleteEstimate?.(confirmAction.estimate.sourceLeadId, confirmAction.estimate)
+        await onDeleteEstimate?.(confirmAction.estimate.id, confirmAction.estimate)
       }
     } catch (err) {
-      console.warn('Estimate action failed', err)
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Estimate list action failed.', err)
+      }
     } finally {
       setConfirmAction(null)
     }
@@ -125,13 +132,14 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
 
   function renderEstimateActions(estimate, compact = false) {
     const isArchived = estimate.isArchived
+    const showProjectAction = !isArchived && estimate.canUseProjectActions !== false
     const moreMenuItems = isArchived
       ? [
           {
             id: 'restore-estimate',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
-            onClick: () => onRestoreEstimate(estimate.sourceLeadId, estimate),
+            onClick: () => onRestoreEstimate(estimate.id, estimate),
           },
           {
             id: 'delete-estimate',
@@ -152,8 +160,8 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
         ]
 
     const actionLayoutClasses = compact
-      ? `grid ${isArchived ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'} items-center gap-2`
-      : `ml-auto grid ${isArchived ? 'grid-cols-[8.75rem_5.25rem]' : 'grid-cols-[8.75rem_10.5rem_5.25rem]'} items-center justify-end gap-2`
+      ? `grid ${isArchived || !showProjectAction ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'} items-center gap-2`
+      : `ml-auto grid ${isArchived || !showProjectAction ? 'grid-cols-[8.75rem_5.25rem]' : 'grid-cols-[8.75rem_10.5rem_5.25rem]'} items-center justify-end gap-2`
 
     const moreButtonClasses = compact
       ? 'inline-flex min-h-[44px] items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
@@ -162,7 +170,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+          <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId, estimate) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
@@ -175,8 +183,8 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
     }
     return (
       <div className={actionLayoutClasses}>
-        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
-        <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewContract') : t('convertToContract')}</button>
+        <button onClick={(event) => { event.stopPropagation(); onOpenEstimate(estimate.routeId, estimate) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800">{t('viewEstimate')}</button>
+        {showProjectAction ? <button onClick={(event) => { event.stopPropagation(); onConvertEstimate(estimate.sourceLeadId, estimate) }} className="inline-flex min-h-[44px] w-full items-center justify-center whitespace-nowrap rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">{estimate.hasLinkedContract ? t('viewContract') : t('convertToContract')}</button> : null}
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
@@ -239,7 +247,7 @@ export function EstimatesPage({ leads, estimates = [], contracts = [], archivedI
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredEstimates.length ? filteredEstimates.map((estimate) => (
-                <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.routeId)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr key={estimate.id} onClick={() => onOpenEstimate(estimate.routeId, estimate)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4 align-top">
                     <div className="min-w-0">
                       <p className="truncate font-bold text-slate-950">{estimate.client}</p>

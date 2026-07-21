@@ -576,7 +576,7 @@ export async function restore(id, { contractorId } = {}) {
   }
 }
 
-export async function deletePermanently(id, { contractorId } = {}) {
+export async function deletePermanently(id, { contractorId, authenticatedUserId = '' } = {}) {
   if (!USE_SUPABASE && !USE_SUPABASE_ESTIMATES) {
     return createSkippedResponse('Supabase estimates service skipped because USE_SUPABASE=false and USE_SUPABASE_ESTIMATES=false', { id, deleted: true })
   }
@@ -585,25 +585,103 @@ export async function deletePermanently(id, { contractorId } = {}) {
     return handleMissingContractorId('deletePermanently')
   }
 
+  const query = buildContractorQuery(contractorId, {
+    id: `eq.${id}`,
+  })
+
+  warnDev('[dev] Submitting contractor-scoped permanent estimate deletion.', {
+    estimateId: id,
+    contractorId,
+    authenticatedUserId: authenticatedUserId || null,
+    query,
+  })
+
   try {
-    const data = await supabaseClient.request(TABLE_NAME, {
+    const response = await supabaseClient.request(TABLE_NAME, {
       method: 'DELETE',
-      query: buildContractorQuery(contractorId, {
-        id: `eq.${id}`,
-      }),
+      query,
+      prefer: 'return=representation,count=exact',
+      includeResponseMetadata: true,
+    })
+    const rows = Array.isArray(response?.data)
+      ? response.data
+      : response?.data
+        ? [response.data]
+        : []
+    const row = rows[0] || null
+    const affectedRowCount = response?.count ?? rows.length
+
+    warnDev('[dev] Supabase permanent estimate deletion returned.', {
+      estimateId: id,
+      contractorId,
+      authenticatedUserId: authenticatedUserId || null,
+      query,
+      status: response?.status ?? null,
+      contentRange: response?.contentRange ?? null,
+      returnedDeletedRows: rows,
+      affectedRowCount,
+      errorCode: null,
+      errorMessage: null,
+      errorDetails: null,
     })
 
-    const row = readSingleRow(data)
+    if (!row?.id || affectedRowCount < 1) {
+      const error = {
+        code: 'ESTIMATE_DELETE_NO_ROWS',
+        message: 'The estimate could not be deleted. Your access may have changed, or the estimate may no longer be available.',
+        details: {
+          estimateId: id,
+          contractorId,
+          query,
+          status: response?.status ?? null,
+          contentRange: response?.contentRange ?? null,
+          returnedDeletedRows: rows,
+          affectedRowCount,
+        },
+      }
+
+      warnDev('[dev] Supabase permanent estimate deletion affected no rows.', {
+        estimateId: id,
+        contractorId,
+        authenticatedUserId: authenticatedUserId || null,
+        query,
+        status: response?.status ?? null,
+        contentRange: response?.contentRange ?? null,
+        returnedDeletedRows: rows,
+        affectedRowCount,
+        errorCode: error.code,
+        errorMessage: error.message,
+        errorDetails: error.details,
+      })
+
+      return { data: null, error, skipped: false }
+    }
 
     return {
-      data: row ? toAppEstimate(row) : { id, deleted: true },
+      data: toAppEstimate(row),
       error: null,
       skipped: false,
+      affectedRowCount,
     }
   } catch (error) {
+    const normalizedError = normalizeError(error, 'Unable to permanently delete the estimate in Supabase.')
+
+    warnDev('[dev] Supabase permanent estimate deletion failed.', {
+      estimateId: id,
+      contractorId,
+      authenticatedUserId: authenticatedUserId || null,
+      query,
+      errorCode: normalizedError.code,
+      errorMessage: normalizedError.message,
+      errorDetails: normalizedError.details,
+      status: error?.status || null,
+      returnedDeletedRows: [],
+      affectedRowCount: 0,
+    })
+
     return {
       data: null,
-      error: normalizeError(error, 'Unable to permanently delete the estimate in Supabase.'),
+      error: normalizedError,
       skipped: false,
     }
   }

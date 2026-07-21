@@ -335,6 +335,9 @@ export const en = {
   "noEstimateAvailableYet": "No estimate available yet.",
   "noContractAvailableYet": "No contract available yet.",
   "estimateNotFound": "Estimate Not Found",
+  "estimateNotFoundHelp": "We could not find that estimate. Return to the Estimate list and choose another estimate.",
+  "backToEstimates": "Back to Estimates",
+  "projectNoLongerAvailable": "Project no longer available",
   "contractNotFound": "Contract Not Found",
   "selectProjectFirst": "Select a project first.",
   "noPayments": "No payments recorded",
@@ -1571,12 +1574,14 @@ export const en = {
   ,"sampleDataRemoving": "Removing Aymero sample records…"
   ,"sampleDataRemovedToast": "Sample data removed."
   ,"sampleDataRemoveError": "We couldn't remove all sample data. Try again to safely continue."
+  ,"sampleDataDependencyError": "This sample estimate is linked to one of your records. Remove that link before removing sample data."
   ,"sampleDataUpdateAction": "Update Sample Workspace"
   ,"sampleDataUpdateConfirmTitle": "Update the sample workspace?"
   ,"sampleDataUpdateConfirmBody": "Aymero will remove only the older Aymero-generated sample records and replace them with one fully connected customer journey. Your business records will not be changed."
   ,"sampleDataUpdating": "Updating your sample workspace…"
   ,"sampleDataUpdatedToast": "Your connected sample workspace is ready."
   ,"sampleDataUpdateError": "We couldn't finish updating the sample workspace. Try again to safely continue."
+  ,"estimateDeleteUnavailable": "This estimate could not be deleted. Check your access and try again."
   ,"sampleDataUpdateRequired": "This older sample workspace needs confirmation before Aymero replaces it."
   ,"sampleDataBadge": "Sample"
   ,"sampleGuideTitle": "Explore how Aymero works"

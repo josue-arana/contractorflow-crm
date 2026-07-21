@@ -335,6 +335,9 @@ export const es = {
   "noEstimateAvailableYet": "Todavía no hay estimado disponible.",
   "noContractAvailableYet": "Todavía no hay contrato disponible.",
   "estimateNotFound": "Estimado no encontrado",
+  "estimateNotFoundHelp": "No encontramos ese estimado. Regresa a la lista de estimados y elige otro.",
+  "backToEstimates": "Volver a estimados",
+  "projectNoLongerAvailable": "El trabajo ya no está disponible",
   "contractNotFound": "Contrato no encontrado",
   "selectProjectFirst": "Selecciona un proyecto primero.",
   "noPayments": "No hay pagos registrados",
@@ -1571,12 +1574,14 @@ export const es = {
   ,"sampleDataRemoving": "Eliminando registros de muestra de Aymero…"
   ,"sampleDataRemovedToast": "Datos de muestra eliminados."
   ,"sampleDataRemoveError": "No pudimos eliminar todos los datos de muestra. Inténtalo de nuevo para continuar de forma segura."
+  ,"sampleDataDependencyError": "Este presupuesto de muestra está vinculado a uno de tus registros. Elimina ese vínculo antes de borrar los datos de muestra."
   ,"sampleDataUpdateAction": "Actualizar espacio de muestra"
   ,"sampleDataUpdateConfirmTitle": "¿Actualizar el espacio de muestra?"
   ,"sampleDataUpdateConfirmBody": "Aymero eliminará solamente los registros de muestra anteriores generados por Aymero y los reemplazará con un recorrido de cliente totalmente conectado. Tus registros del negocio no cambiarán."
   ,"sampleDataUpdating": "Actualizando tu espacio de muestra…"
   ,"sampleDataUpdatedToast": "Tu espacio de muestra conectado está listo."
   ,"sampleDataUpdateError": "No pudimos terminar de actualizar el espacio de muestra. Inténtalo de nuevo para continuar de forma segura."
+  ,"estimateDeleteUnavailable": "No se pudo eliminar este presupuesto. Verifica tu acceso e inténtalo de nuevo."
   ,"sampleDataUpdateRequired": "Este espacio de muestra anterior requiere confirmación antes de que Aymero lo reemplace."
   ,"sampleDataBadge": "Muestra"
   ,"sampleGuideTitle": "Explora cómo funciona Aymero"
