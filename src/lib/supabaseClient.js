@@ -47,6 +47,16 @@ function parseJsonSafely(text) {
   }
 }
 
+function parseResponseCount(contentRange) {
+  if (!contentRange) return null
+
+  const total = String(contentRange).split('/').pop()
+  if (!total || total === '*') return null
+
+  const parsed = Number(total)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function createSupabaseHttpError(data, fallbackMessage, status) {
   const error = new Error(
     data?.msg
@@ -226,7 +236,13 @@ function createSupabaseRestClient() {
   }
 
   return {
-    async request(tableName, { method = 'GET', query, body, prefer = 'return=representation' } = {}) {
+    async request(tableName, {
+      method = 'GET',
+      query,
+      body,
+      prefer = 'return=representation',
+      includeResponseMetadata = false,
+    } = {}) {
       if (!isSupabaseDataEnabled()) {
         warnDisabledRequest()
         return null
@@ -258,6 +274,16 @@ function createSupabaseRestClient() {
 
         if (!response.ok) {
           throw createSupabaseHttpError(data, `Supabase request failed with status ${response.status}`, response.status)
+        }
+
+        if (includeResponseMetadata) {
+          const contentRange = response.headers.get('content-range')
+          return {
+            data,
+            count: parseResponseCount(contentRange),
+            contentRange,
+            status: response.status,
+          }
         }
 
         return data

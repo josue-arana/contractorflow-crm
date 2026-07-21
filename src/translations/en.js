@@ -335,6 +335,9 @@ export const en = {
   "noEstimateAvailableYet": "No estimate available yet.",
   "noContractAvailableYet": "No contract available yet.",
   "estimateNotFound": "Estimate Not Found",
+  "estimateNotFoundHelp": "We could not find that estimate. Return to the Estimate list and choose another estimate.",
+  "backToEstimates": "Back to Estimates",
+  "projectNoLongerAvailable": "Project no longer available",
   "contractNotFound": "Contract Not Found",
   "selectProjectFirst": "Select a project first.",
   "noPayments": "No payments recorded",
@@ -755,6 +758,18 @@ export const en = {
   "leadListHelp": "Search, filter, and open leads without leaving the contractor workflow.",
   "leadActions": "Lead Actions",
   "leadActionsHelp": "Review the opportunity, prepare an estimate, or move this lead into the job workflow when it is approved.",
+  "leadProgress": "Lead Progress",
+  "leadProgressHelp": "Follow this opportunity from the first inquiry to an active job.",
+  "leadProgressInquiry": "Inquiry",
+  "leadProgressEstimateSent": "Estimate Sent",
+  "leadProgressFollowUp": "Follow-up",
+  "leadProgressApproved": "Approved",
+  "leadProgressConvertedToJob": "Converted to Job",
+  "leadProgressCompleted": "Completed",
+  "leadProgressCurrent": "Current",
+  "leadProgressUpcoming": "Upcoming",
+  "nextRecommendedAction": "Next Recommended Action",
+  "currentStage": "Current Stage",
   "loadingLead": "Loading Lead",
   "loadingLeadHelp": "We are loading the latest lead details for this opportunity.",
   "leadNotFound": "Lead Not Found",
@@ -789,6 +804,8 @@ export const en = {
   "leadNextStepFollowUpContract": "Follow up with the client for signature.",
   "leadNextStepScheduleProject": "Schedule the project start.",
   "leadNextStepNoRemainingActions": "No remaining lead actions.",
+  "leadCompletedStatus": "This lead has been successfully converted into an active project.",
+  "openProject": "Open Project",
   "leadNextStepLost": "No next step. This lead was marked lost.",
   "leadNextStepReview": "Review this lead and choose the next action.",
   "leadPipelineStageNewLead": "New Lead",
@@ -801,6 +818,10 @@ export const en = {
   "leadPipelineStageLost": "Lost",
   "leadPipelineStageArchived": "Archived",
   "leadStageUpdated": "Lead stage updated",
+  "leadToastEstimateSent": "✓ Estimate sent successfully\nThe customer is now reviewing your proposal.",
+  "leadToastFollowUpComplete": "✓ Follow-up completed\nThe lead is ready for approval.",
+  "leadToastEstimateApproved": "🎉 Estimate approved\nThis lead is ready to become a job.",
+  "leadToastConvertedToJob": "🎉 Job created successfully\nThis opportunity has entered your active job pipeline.",
   "notAdded": "Not added",
   "close": "Close",
   "cancel": "Cancel",
@@ -1571,12 +1592,14 @@ export const en = {
   ,"sampleDataRemoving": "Removing Aymero sample records…"
   ,"sampleDataRemovedToast": "Sample data removed."
   ,"sampleDataRemoveError": "We couldn't remove all sample data. Try again to safely continue."
+  ,"sampleDataDependencyError": "This sample estimate is linked to one of your records. Remove that link before removing sample data."
   ,"sampleDataUpdateAction": "Update Sample Workspace"
   ,"sampleDataUpdateConfirmTitle": "Update the sample workspace?"
   ,"sampleDataUpdateConfirmBody": "Aymero will remove only the older Aymero-generated sample records and replace them with one fully connected customer journey. Your business records will not be changed."
   ,"sampleDataUpdating": "Updating your sample workspace…"
   ,"sampleDataUpdatedToast": "Your connected sample workspace is ready."
   ,"sampleDataUpdateError": "We couldn't finish updating the sample workspace. Try again to safely continue."
+  ,"estimateDeleteUnavailable": "This estimate could not be deleted. Check your access and try again."
   ,"sampleDataUpdateRequired": "This older sample workspace needs confirmation before Aymero replaces it."
   ,"sampleDataBadge": "Sample"
   ,"sampleGuideTitle": "Explore how Aymero works"

@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react'
 const baseMenuItemClasses = 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50'
 const baseButtonClasses = 'inline-flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50'
 
-export function ActionMenu({ label, items = [], align = 'right', ariaLabel, buttonClassName = '', menuClassName = '', showChevron = true, buttonDisabled = false }) {
+export function ActionMenu({ label, items = [], align = 'right', ariaLabel, buttonClassName = '', containerClassName = '', menuClassName = '', showChevron = true, buttonDisabled = false }) {
   const [isOpen, setIsOpen] = useState(false)
   const menuRef = useRef(null)
   const visibleItems = items.filter((item) => item && item.hidden !== true)
@@ -30,7 +30,7 @@ export function ActionMenu({ label, items = [], align = 'right', ariaLabel, butt
   }
 
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef} className={`relative ${containerClassName}`.trim()}>
       <button
         type="button"
         disabled={buttonDisabled}

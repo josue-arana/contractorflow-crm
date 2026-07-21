@@ -243,7 +243,14 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onC
 
     if (!actionSucceeded) {
       setSampleProgress(null)
-      showToast(t(completedAction === 'remove' ? 'sampleDataRemoveError' : completedAction === 'update' ? 'sampleDataUpdateError' : 'sampleDataErrorBody'), 'error')
+      const sampleActionErrorKey = completedAction === 'remove'
+        ? result?.error?.code === 'SAMPLE_DATA_ESTIMATE_DEPENDENCY_BLOCKED'
+          ? 'sampleDataDependencyError'
+          : 'sampleDataRemoveError'
+        : completedAction === 'update'
+          ? 'sampleDataUpdateError'
+          : 'sampleDataErrorBody'
+      showToast(t(sampleActionErrorKey), 'error')
       return
     }
 

@@ -24,7 +24,7 @@ export function ToastProvider({ children }) {
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto w-full max-w-md rounded-2xl px-4 py-3 text-sm font-bold shadow-lg ${
+              className={`pointer-events-auto w-full max-w-md whitespace-pre-line rounded-2xl px-4 py-3 text-sm font-bold leading-5 shadow-lg ${
                 toast.type === 'error'
                   ? 'border border-rose-200 bg-rose-50 text-rose-800 shadow-rose-950/10'
                   : 'border border-emerald-200 bg-emerald-50 text-emerald-800 shadow-emerald-950/10'

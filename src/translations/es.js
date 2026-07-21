@@ -335,6 +335,9 @@ export const es = {
   "noEstimateAvailableYet": "Todavía no hay estimado disponible.",
   "noContractAvailableYet": "Todavía no hay contrato disponible.",
   "estimateNotFound": "Estimado no encontrado",
+  "estimateNotFoundHelp": "No encontramos ese estimado. Regresa a la lista de estimados y elige otro.",
+  "backToEstimates": "Volver a estimados",
+  "projectNoLongerAvailable": "El trabajo ya no está disponible",
   "contractNotFound": "Contrato no encontrado",
   "selectProjectFirst": "Selecciona un proyecto primero.",
   "noPayments": "No hay pagos registrados",
@@ -755,6 +758,18 @@ export const es = {
   "leadListHelp": "Busca, filtra y abre clientes potenciales sin salir del flujo del contratista.",
   "leadActions": "Acciones del cliente potencial",
   "leadActionsHelp": "Revisa la oportunidad, prepara un estimado o mueve este cliente potencial al flujo de trabajo cuando sea aprobado.",
+  "leadProgress": "Progreso del cliente potencial",
+  "leadProgressHelp": "Sigue esta oportunidad desde la primera consulta hasta un trabajo activo.",
+  "leadProgressInquiry": "Consulta",
+  "leadProgressEstimateSent": "Estimado enviado",
+  "leadProgressFollowUp": "Seguimiento",
+  "leadProgressApproved": "Aprobado",
+  "leadProgressConvertedToJob": "Convertido en trabajo",
+  "leadProgressCompleted": "Completado",
+  "leadProgressCurrent": "Actual",
+  "leadProgressUpcoming": "Próximo",
+  "nextRecommendedAction": "Siguiente acción recomendada",
+  "currentStage": "Etapa actual",
   "loadingLead": "Cargando cliente potencial",
   "loadingLeadHelp": "Estamos cargando los detalles más recientes de esta oportunidad.",
   "leadNotFound": "Cliente potencial no encontrado",
@@ -789,6 +804,8 @@ export const es = {
   "leadNextStepFollowUpContract": "Da seguimiento al cliente para la firma.",
   "leadNextStepScheduleProject": "Programa el inicio del proyecto.",
   "leadNextStepNoRemainingActions": "No quedan acciones pendientes para este cliente potencial.",
+  "leadCompletedStatus": "Este cliente potencial se convirtió correctamente en un proyecto activo.",
+  "openProject": "Abrir proyecto",
   "leadNextStepLost": "No hay un siguiente paso. Este cliente potencial se marcó como perdido.",
   "leadNextStepReview": "Revisa este cliente potencial y elige la siguiente acción.",
   "leadPipelineStageNewLead": "Nuevo prospecto",
@@ -801,6 +818,10 @@ export const es = {
   "leadPipelineStageLost": "Perdido",
   "leadPipelineStageArchived": "Archivado",
   "leadStageUpdated": "Etapa del cliente potencial actualizada",
+  "leadToastEstimateSent": "✓ Estimado enviado correctamente\nEl cliente ahora está revisando tu propuesta.",
+  "leadToastFollowUpComplete": "✓ Seguimiento completado\nEl cliente potencial está listo para aprobación.",
+  "leadToastEstimateApproved": "🎉 Estimado aprobado\nEste cliente potencial está listo para convertirse en trabajo.",
+  "leadToastConvertedToJob": "🎉 Trabajo creado correctamente\nEsta oportunidad entró en tu flujo de trabajos activos.",
   "notAdded": "No agregado",
   "close": "Cerrar",
   "cancel": "Cancelar",
@@ -1571,12 +1592,14 @@ export const es = {
   ,"sampleDataRemoving": "Eliminando registros de muestra de Aymero…"
   ,"sampleDataRemovedToast": "Datos de muestra eliminados."
   ,"sampleDataRemoveError": "No pudimos eliminar todos los datos de muestra. Inténtalo de nuevo para continuar de forma segura."
+  ,"sampleDataDependencyError": "Este presupuesto de muestra está vinculado a uno de tus registros. Elimina ese vínculo antes de borrar los datos de muestra."
   ,"sampleDataUpdateAction": "Actualizar espacio de muestra"
   ,"sampleDataUpdateConfirmTitle": "¿Actualizar el espacio de muestra?"
   ,"sampleDataUpdateConfirmBody": "Aymero eliminará solamente los registros de muestra anteriores generados por Aymero y los reemplazará con un recorrido de cliente totalmente conectado. Tus registros del negocio no cambiarán."
   ,"sampleDataUpdating": "Actualizando tu espacio de muestra…"
   ,"sampleDataUpdatedToast": "Tu espacio de muestra conectado está listo."
   ,"sampleDataUpdateError": "No pudimos terminar de actualizar el espacio de muestra. Inténtalo de nuevo para continuar de forma segura."
+  ,"estimateDeleteUnavailable": "No se pudo eliminar este presupuesto. Verifica tu acceso e inténtalo de nuevo."
   ,"sampleDataUpdateRequired": "Este espacio de muestra anterior requiere confirmación antes de que Aymero lo reemplace."
   ,"sampleDataBadge": "Muestra"
   ,"sampleGuideTitle": "Explora cómo funciona Aymero"

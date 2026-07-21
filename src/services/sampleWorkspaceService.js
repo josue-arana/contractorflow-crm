@@ -7,6 +7,8 @@ export const SAMPLE_WORKSPACE_RECORD_COUNT = 8
 export const SAMPLE_GUIDE_ITEM_KEYS = Object.freeze(['lead', 'estimate', 'job', 'event', 'client', 'financial'])
 
 const ENTITY_KEYS = ['lead', 'client', 'estimate', 'project', 'contract', 'event', 'invoice', 'payment']
+// Dependency-safe removal: children and financial records must be removed
+// before the estimate's project, lead, and client.
 const DELETION_ORDER = ['event', 'payment', 'invoice', 'contract', 'estimate', 'project', 'lead', 'client']
 
 function logSampleWorkspaceDebug(message, meta = {}, level = 'debug') {
@@ -205,6 +207,319 @@ function toRecordIds(records) {
 
 function hasAnyRecord(records) {
   return ENTITY_KEYS.some((key) => Boolean(records[key]?.id))
+}
+
+function isManifestBackedLegacySampleEstimate(record, settings, contractorId) {
+  const manifest = settings?.sampleWorkspace || {}
+  const estimateNumber = record?.number || record?.estimateNumber || record?.estimate_number || ''
+
+  return Boolean(
+    belongsToContractor(record, contractorId)
+      && manifest.records?.estimate
+      && record.id === manifest.records.estimate
+      && manifest.identifier === SAMPLE_DATA_IDENTIFIER
+      && ['installing', 'error', 'installed'].includes(manifest.status)
+      && estimateNumber === 'SAMPLE-EST-001'
+  )
+}
+
+function canRemoveSampleRecord(key, record, settings, contractorId) {
+  return isSampleRecord(key, record)
+    || (key === 'estimate' && isManifestBackedLegacySampleEstimate(record, settings, contractorId))
+}
+
+function referencesEstimate(record, estimateId) {
+  return Boolean(
+    estimateId
+      && (
+        relatedId(record, 'estimate') === estimateId
+        || record?.portal?.estimate?.id === estimateId
+      )
+  )
+}
+
+function summarizeDependencyResponse(response) {
+  return {
+    error: response?.error
+      ? {
+          code: response.error.code || null,
+          message: response.error.message || null,
+          details: response.error.details || null,
+        }
+      : null,
+    returnedRecordIds: Array.isArray(response?.data)
+      ? response.data.map((record) => record?.id).filter(Boolean)
+      : response?.data?.id
+        ? [response.data.id]
+        : [],
+    affectedRowCount: response?.affectedRowCount ?? null,
+    skipped: Boolean(response?.skipped),
+  }
+}
+
+function describeEstimateDependency(key, record, estimateId, contractorId, attempt = null) {
+  const sampleDataKey = record?.sampleDataKey || record?.sample_data_key || null
+  const isAymeroGenerated = isSampleRecord(key, record)
+
+  return {
+    entity: key,
+    table: `${key}s`,
+    recordId: record?.id || null,
+    contractorId: record?.contractorId || record?.contractor_id || contractorId,
+    sampleDataKey,
+    estimateId: relatedId(record, 'estimate') || (referencesEstimate(record, estimateId) ? estimateId : null),
+    projectId: relatedId(record, 'project'),
+    contractId: key === 'contract' ? record?.id || null : relatedId(record, 'contract'),
+    invoiceId: key === 'invoice' ? record?.id || null : relatedId(record, 'invoice'),
+    paymentId: key === 'payment' ? record?.id || null : relatedId(record, 'payment'),
+    referencesTargetEstimate: referencesEstimate(record, estimateId),
+    isAymeroGenerated,
+    isUserCreated: !isAymeroGenerated,
+    deletionAttempted: Boolean(attempt?.deletionAttempted),
+    deletionResponse: attempt?.deletionResponse || null,
+    verificationResponse: attempt?.verificationResponse || null,
+  }
+}
+
+async function queryEstimateDependencyState(estimateId, contractorId) {
+  // These provider calls resolve to fresh contractor-scoped Supabase queries in
+  // connected mode. React collections and the manifest are intentionally not
+  // used as proof that a dependency still exists.
+  const [paymentsResponse, invoicesResponse, contractsResponse, projectsResponse, leadsResponse, settingsResponse] = await Promise.all([
+    providerForKey('payment').list({ contractorId, includeArchived: true }),
+    providerForKey('invoice').list({ contractorId, includeArchived: true }),
+    providerForKey('contract').list({ contractorId, includeArchived: true }),
+    providerForKey('project').list({ contractorId, includeArchived: true }),
+    providerForKey('lead').list({ contractorId, includeArchived: true }),
+    dataProvider.settings.getSettings({ contractorId }),
+  ])
+  const responses = {
+    payment: paymentsResponse,
+    invoice: invoicesResponse,
+    contract: contractsResponse,
+    project: projectsResponse,
+    lead: leadsResponse,
+    manifest: settingsResponse,
+  }
+  const failedEntry = Object.entries(responses).find(([, response]) => response?.error)
+
+  if (failedEntry) {
+    throw createStageError('SAMPLE_DATA_ESTIMATE_DEPENDENCY_CHECK_FAILED', 'estimate_dependencies', {
+      code: failedEntry[1].error?.code || 'SAMPLE_DATA_ESTIMATE_DEPENDENCY_CHECK_FAILED',
+      message: failedEntry[1].error?.message || null,
+      details: {
+        entity: failedEntry[0],
+        error: failedEntry[1].error,
+      },
+    })
+  }
+
+  const records = Object.fromEntries(['payment', 'invoice', 'contract', 'project', 'lead'].map((key) => [
+    key,
+    Array.isArray(responses[key]?.data) ? responses[key].data : [],
+  ]))
+  const dependencies = Object.fromEntries(Object.entries(records).map(([key, entityRecords]) => [
+    key,
+    entityRecords.filter((record) => referencesEstimate(record, estimateId) || isSampleRecord(key, record)),
+  ]))
+
+  return {
+    dependencies,
+    manifest: settingsResponse?.data?.sampleWorkspace || null,
+    responses: Object.fromEntries(Object.entries(responses).map(([key, response]) => [
+      key,
+      summarizeDependencyResponse(response),
+    ])),
+  }
+}
+
+function logEstimateDependencyState({
+  estimateId,
+  contractorId,
+  authenticatedUserId,
+  state,
+  attempts = new Map(),
+  message = '[dev] Sample estimate dependency inspection completed.',
+  level = 'debug',
+}) {
+  const entityDiagnostics = ['payment', 'invoice', 'contract', 'project', 'lead'].map((key) => {
+    const records = state.dependencies[key] || []
+    return {
+      entity: key,
+      table: `${key}s`,
+      contractorId,
+      matchingRecordIds: records.map((record) => record.id),
+      records: records.map((record) => describeEstimateDependency(
+        key,
+        record,
+        estimateId,
+        contractorId,
+        attempts.get(`${key}:${record.id}`)
+      )),
+      databaseQueryResponse: state.responses[key],
+    }
+  })
+
+  logSampleWorkspaceDebug(message, {
+    stage: 'estimate_dependencies',
+    contractorId,
+    authenticatedUserId: authenticatedUserId || null,
+    estimateId,
+    checkedEntities: entityDiagnostics,
+    schemaAudit: {
+      databaseEstimateForeignKeys: ['contracts.estimate_id', 'payments.estimate_id'],
+      invoiceReferenceStorage: 'invoices.description JSON metadata',
+      projectsEstimateColumn: false,
+      leadsEstimateColumn: false,
+      estimateChildTables: [],
+      estimateVersionTables: [],
+      estimateJoinTables: [],
+      portalDocumentEstimateTables: [],
+      estimateLineItemsStorage: 'estimates.line_items JSONB',
+    },
+    manifest: {
+      contractorId,
+      estimateId: state.manifest?.records?.estimate || null,
+      projectId: state.manifest?.records?.project || null,
+      contractId: state.manifest?.records?.contract || null,
+      invoiceId: state.manifest?.records?.invoice || null,
+      paymentId: state.manifest?.records?.payment || null,
+      status: state.manifest?.status || null,
+      databaseQueryResponse: state.responses.manifest,
+    },
+    deletionAttempts: [...attempts.entries()].map(([dependency, attempt]) => ({
+      dependency,
+      ...attempt,
+    })),
+  }, level)
+}
+
+async function removeSampleEstimateDependencies(estimateId, contractorId, authenticatedUserId) {
+  const initialState = await queryEstimateDependencyState(estimateId, contractorId)
+  const dependencyKeys = ['payment', 'invoice', 'contract']
+  const blockingUserReferences = dependencyKeys.flatMap((key) => (
+    (initialState.dependencies[key] || [])
+      .filter((record) => referencesEstimate(record, estimateId) && !isSampleRecord(key, record))
+      .map((record) => ({ key, record }))
+  ))
+
+  logEstimateDependencyState({
+    estimateId,
+    contractorId,
+    authenticatedUserId,
+    state: initialState,
+  })
+
+  if (blockingUserReferences.length > 0) {
+    const details = blockingUserReferences.map(({ key, record }) => (
+      describeEstimateDependency(key, record, estimateId, contractorId)
+    ))
+
+    logEstimateDependencyState({
+      estimateId,
+      contractorId,
+      authenticatedUserId,
+      state: initialState,
+      message: '[dev] Sample estimate deletion was blocked to protect user-created dependencies.',
+      level: 'error',
+    })
+    throw createStageError('SAMPLE_DATA_ESTIMATE_DEPENDENCY_BLOCKED', 'estimate_dependencies', {
+      code: 'SAMPLE_DATA_ESTIMATE_DEPENDENCY_BLOCKED',
+      details,
+    })
+  }
+
+  const attempts = new Map()
+  const cleanupOrder = ['payment', 'invoice', 'contract']
+
+  for (const key of cleanupOrder) {
+    const records = (initialState.dependencies[key] || []).filter((record) => isSampleRecord(key, record))
+    for (const record of records) {
+      const deletionResponse = await providerForKey(key).deletePermanently(record.id, {
+        contractorId,
+        authenticatedUserId,
+      })
+      const verificationResponse = await providerForKey(key).getById(record.id, { contractorId })
+      attempts.set(`${key}:${record.id}`, {
+        deletionAttempted: true,
+        deletionResponse: summarizeDependencyResponse(deletionResponse),
+        verificationResponse: summarizeDependencyResponse(verificationResponse),
+      })
+    }
+  }
+
+  const verifiedState = await queryEstimateDependencyState(estimateId, contractorId)
+  const remaining = cleanupOrder.flatMap((key) => (
+    (verifiedState.dependencies[key] || [])
+      .filter((record) => referencesEstimate(record, estimateId) || isSampleRecord(key, record))
+      .map((record) => describeEstimateDependency(
+        key,
+        record,
+        estimateId,
+        contractorId,
+        attempts.get(`${key}:${record.id}`)
+      ))
+  ))
+
+  if (remaining.length > 0) {
+    logEstimateDependencyState({
+      estimateId,
+      contractorId,
+      authenticatedUserId,
+      state: verifiedState,
+      attempts,
+      message: '[dev] Aymero sample estimate dependencies remain after permanent deletion attempts.',
+      level: 'error',
+    })
+    throw createStageError('SAMPLE_DATA_ESTIMATE_DEPENDENCY_DELETE_NOT_CONFIRMED', 'estimate_dependencies', {
+      code: 'SAMPLE_DATA_ESTIMATE_DEPENDENCY_DELETE_NOT_CONFIRMED',
+      details: remaining,
+    })
+  }
+
+  logEstimateDependencyState({
+    estimateId,
+    contractorId,
+    authenticatedUserId,
+    state: verifiedState,
+    attempts,
+    message: '[dev] Aymero sample estimate dependencies were removed and verified.',
+  })
+}
+
+async function verifySampleEstimateRemoved(contractorId, settings, estimateId = '') {
+  const targetEstimateId = estimateId || settings?.sampleWorkspace?.records?.estimate || ''
+  if (!targetEstimateId) return
+
+  const response = await providerForKey('estimate').getById(targetEstimateId, {
+    contractorId,
+    includeArchived: true,
+  })
+
+  if (response?.error) {
+    throw createStageError('SAMPLE_DATA_ESTIMATE_REMOVAL_CHECK_FAILED', 'estimate', response.error)
+  }
+
+  const remainingEstimate = response?.data || null
+
+  if (remainingEstimate) {
+    logSampleWorkspaceDebug('[dev] Sample estimate still exists; project deletion was stopped.', {
+      stage: 'estimate',
+      contractorId,
+      estimateId: remainingEstimate.id,
+      projectId: relatedId(remainingEstimate, 'project'),
+      sampleDataKey: remainingEstimate.sampleDataKey || remainingEstimate.sample_data_key || null,
+      manifestEstimateId: settings?.sampleWorkspace?.records?.estimate || null,
+      verificationQuery: {
+        id: `eq.${targetEstimateId}`,
+        contractor_id: `eq.${contractorId}`,
+      },
+    }, 'error')
+    throw createStageError('SAMPLE_DATA_ESTIMATE_DELETE_NOT_CONFIRMED', 'estimate', {
+      code: 'SAMPLE_DATA_ESTIMATE_DELETE_NOT_CONFIRMED',
+      details: { estimateId: remainingEstimate.id },
+    })
+  }
 }
 
 function createInstallationResult({
@@ -851,34 +1166,96 @@ export async function createSampleWorkspace({ contractorId, authenticatedUserId 
   }
 }
 
-export async function removeSampleWorkspace({ contractorId, settings, onProgress } = {}) {
+export async function removeSampleWorkspace({ contractorId, authenticatedUserId = '', settings, onProgress } = {}) {
   if (!contractorId) return { data: null, error: { code: 'MISSING_CONTRACTOR_ID' } }
 
   try {
     const collections = await loadCollections(contractorId)
     const manifestIds = settings?.sampleWorkspace?.records || {}
     const discovered = findSampleRecords(collections, manifestIds, contractorId)
+    const manifestEstimate = (collections.estimate || []).find((estimate) => (
+      isManifestBackedLegacySampleEstimate(estimate, settings, contractorId)
+    )) || null
     const records = discovered
+
+    if (!records.estimate && manifestEstimate) {
+      records.estimate = manifestEstimate
+    }
+
+    if (records.estimate) {
+      const estimateProjectId = relatedId(records.estimate, 'project')
+      const referencingContracts = (collections.contract || []).filter((contract) => (
+        relatedId(contract, 'estimate') === records.estimate.id
+      ))
+      logSampleWorkspaceDebug('[dev] Sample cleanup inspected the persisted estimate.', {
+        stage: 'estimate',
+        estimateId: records.estimate.id,
+        contractorId,
+        sampleDataKey: records.estimate.sampleDataKey || records.estimate.sample_data_key || null,
+        clientId: relatedId(records.estimate, 'client'),
+        leadId: relatedId(records.estimate, 'lead'),
+        projectId: estimateProjectId,
+        contractIds: referencingContracts.map((contract) => contract.id),
+        manifestEstimateId: manifestIds.estimate || null,
+        manifestReferencesEstimate: manifestIds.estimate === records.estimate.id,
+        projectExists: Boolean(estimateProjectId && (collections.project || []).some((project) => project.id === estimateProjectId)),
+      })
+    }
 
     for (let index = 0; index < DELETION_ORDER.length; index += 1) {
       const key = DELETION_ORDER[index]
       const record = records[key]
       onProgress?.({ current: index, total: DELETION_ORDER.length, key: 'sampleDataRemoving' })
-      if (!record?.id || !isSampleRecord(key, record)) continue
+      if (!record?.id || !canRemoveSampleRecord(key, record, settings, contractorId)) continue
 
-      const response = await providerForKey(key).deletePermanently(record.id, { contractorId })
-      if (response?.error) throw new Error(`SAMPLE_DATA_REMOVE_${key.toUpperCase()}_FAILED`)
+      if (key === 'project') {
+        await verifySampleEstimateRemoved(contractorId, settings, records.estimate?.id)
+      }
+
+      if (key === 'estimate') {
+        await removeSampleEstimateDependencies(record.id, contractorId, authenticatedUserId)
+      }
+
+      const response = await providerForKey(key).deletePermanently(record.id, {
+        contractorId,
+        authenticatedUserId,
+      })
+      if (response?.error) {
+        throw createStageError(`SAMPLE_DATA_REMOVE_${key.toUpperCase()}_FAILED`, key, response.error)
+      }
+
+      if (key === 'estimate') {
+        await verifySampleEstimateRemoved(contractorId, settings, record.id)
+      }
+
     }
 
     const nextSettings = await persistManifest(settings, contractorId, 'not_installed', {})
     return { data: { settings: nextSettings }, error: null }
   } catch (error) {
-    return { data: null, error: { code: error?.message || 'SAMPLE_DATA_REMOVE_FAILED' } }
+    const sourceError = error?.supabaseError || error
+    logSampleWorkspaceDebug('[dev] Sample workspace removal stopped.', {
+      stage: error?.stage || 'unknown',
+      contractorId,
+      authenticatedUserId: authenticatedUserId || null,
+      code: sourceError?.code || error?.message || 'SAMPLE_DATA_REMOVE_FAILED',
+      message: sourceError?.message || null,
+      details: sourceError?.details || null,
+    }, 'error')
+    return {
+      data: null,
+      error: {
+        code: sourceError?.code || error?.message || 'SAMPLE_DATA_REMOVE_FAILED',
+        message: sourceError?.message || null,
+        details: sourceError?.details || null,
+        stage: error?.stage || null,
+      },
+    }
   }
 }
 
 export async function upgradeSampleWorkspace({ contractorId, authenticatedUserId = '', companyId = '', settings, onProgress, sampleLabel } = {}) {
-  const removalResult = await removeSampleWorkspace({ contractorId, settings, onProgress })
+  const removalResult = await removeSampleWorkspace({ contractorId, authenticatedUserId, settings, onProgress })
   if (removalResult?.error) {
     return createInstallationResult({
       settings,

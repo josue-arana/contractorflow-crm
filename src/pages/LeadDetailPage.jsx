@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ArrowLeft, BriefcaseBusiness, ClipboardList, Copy, Edit3, Trash2, Undo2 } from 'lucide-react'
+import { Archive, ArrowLeft, BriefcaseBusiness, CheckCircle2, ClipboardList, Copy, Edit3, Trash2, Undo2 } from 'lucide-react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ActionMenu } from '../components/common/ActionMenu'
 import { ConfirmRecordModal } from '../components/common/ConfirmRecordModal'
 import { useToast } from '../components/common/ToastProvider'
 import { LeadFormModal } from '../components/leads/LeadFormModal'
+import { getLeadProgressStageLabelKey, LeadProgress } from '../components/leads/LeadProgress'
 import { DetailRow } from '../components/ui/DetailRow'
 import { InfoCard } from '../components/ui/InfoCard'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -16,7 +17,7 @@ import { getLeadsContractorId } from '../services/system/leadsRuntimeService'
 import { getEstimateForLead, getEstimatedValueForLead, readLinkedEstimateDraft, writeLinkedEstimateDrafts } from '../utils/estimateLinks'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
-import { getLeadNextStepKey, getLeadPipelineStage, getLeadPrimaryAction, leadPipelineStages } from '../utils/leadPipeline'
+import { getLeadNextStepKey, getLeadPipelineStage, getLeadPipelineStageLabelKey, getLeadPrimaryAction, leadPipelineStages } from '../utils/leadPipeline'
 import { getRecordDetailsTitleKey } from '../utils/recordDetailsTitle'
 
 function logLeadDetailDevError(message, error, meta) {
@@ -158,7 +159,11 @@ export function LeadDetailPage({
     archivedAt: isArchived ? currentLead?.archivedAt || true : currentLead?.archivedAt,
   })
   const primaryAction = getLeadPrimaryAction(currentStage)
-  const nextStepDisplay = t(getLeadNextStepKey(currentStage))
+  const isConvertedToJob = currentStage === leadPipelineStages.CONVERTED_TO_JOB
+  const nextStepDisplay = t(isConvertedToJob ? 'leadCompletedStatus' : getLeadNextStepKey(currentStage))
+  const primaryActionLabel = t(isConvertedToJob ? 'openProject' : primaryAction.labelKey)
+  const progressStageLabelKey = getLeadProgressStageLabelKey(currentStage)
+  const currentStageDisplay = t(progressStageLabelKey || getLeadPipelineStageLabelKey(currentStage))
   const estimatedValueDisplay = leadHasEstimate ? currency.format(currentLead?.value || 0) : t('notEstimated')
   const recordDetailsTitle = t(getRecordDetailsTitleKey({
     ...currentLead,
@@ -500,90 +505,12 @@ export function LeadDetailPage({
           onClick: openEstimateBuilder,
         }
       : null,
-    currentStage === leadPipelineStages.ESTIMATE_CREATED
-      ? {
-          id: 'mark-estimate-sent',
-          label: t('markEstimateSent'),
-          icon: <ClipboardList className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: () => handleWorkflowTransition(leadPipelineStages.ESTIMATE_SENT),
-        }
-      : null,
-    currentStage === leadPipelineStages.ESTIMATE_SENT
-      ? {
-          id: 'mark-follow-up-complete',
-          label: t('markFollowUpComplete'),
-          icon: <ClipboardList className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: () => handleWorkflowTransition(leadPipelineStages.FOLLOW_UP),
-        }
-      : null,
-    currentStage === leadPipelineStages.FOLLOW_UP
-      ? {
-          id: 'mark-estimate-approved',
-          label: t('markEstimateApproved'),
-          icon: <ClipboardList className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: () => handleWorkflowTransition(leadPipelineStages.ESTIMATE_APPROVED),
-        }
-      : null,
-    currentStage === leadPipelineStages.ESTIMATE_APPROVED
-      ? {
-          id: 'convert-to-job',
-          label: t('convertToJob'),
-          icon: <BriefcaseBusiness className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: async () => {
-            const nextLead = await handleConvertLeadToJob()
-            if (nextLead) {
-              openJobWorkspace()
-            }
-          },
-        }
-      : null,
-    currentStage === leadPipelineStages.READY_FOR_JOB
-      ? {
-          id: 'schedule-job',
-          label: t('scheduleJob'),
-          icon: <BriefcaseBusiness className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: async () => {
-            const nextLead = await handleConvertLeadToJob()
-            if (nextLead) {
-              openJobWorkspace()
-            }
-          },
-        }
-      : null,
-    currentStage === leadPipelineStages.CONVERTED_TO_JOB
-      ? {
-          id: 'view-job',
-          label: t('viewJob'),
-          icon: <BriefcaseBusiness className="mr-2 h-4 w-4" />,
-          onClick: openJobWorkspace,
-        }
-      : null,
     !isArchived && currentStage !== leadPipelineStages.LOST && currentStage !== leadPipelineStages.CONVERTED_TO_JOB
       ? {
           id: 'mark-lost',
           label: t('markLost'),
           icon: <Undo2 className="mr-2 h-4 w-4" />,
           onClick: () => handleWorkflowTransition(leadPipelineStages.LOST),
-        }
-      : null,
-    currentStage === leadPipelineStages.LOST || isArchived
-      ? {
-          id: 'restore-lead',
-          label: t('restoreLead'),
-          icon: <Undo2 className="mr-2 h-4 w-4" />,
-          disabled: isLeadActionSubmitting,
-          onClick: () => {
-            if (isArchived) {
-              handleRestoreArchivedLead()
-            } else {
-              handleWorkflowTransition(leadPipelineStages.NEW_LEAD)
-            }
-          },
         }
       : null,
     {
@@ -632,20 +559,36 @@ export function LeadDetailPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4">
-          <h2 className="text-xl font-bold text-slate-950">{t('leadActions')}</h2>
-          <p className="mt-1 text-sm text-slate-500">{t('leadActionsHelp')}</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <button disabled={isLeadActionSubmitting} onClick={handlePrimaryAction} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">
+      <LeadProgress currentStage={currentStage} t={t} />
+
+      <section className={`rounded-3xl border p-5 shadow-sm ${isConvertedToJob ? 'border-emerald-200 bg-gradient-to-br from-white to-emerald-50/60' : 'border-slate-200 bg-white'}`}>
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-slate-950">{t('nextRecommendedAction')}</h2>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className={`rounded-2xl px-4 py-3 ${isConvertedToJob ? 'bg-emerald-50 ring-1 ring-emerald-100' : 'bg-slate-50'}`}>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{t('currentStage')}</p>
+                <p className="mt-1.5 flex items-center gap-2 text-base font-bold text-slate-950">
+                  {isConvertedToJob && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />}
+                  {currentStageDisplay}
+                </p>
+              </div>
+              <div className={`rounded-2xl px-4 py-3 ${isConvertedToJob ? 'bg-emerald-50 ring-1 ring-emerald-100' : 'bg-blue-50'}`}>
+                <p className={`text-xs font-bold uppercase tracking-[0.16em] ${isConvertedToJob ? 'text-emerald-700' : 'text-blue-600'}`}>{t(isConvertedToJob ? 'status' : 'nextStep')}</p>
+                <p className="mt-1.5 text-sm leading-6 text-slate-700">{nextStepDisplay}</p>
+              </div>
+            </div>
+          </div>
+          <button disabled={isLeadActionSubmitting} onClick={handlePrimaryAction} className="flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400 lg:w-auto lg:min-w-52 lg:translate-y-[22px]">
             {primaryActionIcon}
-            {isLeadActionSubmitting ? t('saving') : t(primaryAction.labelKey)}
+            {isLeadActionSubmitting ? t('saving') : primaryActionLabel}
           </button>
-          <button disabled={isLeadActionSubmitting} onClick={() => setIsEditOpen(true)} className="flex min-h-[58px] items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
+        </div>
+        <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center">
+          <button disabled={isLeadActionSubmitting} onClick={() => setIsEditOpen(true)} className="flex min-h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-bold text-slate-800 transition hover:bg-white hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-60">
             <Edit3 className="h-4 w-4" /> {t('editLead')}
           </button>
-          <ActionMenu label={t('more')} items={moreMenuItems} buttonDisabled={isLeadActionSubmitting} />
+          <ActionMenu label={t('more')} items={moreMenuItems} buttonDisabled={isLeadActionSubmitting} containerClassName="w-full sm:w-auto" buttonClassName="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 transition hover:bg-slate-50 sm:w-auto" />
         </div>
         {isArchived && (
           <button disabled={isLeadActionSubmitting} onClick={() => setConfirmAction({ mode: 'delete' })} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto">
@@ -654,7 +597,7 @@ export function LeadDetailPage({
         )}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
+      <section className={`grid gap-4 ${isAnalyticsMode ? 'lg:grid-cols-2' : ''}`.trim()}>
         <InfoCard title={t('clientInformation')}>
           <DetailRow label={t('name')} value={currentLead.client} />
           <DetailRow label={t('phone')} value={currentLead.phone || t('notAdded')} />
@@ -669,13 +612,6 @@ export function LeadDetailPage({
             <DetailRow label={t('projectType')} value={currentLead.projectType || t('unknownProject')} />
           </InfoCard>
         )}
-        <InfoCard title={t('nextStep')}>
-          <p className="text-sm leading-6 text-slate-600">{nextStepDisplay}</p>
-          <button onClick={handlePrimaryAction} className="mt-4 inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700">
-            {primaryActionIcon}
-            {t(primaryAction.labelKey)}
-          </button>
-        </InfoCard>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

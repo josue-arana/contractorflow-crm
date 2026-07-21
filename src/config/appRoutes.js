@@ -4,6 +4,7 @@ export const appRoutes = {
   leads: '/leads',
   leadDetail: '/leads/:id',
   estimates: '/estimates',
+  estimateDetail: '/estimates/:estimateId',
   contracts: '/contracts',
   jobs: '/jobs',
   calendar: '/calendar',

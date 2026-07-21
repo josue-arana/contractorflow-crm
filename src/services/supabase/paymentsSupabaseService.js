@@ -540,7 +540,7 @@ export async function restore(id, { contractorId } = {}) {
   }
 }
 
-export async function deletePermanently(id, { contractorId } = {}) {
+export async function deletePermanently(id, { contractorId, authenticatedUserId = '' } = {}) {
   if (!USE_SUPABASE && !USE_SUPABASE_PAYMENTS) {
     return createSkippedResponse('Supabase payments service skipped because USE_SUPABASE=false and USE_SUPABASE_PAYMENTS=false', { id, deleted: true })
   }
@@ -549,25 +549,77 @@ export async function deletePermanently(id, { contractorId } = {}) {
     return handleMissingContractorId('deletePermanently')
   }
 
+  const query = buildContractorQuery(contractorId, {
+    id: `eq.${id}`,
+  })
+
   try {
-    const data = await supabaseClient.request(TABLE_NAME, {
+    const response = await supabaseClient.request(TABLE_NAME, {
       method: 'DELETE',
-      query: buildContractorQuery(contractorId, {
-        id: `eq.${id}`,
-      }),
+      query,
+      prefer: 'return=representation,count=exact',
+      includeResponseMetadata: true,
+    })
+    const rows = Array.isArray(response?.data)
+      ? response.data
+      : response?.data
+        ? [response.data]
+        : []
+    const row = rows[0] || null
+    const affectedRowCount = response?.count ?? rows.length
+
+    warnDev('[dev] Supabase permanent payment deletion returned.', {
+      paymentId: id,
+      contractorId,
+      authenticatedUserId: authenticatedUserId || null,
+      query,
+      status: response?.status ?? null,
+      contentRange: response?.contentRange ?? null,
+      returnedDeletedRows: rows,
+      affectedRowCount,
     })
 
-    const row = readSingleRow(data)
+    if (!row?.id || affectedRowCount < 1) {
+      return {
+        data: null,
+        error: {
+          code: 'PAYMENT_DELETE_NO_ROWS',
+          message: 'The payment could not be permanently deleted.',
+          details: {
+            paymentId: id,
+            contractorId,
+            query,
+            status: response?.status ?? null,
+            contentRange: response?.contentRange ?? null,
+            returnedDeletedRows: rows,
+            affectedRowCount,
+          },
+        },
+        skipped: false,
+      }
+    }
 
     return {
-      data: row ? toAppPayment(row) : { id, deleted: true },
+      data: toAppPayment(row),
       error: null,
       skipped: false,
+      affectedRowCount,
     }
   } catch (error) {
+    const normalizedError = normalizeError(error, 'Unable to permanently delete the payment in Supabase.')
+    warnDev('[dev] Supabase permanent payment deletion failed.', {
+      paymentId: id,
+      contractorId,
+      authenticatedUserId: authenticatedUserId || null,
+      query,
+      errorCode: normalizedError.code,
+      errorMessage: normalizedError.message,
+      errorDetails: normalizedError.details,
+      status: error?.status || null,
+    })
     return {
       data: null,
-      error: normalizeError(error, 'Unable to permanently delete the payment in Supabase.'),
+      error: normalizedError,
       skipped: false,
     }
   }
