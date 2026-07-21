@@ -17,6 +17,7 @@ import { tStatus } from '../translations'
 import dataProvider from '../services/dataProvider'
 import jobsHeroBackground from '../assets/page-heroes/jobs-bg.png'
 import { buildHeroBackgroundStyle } from '../utils/heroBackground'
+import { useToast } from '../components/common/ToastProvider'
 
 const supabaseStatusToDisplayMap = {
   scheduled: 'Scheduled',
@@ -48,14 +49,16 @@ function toSupabaseJobStatus(status) {
   return displayStatusToSupabaseMap[status] || String(status).toLowerCase().replace(/\s+/g, '_')
 }
 
-export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
+export function JobsPage({ leads, clients = [], archivedIds = [], sampleWorkspace, onViewJob, onViewLead, onCreateJob, onArchiveJob, onRestoreJob, onDeleteJob, t }) {
   const [selectedFilter, setSelectedFilter] = useState('All')
   const [confirmAction, setConfirmAction] = useState(null)
   const [projects, setProjects] = useState([])
+  const [projectPayments, setProjectPayments] = useState([])
   const [isLoadingProjects, setIsLoadingProjects] = useState(false)
   const [activeJobActionId, setActiveJobActionId] = useState('')
   const jobActionGuardRef = useRef(false)
   const { contractor, company, session } = useAuth()
+  const { showToast } = useToast()
   const { isAnalyticsMode } = useAnalyticsMode()
   const contractorId = getProjectsContractorId({ contractor, company, session })
   const jobFilters = ['All', 'Archived', 'Scheduled', 'In Progress', 'Waiting on Client', 'Waiting on Materials', 'Ready for Final Walkthrough', 'Completed', 'Paid']
@@ -69,6 +72,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
     if (!USE_SUPABASE_PROJECTS) {
       setProjects([])
+      setProjectPayments([])
       return undefined
     }
 
@@ -76,15 +80,17 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
       setIsLoadingProjects(true)
 
       try {
-        const response = await dataProvider.projects.list({
-          contractorId,
-          includeArchived: true,
-        })
+        const [projectsResponse, paymentsResponse] = await Promise.all([
+          dataProvider.projects.list({ contractorId, includeArchived: true }),
+          dataProvider.payments.list({ contractorId, includeArchived: true }),
+        ])
 
         if (isCancelled) return
 
-        const nextProjects = Array.isArray(response?.data) ? response.data : []
+        const nextProjects = Array.isArray(projectsResponse?.data) ? projectsResponse.data : []
+        const nextPayments = Array.isArray(paymentsResponse?.data) ? paymentsResponse.data : []
         setProjects(nextProjects)
+        setProjectPayments(nextPayments)
       } finally {
         if (!isCancelled) {
           setIsLoadingProjects(false)
@@ -117,8 +123,19 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
         ))
         const portal = getPortalData(lead)
         const projectValue = Number(lead.projectValue ?? portal.contractAmount ?? lead.value ?? lead.estimatedValue ?? lead.contractValue ?? 0) || 0
-        const amountPaid = Number(lead.amountPaid ?? lead.paid ?? portal.amountPaid ?? 0) || 0
-        const remainingBalance = Number(lead.remainingBalance ?? lead.remaining ?? Math.max(projectValue - amountPaid, 0)) || 0
+        const linkedPaymentTotal = USE_SUPABASE_PROJECTS
+          ? projectPayments
+            .filter((payment) => (
+              !payment.archivedAt
+              && !payment.archived_at
+              && (payment.projectId === lead.id || payment.project_id === lead.id)
+            ))
+            .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
+          : 0
+        const amountPaid = Number(linkedPaymentTotal || lead.amountPaid || lead.paid || portal.amountPaid || 0) || 0
+        const remainingBalance = USE_SUPABASE_PROJECTS
+          ? Math.max(projectValue - amountPaid, 0)
+          : Number(lead.remainingBalance ?? lead.remaining ?? Math.max(projectValue - amountPaid, 0)) || 0
         const normalizedStatus = USE_SUPABASE_PROJECTS
           ? toDisplayJobStatus(lead.status)
           : (lead.projectStatus || (lead.status === 'Won' ? 'Scheduled' : 'In Progress'))
@@ -141,6 +158,8 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
         return {
           ...lead,
+          routeProjectId: USE_SUPABASE_PROJECTS ? lead.id : (lead.projectId || lead.project_id || null),
+          routeLeadId: relatedLead?.id || (!USE_SUPABASE_PROJECTS ? lead.id : (lead.leadId || lead.lead_id || null)),
           client: clientName,
           clientDisplayName: clientName || t('noClientLinked'),
           projectDisplayTitle: projectTitle,
@@ -153,7 +172,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
           nextStep: lead.nextStep || lead.notes || t('projectStatus'),
         }
       })
-  }, [clientNameById, leads, projects, t])
+  }, [clientNameById, leads, projectPayments, projects, t])
 
   const activeJobsList = jobs.filter((job) => !isArchivedJob(job))
   const filteredJobs = selectedFilter === 'All'
@@ -189,6 +208,106 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
     setConfirmAction({ mode: 'delete', job })
   }
 
+  function openJobRecord(job) {
+    if (job?.routeProjectId) {
+      onViewJob?.(job.routeProjectId, job.routeLeadId)
+      return
+    }
+
+    if (job?.routeLeadId) {
+      onViewLead?.(job.routeLeadId)
+      return
+    }
+
+    showToast(t('projectUnavailable'), 'error')
+  }
+
+  async function inspectProjectDeletion(job) {
+    const projectId = job?.routeProjectId || job?.id || ''
+    const projectResponse = await dataProvider.projects.getById(projectId, { contractorId })
+
+    if (projectResponse?.error || !projectResponse?.data) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Project deletion preflight could not load the project.', {
+          projectId,
+          contractorId,
+          code: projectResponse?.error?.code || 'PROJECT_NOT_FOUND',
+          message: projectResponse?.error?.message || null,
+          details: projectResponse?.error?.details || null,
+        })
+      }
+      return { error: projectResponse?.error || { code: 'PROJECT_NOT_FOUND' }, dependencies: null }
+    }
+
+    const project = projectResponse.data
+    const ownerId = project.contractorId || project.contractor_id || ''
+    if (!contractorId || ownerId !== contractorId) {
+      return { error: { code: 'PROJECT_OWNERSHIP_MISMATCH' }, dependencies: null }
+    }
+
+    const dependencyResponses = await Promise.all([
+      dataProvider.contracts.list({ contractorId, projectId, includeArchived: true }),
+      dataProvider.estimates.list({ contractorId, projectId, includeArchived: true }),
+      dataProvider.invoices.list({ contractorId, projectId, includeArchived: true }),
+      dataProvider.payments.list({ contractorId, projectId, includeArchived: true }),
+      dataProvider.events.list({ contractorId, projectId, includeArchived: true }),
+      dataProvider.photos.listProjectPhotos({ contractorId, projectId }),
+    ])
+    const dependencyKeys = ['contracts', 'estimates', 'invoices', 'payments', 'events', 'photos']
+    const failedIndex = dependencyResponses.findIndex((response) => response?.error)
+
+    if (failedIndex >= 0) {
+      const error = dependencyResponses[failedIndex].error
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Project deletion dependency check failed.', {
+          projectId,
+          contractorId,
+          relationship: dependencyKeys[failedIndex],
+          code: error?.code || null,
+          message: error?.message || null,
+          details: error?.details || null,
+        })
+      }
+      return { error, dependencies: null }
+    }
+
+    const dependencies = Object.fromEntries(dependencyKeys.map((key, index) => [
+      key,
+      (dependencyResponses[index]?.data || []).map((record) => record.id).filter(Boolean),
+    ]))
+    dependencies.documents = (Array.isArray(project.documents) ? project.documents : [])
+      .map((document) => document?.id)
+      .filter(Boolean)
+    const manifestProjectId = sampleWorkspace?.records?.project || null
+
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.debug('[dev] Project deletion preflight completed.', {
+        project: {
+          id: project.id,
+          contractorId: ownerId,
+          clientId: project.clientId || project.client_id || null,
+          leadId: project.leadId || project.lead_id || null,
+          sampleDataKey: project.sampleDataKey || project.sample_data_key || null,
+          title: project.projectTitle || project.title || null,
+          status: project.projectStatus || project.status || null,
+        },
+        manifestProjectId,
+        isManifestProject: manifestProjectId === project.id,
+        dependencies,
+      })
+    }
+
+    return {
+      data: project,
+      error: null,
+      dependencies,
+      hasDependencies: Object.values(dependencies).some((ids) => ids.length > 0),
+    }
+  }
+
   async function runSingleFlightJobAction(jobId, task) {
     if (jobActionGuardRef.current) {
       return false
@@ -208,27 +327,76 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
   async function runConfirmAction() {
     if (!confirmAction) return
-    await runSingleFlightJobAction(confirmAction.job.id, async () => {
+    const projectId = confirmAction.job.routeProjectId || ''
+    if (!projectId) {
+      showToast(t('projectUnavailable'), 'error')
+      setConfirmAction(null)
+      return
+    }
+
+    await runSingleFlightJobAction(projectId, async () => {
       try {
         if (confirmAction.mode === 'archive') {
-          await dataProvider?.projects?.archive?.(confirmAction.job.id, { contractorId })
+          const response = await dataProvider?.projects?.archive?.(projectId, { contractorId })
+          if (response?.error) throw response.error
           if (USE_SUPABASE_PROJECTS) {
             setProjects((current) => current.map((project) => (
-              project.id === confirmAction.job.id
+              project.id === projectId
                 ? { ...project, archivedAt: new Date().toISOString(), archived_at: new Date().toISOString(), isArchived: true }
                 : project
             )))
           }
-          onArchiveJob(confirmAction.job.id)
+          onArchiveJob?.(projectId)
         }
         if (confirmAction.mode === 'delete') {
-          await dataProvider?.projects?.deletePermanently?.(confirmAction.job.id, { contractorId })
-          if (USE_SUPABASE_PROJECTS) {
-            setProjects((current) => current.filter((project) => project.id !== confirmAction.job.id))
+          const inspection = await inspectProjectDeletion(confirmAction.job)
+          if (inspection.error) {
+            showToast(t('projectDeleteFailed'), 'error')
+            return false
           }
-          onDeleteJob(confirmAction.job.id)
+          if (inspection.hasDependencies) {
+            showToast(t('projectDeleteBlocked'), 'error')
+            return false
+          }
+
+          const response = await dataProvider?.projects?.deletePermanently?.(projectId, { contractorId })
+          if (response?.error) {
+            if (import.meta.env.DEV) {
+              // eslint-disable-next-line no-console
+              console.error('[dev] Project deletion failed.', {
+                projectId,
+                contractorId,
+                code: response.error?.code || null,
+                message: response.error?.message || null,
+                details: response.error?.details || null,
+              })
+            }
+            showToast(t('projectDeleteFailed'), 'error')
+            return false
+          }
+          if (USE_SUPABASE_PROJECTS) {
+            setProjects((current) => current.filter((project) => project.id !== projectId))
+          }
+          onDeleteJob?.(projectId)
+          const refreshResponse = await dataProvider.projects.list({ contractorId, includeArchived: true })
+          if (!refreshResponse?.error && Array.isArray(refreshResponse?.data)) {
+            setProjects(refreshResponse.data)
+          }
+          showToast(t('itemDeletedPermanently'))
         }
       } catch (err) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.error('[dev] Jobs project action failed.', {
+            action: confirmAction.mode,
+            projectId,
+            contractorId,
+            code: err?.code || null,
+            message: err?.message || null,
+            details: err?.details || null,
+          })
+        }
+        showToast(t(confirmAction.mode === 'delete' ? 'projectDeleteFailed' : 'archiveFailed'), 'error')
         return false
       } finally {
         setConfirmAction(null)
@@ -246,23 +414,25 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
             id: 'restore-job',
             label: t('restore'),
             icon: <Undo2 className="mr-2 h-4 w-4" />,
-            disabled: isJobActionPending,
+            disabled: isJobActionPending || !job.routeProjectId,
             onClick: async (event) => {
               event.stopPropagation()
-              await runSingleFlightJobAction(job.id, async () => {
+              await runSingleFlightJobAction(job.routeProjectId, async () => {
                 try {
-                  await dataProvider?.projects?.restore?.(job.id, { contractorId })
+                  const response = await dataProvider?.projects?.restore?.(job.routeProjectId, { contractorId })
+                  if (response?.error) throw response.error
                   if (USE_SUPABASE_PROJECTS) {
                     setProjects((current) => current.map((project) => (
-                      project.id === job.id
+                      project.id === job.routeProjectId
                         ? { ...project, archivedAt: null, archived_at: null, isArchived: false }
                         : project
                     )))
                   }
                 } catch (err) {
+                  showToast(t('restoreFailed'), 'error')
                   return false
                 }
-                onRestoreJob(job.id)
+                onRestoreJob?.(job.routeProjectId)
                 return true
               })
             },
@@ -271,12 +441,20 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
             id: 'delete-job',
             label: t('deletePermanently'),
             icon: <Trash2 className="mr-2 h-4 w-4" />,
-            disabled: isJobActionPending,
+            disabled: isJobActionPending || !job.routeProjectId,
             onClick: () => confirmDelete(job),
             className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
           },
         ]
       : [
+          {
+            id: 'delete-job',
+            label: t('deletePermanently'),
+            icon: <Trash2 className="mr-2 h-4 w-4" />,
+            disabled: isJobActionPending || !job.routeProjectId,
+            onClick: () => confirmDelete(job),
+            className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+          },
           {
             id: 'archive-job',
             label: t('archive'),
@@ -294,7 +472,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
     if (isArchived) {
       return (
         <div className={actionLayoutClasses}>
-          <button disabled={isJobActionPending} onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewJob')}</button>
+          <button disabled={isJobActionPending || (!job.routeProjectId && !job.routeLeadId)} onClick={(event) => { event.stopPropagation(); openJobRecord(job) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t(job.routeProjectId ? 'viewJob' : job.routeLeadId ? 'viewLead' : 'projectUnavailable')}</button>
           <ActionMenu
             label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
             ariaLabel={t('more')}
@@ -308,7 +486,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
     }
     return (
       <div className={actionLayoutClasses}>
-        <button disabled={isJobActionPending} onClick={(event) => { event.stopPropagation(); onViewJob(job.id) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t('viewJob')}</button>
+        <button disabled={isJobActionPending || (!job.routeProjectId && !job.routeLeadId)} onClick={(event) => { event.stopPropagation(); openJobRecord(job) }} className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-600">{t(job.routeProjectId ? 'viewJob' : job.routeLeadId ? 'viewLead' : 'projectUnavailable')}</button>
         <ActionMenu
           label={compact ? <MoreVertical className="h-4 w-4" /> : t('more')}
           ariaLabel={t('more')}
@@ -400,7 +578,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredJobs.map((job) => (
-                <tr key={job.id} onClick={() => onViewJob(job.id)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
+                <tr key={job.id} onClick={() => openJobRecord(job)} className="cursor-pointer bg-white transition hover:bg-blue-50/40">
                   <td className="px-4 py-4">
                     <p className="font-bold text-slate-950">{job.clientDisplayName}</p>
                     <p className="text-sm text-slate-500">{job.projectDisplayTitle}</p>
@@ -420,7 +598,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
 
         <div className="space-y-3 md:hidden">
           {filteredJobs.map((job) => (
-            <article key={job.id} onClick={() => onViewJob(job.id)} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <article key={job.id} onClick={() => openJobRecord(job)} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-slate-950">{job.clientDisplayName}</h3>
@@ -450,7 +628,7 @@ export function JobsPage({ leads, clients = [], archivedIds = [], onViewJob, onC
           </div>
         )}
       </section>
-      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('confirmPermanentDelete') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('permanentDeleteHelp') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
+      <ConfirmRecordModal isOpen={Boolean(confirmAction)} mode={confirmAction?.mode} title={confirmAction?.mode === 'delete' ? t('deleteProjectConfirmTitle') : t('confirmArchive')} message={confirmAction?.mode === 'delete' ? t('deleteProjectConfirmBody') : t('archiveHelp')} confirmLabel={confirmAction?.mode === 'delete' ? t('deletePermanently') : t('archive')} onCancel={() => setConfirmAction(null)} onConfirm={runConfirmAction} t={t} />
     </div>
   )
 }

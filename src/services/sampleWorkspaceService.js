@@ -24,16 +24,15 @@ function createStageError(code, stage, error = null) {
   return stageError
 }
 
-function createSampleNames(sampleLabel) {
-  const label = String(sampleLabel || 'Sample').trim() || 'Sample'
+function createSampleNames() {
   return {
-    client: `Maria Rodriguez (${label})`,
-    leadProject: `Kitchen Renovation Inquiry (${label})`,
-    project: `Kitchen Renovation (${label})`,
-    estimate: `Kitchen Renovation Estimate (${label})`,
-    contract: `Kitchen Renovation Contract (${label})`,
-    event: `Kitchen Renovation — Initial Site Visit (${label})`,
-    invoice: `Kitchen Renovation Initial Deposit (${label})`,
+    client: 'Maria Rodriguez',
+    leadProject: 'Kitchen Renovation Inquiry',
+    project: 'Kitchen Renovation',
+    estimate: 'Kitchen Renovation Estimate',
+    contract: 'Kitchen Renovation Contract',
+    event: 'Kitchen Renovation — Initial Site Visit',
+    invoice: 'Kitchen Renovation Initial Deposit',
   }
 }
 
@@ -56,31 +55,62 @@ function belongsToContractor(record, contractorId) {
   return Boolean(record?.id && contractorId && (record.contractorId || record.contractor_id) === contractorId)
 }
 
+function getSampleRecordsForKey(collections, key, contractorId) {
+  return (collections[key] || []).filter((record) => (
+    isSampleRecord(key, record) && belongsToContractor(record, contractorId)
+  ))
+}
+
 function findSampleRecords(collections, manifestRecords = {}, contractorId = '') {
-  return Object.fromEntries(ENTITY_KEYS.map((key) => [
-    key,
-    collections[key].find((record) => (
+  const records = Object.fromEntries(ENTITY_KEYS.map((key) => {
+    const sampleRecords = getSampleRecordsForKey(collections, key, contractorId)
+    return [
+      key,
+      sampleRecords.find((record) => (
       record.id === manifestRecords[key]
-      && isSampleRecord(key, record)
-      && belongsToContractor(record, contractorId)
-    )) || collections[key].find((record) => (
-      isSampleRecord(key, record)
-      && belongsToContractor(record, contractorId)
-    )) || null,
-  ]))
+      )) || sampleRecords[0] || null,
+    ]
+  }))
+
+  const projectCandidates = getSampleRecordsForKey(collections, 'project', contractorId)
+  const manifestProject = projectCandidates.find((project) => project.id === manifestRecords.project)
+
+  if (manifestProject) {
+    records.project = manifestProject
+  } else if (projectCandidates.length > 1) {
+    const projectReferenceCounts = new Map(projectCandidates.map((project) => [project.id, 0]))
+    ENTITY_KEYS.filter((key) => key !== 'project').forEach((key) => {
+      const projectId = relatedId(records[key], 'project')
+      if (projectReferenceCounts.has(projectId)) {
+        projectReferenceCounts.set(projectId, projectReferenceCounts.get(projectId) + 1)
+      }
+    })
+    records.project = [...projectCandidates].sort((left, right) => (
+      (projectReferenceCounts.get(right.id) || 0) - (projectReferenceCounts.get(left.id) || 0)
+      || String(left.createdAt || '').localeCompare(String(right.createdAt || ''))
+      || String(left.id).localeCompare(String(right.id))
+    ))[0]
+  }
+
+  return records
 }
 
 function relatedId(record, relationship) {
   return record?.[`${relationship}Id`] || record?.[`${relationship}_id`] || null
 }
 
-function verifySampleRecords(records, contractorId) {
+function verifySampleRecords(records, contractorId, collections = null) {
   const failures = []
 
   ENTITY_KEYS.forEach((key) => {
     if (!records[key]?.id) failures.push(`${key}:missing`)
     else if (!isSampleRecord(key, records[key])) failures.push(`${key}:invalid_sample_key`)
     else if (!belongsToContractor(records[key], contractorId)) failures.push(`${key}:wrong_contractor`)
+
+    if (collections) {
+      const sampleRecordCount = getSampleRecordsForKey(collections, key, contractorId).length
+      if (sampleRecordCount !== 1) failures.push(`${key}:expected_one_found_${sampleRecordCount}`)
+    }
   })
 
   const expectedRelationships = [
@@ -119,12 +149,90 @@ function verifySampleRecords(records, contractorId) {
   return { valid: failures.length === 0, failures }
 }
 
+async function removeDuplicateSampleProjects(collections, canonicalProject, contractorId) {
+  const duplicateProjects = getSampleRecordsForKey(collections, 'project', contractorId)
+    .filter((project) => project.id !== canonicalProject?.id)
+
+  for (const duplicateProject of duplicateProjects) {
+    const blockingReferences = ENTITY_KEYS
+      .filter((key) => key !== 'project')
+      .flatMap((key) => (collections[key] || []).filter((record) => (
+        relatedId(record, 'project') === duplicateProject.id
+        && !isSampleRecord(key, record)
+      )).map((record) => ({ key, id: record.id })))
+    const photosResponse = await dataProvider.photos.listProjectPhotos({
+      contractorId,
+      projectId: duplicateProject.id,
+    })
+
+    if (photosResponse?.error) {
+      throw createStageError('SAMPLE_DATA_PROJECT_CLEANUP_CHECK_FAILED', 'project_cleanup', photosResponse.error)
+    }
+
+    if (Array.isArray(photosResponse?.data) && photosResponse.data.length > 0) {
+      blockingReferences.push(...photosResponse.data.map((photo) => ({ key: 'photo', id: photo.id })))
+    }
+
+    if (blockingReferences.length > 0) {
+      logSampleWorkspaceDebug('[dev] Duplicate sample project cleanup was blocked to protect user-created records.', {
+        stage: 'project_cleanup',
+        contractorId,
+        duplicateProjectId: duplicateProject.id,
+        blockingReferences,
+      }, 'error')
+      throw createStageError('SAMPLE_DATA_PROJECT_CLEANUP_BLOCKED', 'project_cleanup', {
+        code: 'SAMPLE_DATA_USER_RECORD_PROTECTION',
+        details: blockingReferences,
+      })
+    }
+
+    logSampleWorkspaceDebug('[dev] Removing duplicate internally keyed sample project.', {
+      stage: 'project_cleanup',
+      contractorId,
+      canonicalProjectId: canonicalProject.id,
+      duplicateProjectId: duplicateProject.id,
+    })
+    const response = await providerForKey('project').deletePermanently(duplicateProject.id, { contractorId })
+    if (response?.error) {
+      throw createStageError('SAMPLE_DATA_PROJECT_CLEANUP_FAILED', 'project_cleanup', response.error)
+    }
+  }
+}
+
 function toRecordIds(records) {
   return Object.fromEntries(ENTITY_KEYS.filter((key) => records[key]?.id).map((key) => [key, records[key].id]))
 }
 
 function hasAnyRecord(records) {
   return ENTITY_KEYS.some((key) => Boolean(records[key]?.id))
+}
+
+function createInstallationResult({
+  success = false,
+  installed = false,
+  partial = false,
+  settings = null,
+  records = {},
+  warnings = [],
+  errorCode = null,
+  duplicate = false,
+  upgradeRequired = false,
+  upgraded = false,
+} = {}) {
+  return {
+    success: Boolean(success),
+    installed: Boolean(installed),
+    partial: Boolean(partial),
+    manifest: settings?.sampleWorkspace || null,
+    recordIds: toRecordIds(records),
+    records,
+    settings,
+    warnings,
+    errorCode,
+    duplicate: Boolean(duplicate),
+    upgradeRequired: Boolean(upgradeRequired),
+    upgraded: Boolean(upgraded),
+  }
 }
 
 export function hasCompleteSampleWorkspaceManifest(settings = {}) {
@@ -211,16 +319,23 @@ async function persistManifest(settings, contractorId, status, records, { resetG
     recordIds: toRecordIds(records),
     manifestUpdated: true,
   })
-  return response?.data || nextSettings
+  // The submitted manifest is authoritative after a successful mutation. Some
+  // PostgREST configurations return an empty or stale representation even
+  // though the PATCH committed, so never replace it with an older response.
+  return createDefaultCompanySettings({
+    ...(response?.data || {}),
+    ...nextSettings,
+    sampleWorkspace: nextSettings.sampleWorkspace,
+  })
 }
 
-async function createEntity(key, payload, contractorId) {
+async function createEntity(key, payload, contractorId, serviceContext = {}) {
   logSampleWorkspaceDebug('[dev] Creating sample workspace record.', {
     stage: key,
     contractorId,
     payload,
   })
-  const response = await providerForKey(key).create(payload, { contractorId })
+  const response = await providerForKey(key).create(payload, { contractorId, ...serviceContext })
   if (response?.error || !response?.data?.id) {
     logSampleWorkspaceDebug('[dev] Sample workspace record creation failed.', {
       stage: key,
@@ -308,19 +423,41 @@ export async function updateSampleWorkspaceGuide({ contractorId, settings, guide
   return { data: { settings: response?.data || nextSettings }, error: null }
 }
 
-export async function createSampleWorkspace({ contractorId, settings, onProgress, sampleLabel } = {}) {
-  if (!contractorId) return { data: null, error: { code: 'MISSING_CONTRACTOR_ID' }, duplicate: false }
+export async function createSampleWorkspace({ contractorId, authenticatedUserId = '', companyId = '', settings, onProgress } = {}) {
+  if (!contractorId) {
+    return createInstallationResult({ errorCode: 'MISSING_CONTRACTOR_ID' })
+  }
 
   let currentSettings = createDefaultCompanySettings(settings)
   let records = {}
   let wasAlreadyComplete = false
   let reusedEstimateFromStart = false
-  const sampleNames = createSampleNames(sampleLabel)
+  let installationCommitted = false
+  const warnings = []
+  const sampleNames = createSampleNames()
+
+  function reportProgress(progress) {
+    try {
+      onProgress?.(progress)
+    } catch (error) {
+      const warning = {
+        code: 'SAMPLE_DATA_PROGRESS_CALLBACK_FAILED',
+        failingFunction: 'onProgress',
+      }
+      warnings.push(warning)
+      logSampleWorkspaceDebug('[dev] Sample workspace progress callback failed after a database operation.', {
+        ...warning,
+        contractorId,
+        message: error?.message || null,
+      }, 'error')
+    }
+  }
 
   try {
-    onProgress?.({ current: 0, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataChecking' })
+    reportProgress({ current: 0, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataChecking' })
+    const initialCollections = await loadCollections(contractorId)
     records = findSampleRecords(
-      await loadCollections(contractorId),
+      initialCollections,
       currentSettings?.sampleWorkspace?.records,
       contractorId,
     )
@@ -330,10 +467,16 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
       hasAnyRecord(records)
       && needsSampleWorkspaceUpgrade(currentSettings)
     ) {
-      return { data: { records, settings: currentSettings }, error: null, duplicate: false, upgradeRequired: true }
+      return createInstallationResult({
+        partial: true,
+        settings: currentSettings,
+        records,
+        warnings,
+        upgradeRequired: true,
+      })
     }
 
-    wasAlreadyComplete = verifySampleRecords(records, contractorId).valid
+    wasAlreadyComplete = verifySampleRecords(records, contractorId, initialCollections).valid
 
     currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records, {
       resetGuide: !hasAnyRecord(records),
@@ -353,7 +496,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         priority: 'Medium',
         notes: `${SAMPLE_DATA_IDENTIFIER} — Fictional kitchen renovation inquiry.`,
       }, contractorId)
-      onProgress?.({ current: 1, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingLead' })
+      reportProgress({ current: 1, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingLead' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -367,7 +510,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:client`,
         notes: `${SAMPLE_DATA_IDENTIFIER} — Fictional Aymero sample client.`,
       }, contractorId)
-      onProgress?.({ current: 2, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingClient' })
+      reportProgress({ current: 2, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingClient' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -397,34 +540,33 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         status: 'Approved',
         sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:estimate`,
       }, contractorId)
-      onProgress?.({ current: 3, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingEstimate' })
+      reportProgress({ current: 3, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingEstimate' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
+    }
+
+    const sampleProjectPayload = {
+      leadId: records.lead.id,
+      clientId: records.client.id,
+      projectTitle: sampleNames.project,
+      projectType: 'Kitchen Renovation',
+      description: 'Fictional kitchen renovation demonstrating a complete Aymero customer journey.',
+      address: '100 Example Lane, Sampletown, MD 00000',
+      projectStatus: 'In Progress',
+      sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:project`,
+      estimatedValue: 20000,
+      contractValue: 20000,
+      startDate: todayPlusDays(-14),
+      targetCompletion: todayPlusDays(35),
+      notes: `${SAMPLE_DATA_IDENTIFIER} — Aymero sample project.`,
     }
 
     if (!records.project) {
-      records.project = await createEntity('project', {
-        leadId: records.lead.id,
-        clientId: records.client.id,
-        projectTitle: sampleNames.project,
-        projectType: 'Kitchen Renovation',
-        description: 'Fictional kitchen renovation demonstrating a complete Aymero customer journey.',
-        address: '100 Example Lane, Sampletown, MD 00000',
-        projectStatus: 'In Progress',
-        sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:project`,
-        estimatedValue: 20000,
-        contractValue: 20000,
-        startDate: todayPlusDays(-14),
-        targetCompletion: todayPlusDays(35),
-        notes: `${SAMPLE_DATA_IDENTIFIER} — Aymero sample project.`,
-      }, contractorId)
-      onProgress?.({ current: 4, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingProject' })
+      records.project = await createEntity('project', sampleProjectPayload, contractorId)
+      reportProgress({ current: 4, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingProject' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
-    records.project = await updateEntity('project', records.project.id, {
-      leadId: records.lead.id,
-      clientId: records.client.id,
-    }, contractorId)
+    records.project = await updateEntity('project', records.project.id, sampleProjectPayload, contractorId)
     records.lead = await updateEntity('lead', records.lead.id, {
       clientId: records.client.id,
       projectId: records.project.id,
@@ -453,7 +595,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
       sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:estimate`,
     }
 
-    onProgress?.({ current: 4, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataConnectingEstimate' })
+    reportProgress({ current: 4, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataConnectingEstimate' })
     try {
       records.estimate = await updateEntity('estimate', records.estimate.id, connectedEstimatePayload, contractorId)
     } catch (error) {
@@ -493,7 +635,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:contract`,
         signedBy: sampleNames.client,
       }, contractorId)
-      onProgress?.({ current: 5, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingContract' })
+      reportProgress({ current: 5, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingContract' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -525,7 +667,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         clientName: sampleNames.client,
         projectTitle: sampleNames.project,
       }, contractorId)
-      onProgress?.({ current: 6, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingSchedule' })
+      reportProgress({ current: 6, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingSchedule' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -557,8 +699,8 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         dueDate: todayPlusDays(-3),
         paymentTerms: 'net_7',
         sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:invoice`,
-      }, contractorId)
-      onProgress?.({ current: 7, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingFinancials' })
+      }, contractorId, { authenticatedUserId, companyId })
+      reportProgress({ current: 7, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingFinancials' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -571,7 +713,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         estimateId: records.estimate.id,
         invoiceId: records.invoice.id,
         amount: 10000,
-        paymentType: 'Initial Deposit Paid',
+        paymentType: 'Initial Deposit',
         paymentMethod: 'Check',
         paymentDate: todayPlusDays(-3),
         referenceNumber: 'AYMERO-SAMPLE-DEPOSIT',
@@ -579,7 +721,7 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         sampleDataKey: `${SAMPLE_DATA_IDENTIFIER}:payment`,
         notes: `${SAMPLE_DATA_IDENTIFIER} — Fictional initial deposit paid in full.`,
       }, contractorId)
-      onProgress?.({ current: 8, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingFinancials' })
+      reportProgress({ current: 8, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataCreatingFinancials' })
       currentSettings = await persistManifest(currentSettings, contractorId, 'installing', records)
     }
 
@@ -609,18 +751,22 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
         amount: 10000,
         date: todayPlusDays(-3),
         method: 'Check',
-        type: 'Initial Deposit Paid',
+        type: 'Initial Deposit',
       }],
     }, contractorId)
 
-    onProgress?.({ current: SAMPLE_WORKSPACE_RECORD_COUNT, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataVerifying' })
-    const verifiedCollections = await loadCollections(contractorId)
-    const verifiedRecords = findSampleRecords(
+    reportProgress({ current: SAMPLE_WORKSPACE_RECORD_COUNT, total: SAMPLE_WORKSPACE_RECORD_COUNT, key: 'sampleDataVerifying' })
+    let verifiedCollections = await loadCollections(contractorId)
+    let verifiedRecords = findSampleRecords(
       verifiedCollections,
       toRecordIds(records),
       contractorId,
     )
-    const verification = verifySampleRecords(verifiedRecords, contractorId)
+
+    await removeDuplicateSampleProjects(verifiedCollections, verifiedRecords.project, contractorId)
+    verifiedCollections = await loadCollections(contractorId)
+    verifiedRecords = findSampleRecords(verifiedCollections, toRecordIds(verifiedRecords), contractorId)
+    const verification = verifySampleRecords(verifiedRecords, contractorId, verifiedCollections)
 
     logSampleWorkspaceDebug('[dev] Sample workspace verification completed.', {
       stage: 'verification',
@@ -639,18 +785,33 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
 
     records = verifiedRecords
     currentSettings = await persistManifest(currentSettings, contractorId, 'installed', records)
+    installationCommitted = true
     const installedRecordIds = currentSettings?.sampleWorkspace?.records || {}
     const manifestIsComplete = currentSettings?.sampleWorkspace?.status === 'installed'
       && ENTITY_KEYS.every((key) => installedRecordIds[key] === records[key].id)
 
     if (!manifestIsComplete) {
-      throw createStageError('SAMPLE_DATA_MANIFEST_INCOMPLETE', 'manifest', {
-        code: 'SAMPLE_DATA_MANIFEST_INCOMPLETE',
-        details: installedRecordIds,
-      })
+      const warning = {
+        code: 'SAMPLE_DATA_MANIFEST_RESPONSE_STALE',
+        failingFunction: 'persistManifest',
+      }
+      warnings.push(warning)
+      logSampleWorkspaceDebug('[dev] Installed manifest write completed, but its returned representation was stale.', {
+        ...warning,
+        contractorId,
+        installedRecordIds,
+        verifiedRecordIds: toRecordIds(records),
+      }, 'error')
     }
 
-    return { data: { records, settings: currentSettings }, error: null, duplicate: wasAlreadyComplete, upgradeRequired: false }
+    return createInstallationResult({
+      success: true,
+      installed: true,
+      settings: currentSettings,
+      records,
+      warnings,
+      duplicate: wasAlreadyComplete,
+    })
   } catch (error) {
     logSampleWorkspaceDebug('[dev] Sample workspace installation stopped.', {
       stage: error?.stage || 'unknown',
@@ -660,12 +821,33 @@ export async function createSampleWorkspace({ contractorId, settings, onProgress
       details: error?.supabaseError?.details || null,
       recordIds: toRecordIds(records),
     }, 'error')
+    if (installationCommitted) {
+      const warning = {
+        code: error?.message || 'SAMPLE_DATA_POST_INSTALL_FAILED',
+        failingFunction: error?.stage || 'postInstall',
+      }
+      return createInstallationResult({
+        success: true,
+        installed: true,
+        settings: currentSettings,
+        records,
+        warnings: [...warnings, warning],
+        duplicate: wasAlreadyComplete,
+      })
+    }
+
     try {
       currentSettings = await persistManifest(currentSettings, contractorId, 'error', records)
     } catch {
       // The next retry discovers marked records directly from contractor-scoped entity lists.
     }
-    return { data: { records, settings: currentSettings }, error: { code: error?.message || 'SAMPLE_DATA_CREATE_FAILED' }, duplicate: false, upgradeRequired: false }
+    return createInstallationResult({
+      partial: hasAnyRecord(records),
+      settings: currentSettings,
+      records,
+      warnings,
+      errorCode: error?.message || 'SAMPLE_DATA_CREATE_FAILED',
+    })
   }
 }
 
@@ -695,17 +877,27 @@ export async function removeSampleWorkspace({ contractorId, settings, onProgress
   }
 }
 
-export async function upgradeSampleWorkspace({ contractorId, settings, onProgress, sampleLabel } = {}) {
+export async function upgradeSampleWorkspace({ contractorId, authenticatedUserId = '', companyId = '', settings, onProgress, sampleLabel } = {}) {
   const removalResult = await removeSampleWorkspace({ contractorId, settings, onProgress })
-  if (removalResult?.error) return { ...removalResult, upgraded: false }
+  if (removalResult?.error) {
+    return createInstallationResult({
+      settings,
+      errorCode: removalResult.error.code || 'SAMPLE_DATA_REMOVE_FAILED',
+    })
+  }
 
   const creationResult = await createSampleWorkspace({
     contractorId,
+    authenticatedUserId,
+    companyId,
     settings: removalResult.data.settings,
     onProgress,
     sampleLabel,
   })
-  return { ...creationResult, upgraded: !creationResult?.error }
+  return {
+    ...creationResult,
+    upgraded: creationResult.success && creationResult.installed,
+  }
 }
 
 export default {

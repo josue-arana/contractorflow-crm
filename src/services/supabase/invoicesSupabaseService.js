@@ -641,7 +641,7 @@ export async function getById(id, { contractorId } = {}) {
   }
 }
 
-export async function create(invoiceData, { contractorId } = {}) {
+export async function create(invoiceData, { contractorId, authenticatedUserId = '', companyId = '' } = {}) {
   if (!USE_SUPABASE && !USE_SUPABASE_INVOICES) {
     return createSkippedResponse('Supabase invoices service skipped because USE_SUPABASE=false', invoiceData ?? null)
   }
@@ -650,6 +650,8 @@ export async function create(invoiceData, { contractorId } = {}) {
     return handleMissingContractorId('create')
   }
 
+  let submittedPayload = null
+
   try {
     const invoiceNumber = await ensureUniqueInvoiceNumber(contractorId, invoiceData)
     const payload = toSupabasePayload(contractorId, {
@@ -657,6 +659,7 @@ export async function create(invoiceData, { contractorId } = {}) {
       number: invoiceNumber,
       invoiceNumber,
     }, { isCreate: true })
+    submittedPayload = payload
     const payloadValidation = validateInvoicePayload('create', invoiceData, payload)
 
     if (payloadValidation) {
@@ -684,6 +687,28 @@ export async function create(invoiceData, { contractorId } = {}) {
       skipped: false,
     }
   } catch (error) {
+    if (error?.code === '42501') {
+      warnDev('[dev] Authenticated invoice insert was rejected by RLS.', {
+        stage: 'invoice',
+        code: error.code,
+        message: error.message || null,
+        authenticatedUserId: authenticatedUserId || null,
+        contractorId,
+        companyId: companyId || null,
+        invoiceOwnership: {
+          contractorId: submittedPayload?.contractor_id || null,
+          projectId: submittedPayload?.project_id || null,
+          clientId: submittedPayload?.client_id || null,
+          contractId: submittedPayload?.contract_id || null,
+          estimateId: readField(invoiceData, ['estimateId', 'estimate_id']) || null,
+          leadId: readField(invoiceData, ['leadId', 'lead_id']) || null,
+        },
+        submittedPayload,
+        insertPolicyPredicate: 'public.is_active_contractor_member(contractor_id)',
+        membershipPredicate: 'contractor_members.contractor_id = contractor_id AND contractor_members.user_id = auth.uid() AND status = active AND archived_at IS NULL',
+      })
+    }
+
     return {
       data: null,
       error: normalizeError(error, 'Unable to create the invoice in Supabase.'),

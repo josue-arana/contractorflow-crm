@@ -2,6 +2,7 @@ import { Check, FileText } from 'lucide-react'
 import { currency } from '../../utils/formatters'
 import { getLanguageLocale } from '../../utils/language'
 import { getDocumentDensityVariables } from '../../utils/documentDensity'
+import { getPaymentTermLabel } from '../../utils/paymentTerms'
 import '../documents/documentDensity.css'
 
 const colors = {
@@ -558,7 +559,7 @@ export function EstimatePdfTemplate({
                   wordBreak: 'break-word',
                 }}
               >
-                {paymentTerms}
+                {getPaymentTermLabel(paymentTerms, t)}
               </div>
             </div>
           </div>

@@ -18,6 +18,7 @@ import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
 import { getLanguageLocale, resolveClientFacingLanguage } from '../utils/language'
+import { getPaymentTermLabel, getPaymentTermOptions, isKnownPaymentTermValue } from '../utils/paymentTerms'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -58,7 +59,7 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
   const { invoiceId } = useParams()
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const { contractor, company, session } = useAuth()
+  const { contractor, company, session, user } = useAuth()
   const contractorId = getPaymentsContractorId({ contractor, company, session })
   const invoicesContractorId = getInvoicesContractorId({ contractor, company, session })
   const [confirmAction, setConfirmAction] = useState(null)
@@ -227,7 +228,11 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
       if (currentInvoice && currentInvoice.id) {
         response = await dataProvider.invoices.update(currentInvoice.id, payload, { contractorId: invoicesContractorId })
       } else {
-        response = await dataProvider.invoices.create({ ...payload, leadId: lead?.id }, { contractorId: invoicesContractorId })
+        response = await dataProvider.invoices.create({ ...payload, leadId: lead?.id }, {
+          contractorId: invoicesContractorId,
+          authenticatedUserId: user?.id || session?.user?.id || '',
+          companyId: company?.id || company?.contractorId || '',
+        })
       }
 
       if (response?.error) {
@@ -246,7 +251,10 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
         navigate(`/invoices/${persistedInvoice.id}`, { replace: true })
       }
     } catch (err) {
-      console.warn('Invoice save failed', err)
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Invoice save failed.', err)
+      }
       showToast(err?.message || t('invoiceSaveFailed'), 'error')
       return
     } finally {
@@ -510,7 +518,14 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
             <button onClick={addLineItem} className="mt-3 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('addItem')}</button>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <EditableInfoBlock title={t('paymentTerms')} value={currentInvoice.paymentTerms} onChange={(value) => updateDraft('paymentTerms', value)} />
+              {isKnownPaymentTermValue(currentInvoice.paymentTerms) ? (
+                <div className="rounded-2xl bg-slate-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{t('paymentTerms')}</p>
+                  <select value={currentInvoice.paymentTerms} onChange={(event) => updateDraft('paymentTerms', event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-700 outline-none focus:border-blue-500">
+                    {getPaymentTermOptions(invoiceT, currentInvoice.paymentTerms).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </div>
+              ) : <EditableInfoBlock title={t('paymentTerms')} value={currentInvoice.paymentTerms} onChange={(value) => updateDraft('paymentTerms', value)} />}
               <EditableInfoBlock title={t('notes')} value={currentInvoice.notes} onChange={(value) => updateDraft('notes', value)} />
             </div>
           </section>
@@ -609,7 +624,7 @@ function InvoicePreviewModal({ isOpen, invoice, lead, contractorCompany, onClose
         <div className="mt-6 grid gap-3 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-3"><SummaryRow label={contentT('projectTitle')} value={invoice.projectTitle} /><SummaryRow label={contentT('dueDate')} value={localizedDueDate || invoice.dueDate} /><SummaryRow label={contentT('status')} value={translateInvoiceStatus(invoice.status, contentT)} /></div>
         <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200"><div className="grid grid-cols-[1fr_120px] bg-slate-50 px-4 py-3 text-xs font-bold uppercase tracking-wide text-slate-500"><span>{contentT('description')}</span><span className="text-right">{contentT('amount')}</span></div>{(invoice.lineItems || []).map((item, index) => <div key={index} className="grid grid-cols-[1fr_120px] px-4 py-3 text-sm"><span>{item.description}</span><span className="text-right font-bold">{currency.format(item.amount)}</span></div>)}</div>
         <div className="mt-6 ml-auto max-w-sm space-y-2 text-sm"><SummaryRow label={contentT('subtotal')} value={currency.format(subtotal)} /><SummaryRow label={contentT('paymentsReceived')} value={currency.format(invoice.amountPaid)} /><SummaryRow label={contentT('remainingBalance')} value={currency.format(balance)} strong /></div>
-        <div className="mt-6 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('paymentTerms')}</p><p className="mt-2 text-sm text-slate-700">{invoice.paymentTerms}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('notes')}</p><p className="mt-2 text-sm text-slate-700">{invoice.notes}</p></div></div>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2"><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('paymentTerms')}</p><p className="mt-2 text-sm text-slate-700">{getPaymentTermLabel(invoice.paymentTerms, contentT)}</p></div><div><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{contentT('notes')}</p><p className="mt-2 text-sm text-slate-700">{invoice.notes}</p></div></div>
       </div>
     </ModalShell>
   )

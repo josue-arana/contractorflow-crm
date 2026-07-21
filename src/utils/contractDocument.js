@@ -1,4 +1,5 @@
 import { currency } from './formatters'
+import { getPaymentTermLabel } from './paymentTerms'
 
 function toSafeNumber(value, fallback = 0) {
   const parsed = Number(value)
@@ -123,7 +124,7 @@ export function buildGeneratedContractPaymentTerms({
   const explicitTerms = normalizeMultilineText(paymentTerms)
 
   if (explicitTerms) {
-    return explicitTerms
+    return getPaymentTermLabel(explicitTerms, t)
   }
 
   const safeTotal = Math.max(toSafeNumber(total), 0)

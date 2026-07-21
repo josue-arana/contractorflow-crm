@@ -205,12 +205,30 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onC
 
   async function runSampleAction() {
     const completedAction = sampleAction
+    setSettingsLoadError('')
+    setSuccessMessage('')
     setSampleProgress({ current: 0, total: 8, key: sampleAction === 'remove' ? 'sampleDataRemoving' : 'sampleDataChecking' })
-    const result = sampleAction === 'remove'
-      ? await onRemoveSampleData?.(setSampleProgress)
-      : sampleAction === 'update'
-        ? await onUpdateSampleData?.(setSampleProgress)
-      : await onCreateSampleData?.(setSampleProgress)
+    let result
+
+    try {
+      result = sampleAction === 'remove'
+        ? await onRemoveSampleData?.(setSampleProgress)
+        : sampleAction === 'update'
+          ? await onUpdateSampleData?.(setSampleProgress)
+          : await onCreateSampleData?.(setSampleProgress)
+    } catch (error) {
+      setSampleProgress(null)
+      showToast(t(completedAction === 'remove' ? 'sampleDataRemoveError' : completedAction === 'update' ? 'sampleDataUpdateError' : 'sampleDataErrorBody'), 'error')
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.error('[dev] Sample workspace settings action failed before returning a result.', {
+          failingFunction: completedAction === 'remove' ? 'onRemoveSampleData' : completedAction === 'update' ? 'onUpdateSampleData' : 'onCreateSampleData',
+          code: error?.code || 'SAMPLE_DATA_ACTION_FAILED',
+          message: error?.message || null,
+        })
+      }
+      return
+    }
 
     if (result?.upgradeRequired) {
       setSampleProgress(null)
@@ -219,20 +237,49 @@ export function SettingsPage({ settings, onSaveSettings, onOpenCompanySetup, onC
       return
     }
 
-    if (result?.error) {
+    const actionSucceeded = completedAction === 'remove'
+      ? !result?.error
+      : result?.success === true && result?.installed === true
+
+    if (!actionSucceeded) {
       setSampleProgress(null)
-      showToast(t(sampleAction === 'remove' ? 'sampleDataRemoveError' : sampleAction === 'update' ? 'sampleDataUpdateError' : 'sampleDataErrorBody'), 'error')
+      showToast(t(completedAction === 'remove' ? 'sampleDataRemoveError' : completedAction === 'update' ? 'sampleDataUpdateError' : 'sampleDataErrorBody'), 'error')
       return
     }
 
+    if (completedAction !== 'remove' && result.settings) {
+      setDraft(result.settings)
+    }
     setSampleAction('')
     setSampleProgress(null)
-    if (result?.duplicate) {
-      showToast(t('sampleDataDuplicateBody'))
-      return
+
+    try {
+      showToast(t(completedAction === 'remove' ? 'sampleDataRemovedToast' : completedAction === 'update' ? 'sampleDataUpdatedToast' : 'sampleDataReadyToast'))
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[dev] Sample workspace action succeeded; the Settings success toast failed.', {
+          failingFunction: 'showToast',
+          code: error?.code || 'SAMPLE_DATA_SUCCESS_TOAST_FAILED',
+          message: error?.message || null,
+        })
+      }
     }
-    showToast(t(completedAction === 'remove' ? 'sampleDataRemovedToast' : completedAction === 'update' ? 'sampleDataUpdatedToast' : 'sampleDataReadyToast'))
-    if (completedAction !== 'remove') onOpenSampleWorkspace?.()
+
+    if (completedAction !== 'remove') {
+      try {
+        await onOpenSampleWorkspace?.()
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] Sample workspace installed; opening the workspace failed.', {
+            failingFunction: 'onOpenSampleWorkspace',
+            code: error?.code || 'SAMPLE_DATA_NAVIGATION_FAILED',
+            message: error?.message || null,
+          })
+        }
+      }
+    }
   }
 
   return (

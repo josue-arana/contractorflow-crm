@@ -280,7 +280,7 @@ export function ScheduleEventModal({ isOpen, leads = [], initialLeadId = '', con
       title: form.title.trim() || tStatus(t, form.type),
       leadId: lead?.id || form.leadId,
       clientId: lead?.clientId || lead?.client_id || editingEvent?.clientId || null,
-      projectId: editingEvent?.projectId || lead?.projectId || lead?.project_id || lead?.id || null,
+      projectId: editingEvent?.projectId || editingEvent?.project_id || lead?.projectId || lead?.project_id || null,
       clientName: lead?.client || t('unknownClient'),
       projectTitle: lead?.projectTitle || lead?.projectType || t('unknownProject'),
       eventType: form.type,

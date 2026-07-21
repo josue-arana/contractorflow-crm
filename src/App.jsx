@@ -67,10 +67,12 @@ import { SAMPLE_GUIDE_ITEM_KEYS, SAMPLE_WORKSPACE_VERSION, createSampleWorkspace
 
 const emptyArchiveState = {
   leadIds: [],
+  projectIds: [],
   clientIds: [],
   invoiceIds: [],
   scheduleEventIds: [],
   deletedLeadIds: [],
+  deletedProjectIds: [],
   deletedClientIds: [],
   deletedInvoiceIds: [],
   deletedScheduleEventIds: [],
@@ -691,7 +693,7 @@ function ContractorFlowApp() {
     setIsCompanySetupReopen(false)
   }
 
-  async function refreshWorkspaceEntities(contractorId = settingsContractorId) {
+  async function refreshWorkspaceEntities(contractorId = settingsContractorId, { expectedSampleEventId = '' } = {}) {
     if (!contractorId) return { data: null, error: { code: 'MISSING_CONTRACTOR_ID' } }
 
     const [clientsResponse, leadsResponse, estimatesResponse, projectsResponse, contractsResponse, invoicesResponse, paymentsResponse, eventsResponse, settingsResponse] = await Promise.all([
@@ -718,6 +720,23 @@ function ContractorFlowApp() {
     if (!eventsResponse?.error && Array.isArray(eventsResponse?.data)) setScheduleEvents(sortScheduleEventRecords(eventsResponse.data))
     if (!settingsResponse?.error && settingsResponse?.data) setCompanySettings(createDefaultCompanySettings(settingsResponse.data))
 
+    if (
+      import.meta.env.DEV
+      && expectedSampleEventId
+      && !eventsResponse?.error
+      && Array.isArray(eventsResponse?.data)
+      && !eventsResponse.data.some((event) => event.id === expectedSampleEventId)
+    ) {
+      // eslint-disable-next-line no-console
+      console.warn('[dev] The contractor-scoped Calendar query did not return the persisted sample event.', {
+        failingFunction: 'dataProvider.events.list',
+        contractorId,
+        expectedSampleEventId,
+        queryFilters: { contractorId, includeArchived: true },
+        returnedEventIds: eventsResponse.data.map((event) => event.id),
+      })
+    }
+
     const refreshResponses = {
       clients: clientsResponse,
       leads: leadsResponse,
@@ -734,7 +753,7 @@ function ContractorFlowApp() {
     if (failedEntry) {
       if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
-        console.error('[dev] Sample workspace state refresh failed.', {
+        console.warn('[dev] Sample workspace state refresh did not fully complete.', {
           stage: failedEntry[0],
           contractorId,
           code: failedEntry[1]?.error?.code || null,
@@ -749,20 +768,85 @@ function ContractorFlowApp() {
   }
 
   async function installSampleWorkspace(onProgress) {
-    const result = await createSampleWorkspace({
-      contractorId: settingsContractorId,
-      settings: companySettings,
-      onProgress,
-      sampleLabel: t('sampleDataBadge'),
-    })
+    try {
+      const result = await createSampleWorkspace({
+        contractorId: settingsContractorId,
+        authenticatedUserId: user?.id || session?.user?.id || '',
+        companyId: company?.id || company?.contractorId || '',
+        settings: companySettings,
+        onProgress,
+        sampleLabel: t('sampleDataBadge'),
+      })
+      return finalizeSampleWorkspaceInstallation(result)
+    } catch (error) {
+      return {
+        success: false,
+        installed: false,
+        partial: false,
+        manifest: null,
+        recordIds: {},
+        records: {},
+        settings: companySettings,
+        warnings: [],
+        errorCode: error?.code || 'SAMPLE_DATA_CREATE_FAILED',
+        duplicate: false,
+        upgradeRequired: false,
+        upgraded: false,
+      }
+    }
+  }
 
-    if (result?.data?.settings) {
-      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+  function finalizeSampleWorkspaceInstallation(result) {
+    if (result?.settings) {
+      setCompanySettings(createDefaultCompanySettings(result.settings))
     }
-    if (!result?.error && !result?.upgradeRequired) {
-      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
-      if (refreshResult?.error) return { ...result, error: refreshResult.error }
-    }
+
+    const installationIsComplete = result?.success === true && result?.installed === true
+    const partialRecordsExist = result?.partial === true
+
+    if (!installationIsComplete && !partialRecordsExist) return result
+
+    // Refreshing local collections is deliberately detached from the result.
+    // A completed install can close immediately, while a partial install still
+    // makes already-persisted records (such as its event) visible to the app.
+    void refreshWorkspaceEntities(settingsContractorId, {
+      expectedSampleEventId: result.recordIds?.event || '',
+    })
+      .then((refreshResult) => {
+        if (refreshResult?.error && import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] Sample workspace records persisted; a non-critical UI refresh did not fully complete.', {
+            failingFunction: 'refreshWorkspaceEntities',
+            failingPayload: { contractorId: settingsContractorId },
+            code: refreshResult.error.code,
+            recordsAlreadyCreated: result.recordIds,
+          })
+        }
+      })
+      .catch((error) => {
+        if (import.meta.env.DEV) {
+          // eslint-disable-next-line no-console
+          console.warn('[dev] Sample workspace records persisted; a non-critical UI refresh threw unexpectedly.', {
+            failingFunction: 'refreshWorkspaceEntities',
+            failingPayload: { contractorId: settingsContractorId },
+            code: error?.code || 'SAMPLE_DATA_REFRESH_FAILED',
+            message: error?.message || null,
+            details: error?.details || null,
+            recordsAlreadyCreated: result.recordIds,
+          })
+        }
+      })
+      .finally(() => {
+        // A refresh response must not replace a verified installed manifest
+        // with stale local settings.
+        if (installationIsComplete && result.settings) {
+          setCompanySettings((current) => createDefaultCompanySettings({
+            ...current,
+            sampleWorkspace: result.settings.sampleWorkspace,
+          }))
+        }
+      })
+
     return result
   }
 
@@ -777,28 +861,38 @@ function ContractorFlowApp() {
       setCompanySettings(createDefaultCompanySettings(result.data.settings))
     }
     if (!result?.error) {
-      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
-      if (refreshResult?.error) return { ...result, error: refreshResult.error }
+      await refreshWorkspaceEntities(settingsContractorId)
     }
     return result
   }
 
   async function updateInstalledSampleWorkspace(onProgress) {
-    const result = await upgradeSampleWorkspaceRecords({
-      contractorId: settingsContractorId,
-      settings: companySettings,
-      onProgress,
-      sampleLabel: t('sampleDataBadge'),
-    })
-
-    if (result?.data?.settings) {
-      setCompanySettings(createDefaultCompanySettings(result.data.settings))
+    try {
+      const result = await upgradeSampleWorkspaceRecords({
+        contractorId: settingsContractorId,
+        authenticatedUserId: user?.id || session?.user?.id || '',
+        companyId: company?.id || company?.contractorId || '',
+        settings: companySettings,
+        onProgress,
+        sampleLabel: t('sampleDataBadge'),
+      })
+      return finalizeSampleWorkspaceInstallation(result)
+    } catch (error) {
+      return {
+        success: false,
+        installed: false,
+        partial: false,
+        manifest: null,
+        recordIds: {},
+        records: {},
+        settings: companySettings,
+        warnings: [],
+        errorCode: error?.code || 'SAMPLE_DATA_UPDATE_FAILED',
+        duplicate: false,
+        upgradeRequired: false,
+        upgraded: false,
+      }
     }
-    if (!result?.error) {
-      const refreshResult = await refreshWorkspaceEntities(settingsContractorId)
-      if (refreshResult?.error) return { ...result, error: refreshResult.error }
-    }
-    return result
   }
 
   async function persistSampleGuide(updates) {
@@ -1534,10 +1628,24 @@ function ContractorFlowApp() {
     showToast(t('itemDeletedPermanently'))
   }
 
+  function archiveProjectRecord(id) {
+    updateArchiveList('projectIds', id, 'add')
+    showToast(t('itemArchived'))
+  }
+
+  function restoreProjectRecord(id) {
+    updateArchiveList('projectIds', id, 'remove')
+    showToast(t('itemRestored'))
+  }
+
+  function deleteProjectRecord(id) {
+    updateArchiveList('deletedProjectIds', id, 'add')
+  }
+
   const archiveRecord = {
     lead: archiveLeadRecord,
-    project: archiveLeadRecord,
-    job: archiveLeadRecord,
+    project: archiveProjectRecord,
+    job: archiveProjectRecord,
     estimate: archiveLeadRecord,
     client: archiveClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'add'); showToast(t('itemArchived')) },
@@ -1553,8 +1661,8 @@ function ContractorFlowApp() {
 
   const restoreRecord = {
     lead: restoreLeadRecord,
-    project: restoreLeadRecord,
-    job: restoreLeadRecord,
+    project: restoreProjectRecord,
+    job: restoreProjectRecord,
     estimate: restoreLeadRecord,
     client: restoreClientRecord,
     invoice: (id) => { updateArchiveList('invoiceIds', id, 'remove'); showToast(t('itemRestored')) },
@@ -1569,8 +1677,8 @@ function ContractorFlowApp() {
 
   const deleteRecord = {
     lead: deleteLeadRecord,
-    project: deleteLeadRecord,
-    job: deleteLeadRecord,
+    project: deleteProjectRecord,
+    job: deleteProjectRecord,
     estimate: deleteLeadRecord,
     client: deleteClientRecord,
     invoice: (id) => { updateArchiveList('deletedInvoiceIds', id, 'add'); showToast(t('itemDeletedPermanently')) },
@@ -3814,6 +3922,23 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     setSidebarOpen(false)
   }
 
+  function openCalendarProject(projectId, leadId = '') {
+    if (!projectId) {
+      if (leadId) openLead(leadId)
+      return
+    }
+
+    const matchingLead = findLeadByProjectLookup(visibleLeads, projectId, leadId)
+    navigate(`/projects/${projectId}`, {
+      state: {
+        source: 'project',
+        projectId,
+        leadId: matchingLead?.id || leadId || null,
+      },
+    })
+    setSidebarOpen(false)
+  }
+
   function openEstimateForLead(leadId) {
     const matchingLead = findLeadByProjectLookup(visibleLeads, leadId)
     const hasProject = Boolean(matchingLead?.projectId || matchingLead?.project_id)
@@ -3905,14 +4030,14 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       <Route path={appRoutes.leadDetail} element={<LeadRoute leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onBack={() => navigate(appRoutes.leads)} onOpenProject={openProject} onDuplicateLead={duplicateLead} onConvertLeadToJob={(leadId) => transitionLeadStage(leadId, leadPipelineStages.CONVERTED_TO_JOB)} onTransitionLeadStage={transitionLeadStage} onUpdateLead={updateLead} onArchiveLead={archiveRecord.lead} onRestoreLead={restoreRecord.lead} onDeleteLead={deleteRecord.lead} language={language} t={t} />} />
       <Route path={appRoutes.estimates} element={<EstimatesPage leads={visibleLeads} estimates={persistedEstimates} contracts={persistedContracts} archivedIds={archives.leadIds} onOpenEstimate={openEstimateForLead} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} />} />
       <Route path={appRoutes.contracts} element={<ContractsPage leads={activeLeads} contracts={persistedContracts} onViewContract={openContractForLead} t={t} />} />
-      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onViewJob={openProject} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
-      <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openProject} onMarkComplete={markScheduleEventComplete} t={t} />} />
+      <Route path={appRoutes.jobs} element={<JobsPage leads={visibleLeads} clients={clients} archivedIds={archives.projectIds} sampleWorkspace={companySettings?.sampleWorkspace} onViewJob={openCalendarProject} onViewLead={openLead} onCreateJob={() => openJobModal()} onArchiveJob={archiveRecord.job} onRestoreJob={restoreRecord.job} onDeleteJob={deleteRecord.job} t={t} />} />
+      <Route path={appRoutes.calendar} element={<CalendarPage leads={activeLeads} scheduleEvents={activeScheduleEvents} onCreateEvent={(event) => createScheduleEvent(event, 'event')} onExportEvent={exportScheduleEvent} onViewProject={openCalendarProject} onViewLead={openLead} onMarkComplete={markScheduleEventComplete} t={t} language={language} />} />
       <Route path={appRoutes.clients} element={<ClientsPage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onOpenClient={openClient} onCreateClient={createClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} t={t} />} />
       <Route path={appRoutes.clientProfile} element={<ClientProfilePage leads={visibleLeads} customClients={customClients} archivedClientIds={archives.clientIds} onBack={() => navigate('/clients')} onOpenProject={openProject} onOpenLead={openLead} onOpenEstimate={openEstimateForLead} onOpenContract={openContractForLead} onCreateJob={(client) => openJobModal({ clientId: client?.id, client })} onUpdateClient={updateClient} onArchiveClient={archiveRecord.client} onRestoreClient={restoreRecord.client} onDeleteClient={deleteRecord.client} language={language} setLanguage={handleAppLanguageChange} t={t} />} />
       <Route path={appRoutes.invoices} element={<InvoicesPage leads={visibleLeads} clients={clients} invoices={invoices} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onViewInvoice={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onRecordPayment={(invoiceId) => navigate(`/invoices/${invoiceId}`)} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} onInvoiceSent={markInvoiceSent} t={t} appLanguage={language} />} />
       <Route path={appRoutes.invoiceDetail} element={<InvoiceDetailRoute companySettings={companySettings} leads={visibleLeads} clients={clients} invoices={invoices} invoicesLoaded={areInvoicesLoaded} archivedIds={archives.invoiceIds} deletedIds={archives.deletedInvoiceIds} onUpdateInvoice={updateInvoice} onRecordInvoicePayment={recordInvoicePayment} onMarkInvoicePaid={markInvoicePaid} onInvoiceSent={markInvoiceSent} onArchiveInvoice={archiveRecord.invoice} onRestoreInvoice={restoreRecord.invoice} onDeleteInvoice={deleteRecord.invoice} t={t} appLanguage={language} />} />
       <Route path={appRoutes.settings} element={<SettingsPage settings={companySettings} onSaveSettings={(settings) => { setCompanySettings(settings); showToast(t('settingsSaved')) }} onOpenCompanySetup={() => { setIsCompanySetupReopen(true); setOnboardingSessionActive(true) }} onCreateSampleData={installSampleWorkspace} onUpdateSampleData={updateInstalledSampleWorkspace} onRemoveSampleData={uninstallSampleWorkspace} onReopenSampleGuide={async () => { const result = await persistSampleGuide({ ...(companySettings?.sampleWorkspace?.guide || {}), dismissed: false }); if (!result?.error) navigate(appRoutes.dashboard); return result }} onOpenSampleWorkspace={() => navigate(appRoutes.dashboard)} language={language} setLanguage={setLanguage} portalLanguage={portalLanguage} setPortalLanguage={setPortalLanguage} t={t} />} />
-      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.leadIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
+      <Route path={appRoutes.projects} element={<ProjectRoute companySettings={companySettings} leads={visibleLeads} clients={clients} scheduleEvents={visibleScheduleEvents} archivedIds={archives.projectIds} archivedScheduleEventIds={archives.scheduleEventIds} onBack={() => navigate('/dashboard')} onOpenPortal={openPortal} onOpenContract={openContractForLead} onConvertEstimate={async (leadId) => { const contract = await ensureContractForLead(leadId); if (contract) openContractForLead(leadId, { source: 'project', projectId: contract.projectId || contract.project_id || undefined, leadId }) }} onUpdateLead={updateLead} onRecordPayment={recordProjectPayment} onUpdatePayment={updateProjectPayment} onDeletePayment={deleteProjectPayment} onUploadPhotos={uploadProjectPhotos} onScheduleEvent={openScheduleModal} onExportEvent={exportScheduleEvent} onArchiveScheduleEvent={archiveRecord.scheduleEvent} onRestoreScheduleEvent={restoreRecord.scheduleEvent} onDeleteScheduleEvent={deleteRecord.scheduleEvent} onArchiveProject={archiveRecord.project} onRestoreProject={restoreRecord.project} onDeleteProject={deleteRecord.project} language={language} t={t} />} />
       <Route path={appRoutes.projectEstimate} element={<EstimateBuilderRoute companySettings={companySettings} leads={visibleLeads} clients={clients} archivedIds={archives.leadIds} onSaveEstimate={saveEstimate} onConvertEstimate={async (leadId, estimate) => { const contract = await ensureContractForLead(leadId, estimate); if (contract) openContractForLead(leadId, { source: 'estimate', projectId: contract.projectId || contract.project_id || undefined, leadId }); return contract }} onSyncEstimateContract={async (leadId, estimate, options = {}) => syncContractFromEstimate(leadId, estimate, options)} onArchiveEstimate={archiveEstimateRecord} onRestoreEstimate={restoreEstimateRecord} onDeleteEstimate={deleteEstimateRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.projectContract} element={<ContractRoute companySettings={companySettings} leads={visibleLeads} clients={clients} onSaveContract={saveContract} onMarkContractSigned={markContractSigned} onMarkContractUnsigned={markContractUnsigned} onArchiveContract={archiveContractRecord} t={t} appLanguage={language} />} />
       <Route path={appRoutes.portal} element={<PortalRoute companySettings={companySettings} projects={visibleLeads} clients={clients} onBack={() => navigate(-1)} t={portalT} language={portalLanguage} setLanguage={setPortalLanguage} />} />
@@ -4106,14 +4231,14 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
   const { id, leadId } = useParams()
   const projectId = id || leadId
   const lead = findLeadByProjectLookup(leads, projectId)
-  const leadRecordId = lead?.id || projectId
+  const leadRecordId = lead?.id || ''
 
   return (
       <ProjectDetailPage
       lead={lead}
       companySettings={companySettings}
       clients={clients}
-      isArchived={archivedIds.includes(leadRecordId) || archivedIds.includes(projectId)}
+      isArchived={archivedIds.includes(projectId)}
       onBack={onBack}
       onOpenPortal={() => onOpenPortal(projectId)}
       onOpenContract={onOpenContract}
@@ -4131,9 +4256,9 @@ function ProjectRoute({ companySettings, leads, clients, scheduleEvents = [], ar
       onArchiveScheduleEvent={onArchiveScheduleEvent}
       onRestoreScheduleEvent={onRestoreScheduleEvent}
       onDeleteScheduleEvent={onDeleteScheduleEvent}
-      onArchiveProject={() => onArchiveProject(leadRecordId)}
-      onRestoreProject={() => onRestoreProject(leadRecordId)}
-      onDeleteProject={() => onDeleteProject(leadRecordId)}
+      onArchiveProject={() => onArchiveProject(projectId)}
+      onRestoreProject={() => onRestoreProject(projectId)}
+      onDeleteProject={() => onDeleteProject(projectId)}
       language={language}
       t={t}
     />
