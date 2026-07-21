@@ -2501,6 +2501,7 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
       const conversionResult = await ensureProjectForLeadConversion(sourceLead, {
         leadId,
         silent,
+        successToastKey: 'leadToastConvertedToJob',
       })
       return conversionResult?.persistedLead || null
     }
@@ -2573,7 +2574,12 @@ function buildWorkspaceJobRecord(job, clientRecord = null) {
     setLeads((current) => current.map((lead) => (lead.id === leadId ? persistedLead : lead)))
 
     if (!silent) {
-      showToast(t('leadStageUpdated'))
+      const successToastKey = {
+        [leadPipelineStages.ESTIMATE_SENT]: 'leadToastEstimateSent',
+        [leadPipelineStages.FOLLOW_UP]: 'leadToastFollowUpComplete',
+        [leadPipelineStages.ESTIMATE_APPROVED]: 'leadToastEstimateApproved',
+      }[targetStage] || 'leadStageUpdated'
+      showToast(t(successToastKey))
     }
 
     return persistedLead
