@@ -185,7 +185,7 @@ export function Sidebar({ isOpen, onClose, t, companySettings, navBadges = {}, t
             <NavLink
               to={todaySummary?.to || appRoutes.dashboard}
               onClick={onClose}
-              className="rounded-[22px] border border-white/10 bg-white/[0.045] px-5 py-4 shadow-[0_14px_34px_rgba(2,6,23,0.24)] transition hover:bg-white/[0.06] lg:hidden"
+              className="block w-full max-w-full rounded-[22px] border border-white/10 bg-white/[0.045] px-5 py-4 shadow-[0_14px_34px_rgba(2,6,23,0.24)] transition hover:bg-white/[0.06] lg:hidden"
             >
               <div className="flex items-center gap-3">
                 <div className="min-w-0 flex-1">
