@@ -366,6 +366,7 @@ export const es = {
   "total": "Total",
   "balance": "Saldo",
   "dueDate": "Fecha de vencimiento",
+  "issueDate": "Fecha de emisión",
   "all": "Todos",
   "scheduled": "Programado",
   "waitingOnClient": "Esperando al cliente",

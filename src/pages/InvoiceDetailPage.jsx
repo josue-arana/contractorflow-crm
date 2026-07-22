@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Archive, ArrowLeft, Trash2, Undo2 } from 'lucide-react'
-import { StatusBadge } from '../components/ui/StatusBadge'
+import { Archive, ArrowLeft, CalendarDays, CheckCircle2, ChevronRight, CreditCard, Eye, RotateCcw, Save, Send, Trash2 } from 'lucide-react'
 import { contractorCompany } from '../data/mockInvoices'
 import { currency } from '../utils/formatters'
 import { archiveMenuItemClasses } from '../utils/buttonStyles'
@@ -14,11 +13,12 @@ import dataProvider from '../services/dataProvider'
 import { useAuth } from '../contexts/AuthContext'
 import { getInvoicesContractorId } from '../services/system/invoicesRuntimeService'
 import { getPaymentsContractorId } from '../services/system/paymentsRuntimeService'
-import { findRelatedLeadForInvoice } from '../utils/invoiceRecords'
+import { findRelatedLeadForInvoice, normalizeInvoiceStatus } from '../utils/invoiceRecords'
 import { createTranslator } from '../translations'
 import { findRelatedClient } from '../utils/clients'
 import { getLanguageLocale, resolveClientFacingLanguage } from '../utils/language'
 import { getPaymentTermLabel, getPaymentTermOptions, isKnownPaymentTermValue } from '../utils/paymentTerms'
+import { appRoutes } from '../config/appRoutes'
 
 const paymentMethods = ['Cash', 'Check', 'Zelle', 'Credit Card', 'Bank Transfer', 'Other']
 const paymentTypes = ['Deposit', 'Progress Payment', 'Final Payment', 'Other']
@@ -47,12 +47,79 @@ function formatLocalizedInvoiceDate(value, language = 'en') {
 }
 
 function translateInvoiceStatus(status, t) {
-  if (status === 'Paid') return t('paid')
-  if (status === 'Partially Paid') return t('partiallyPaid')
-  if (status === 'Sent') return t('sent')
-  if (status === 'Overdue') return t('overdue')
-  if (status === 'Canceled' || status === 'Cancelled') return t('canceled')
+  const normalizedStatus = String(status || '').trim().toLowerCase().replaceAll('_', ' ')
+
+  if (normalizedStatus === 'paid in full') return t('paidInFull')
+  if (normalizedStatus === 'paid') return t('paid')
+  if (normalizedStatus === 'partially paid') return t('partiallyPaid')
+  if (normalizedStatus === 'sent') return t('sent')
+  if (normalizedStatus === 'overdue') return t('overdue')
+  if (normalizedStatus === 'canceled' || normalizedStatus === 'cancelled') return t('canceled')
+  if (normalizedStatus === 'archived') return t('archived')
   return t('draft')
+}
+
+function getInvoiceStatusClasses(status) {
+  const normalizedStatus = String(status || '').trim().toLowerCase().replaceAll('_', ' ')
+
+  if (normalizedStatus === 'paid' || normalizedStatus === 'paid in full') {
+    return 'border-emerald-300/30 bg-emerald-400/15 text-emerald-100'
+  }
+  if (normalizedStatus === 'partially paid') {
+    return 'border-cyan-300/30 bg-cyan-400/15 text-cyan-100'
+  }
+  if (normalizedStatus === 'overdue') {
+    return 'border-rose-300/30 bg-rose-400/15 text-rose-100'
+  }
+  if (normalizedStatus === 'sent') {
+    return 'border-blue-300/30 bg-blue-400/15 text-blue-100'
+  }
+  if (normalizedStatus === 'archived') {
+    return 'border-amber-300/30 bg-amber-400/15 text-amber-100'
+  }
+  return 'border-slate-300/25 bg-white/10 text-slate-100'
+}
+
+function getInvoiceActionHierarchy(status, isArchived) {
+  if (isArchived) {
+    return {
+      primary: 'restore',
+      secondary: ['preview'],
+      overflow: ['save', 'send', 'recordPayment', 'markPaid', 'delete'],
+    }
+  }
+
+  const normalizedStatus = String(status || '').trim().toLowerCase().replaceAll('_', ' ')
+
+  if (normalizedStatus === 'paid' || normalizedStatus === 'paid in full') {
+    return {
+      primary: 'preview',
+      secondary: ['send', 'save'],
+      overflow: ['recordPayment', 'markPaid', 'archive'],
+    }
+  }
+
+  if (normalizedStatus === 'partially paid') {
+    return {
+      primary: 'recordPayment',
+      secondary: ['preview', 'send'],
+      overflow: ['save', 'markPaid', 'archive'],
+    }
+  }
+
+  if (normalizedStatus === 'sent' || normalizedStatus === 'overdue') {
+    return {
+      primary: 'recordPayment',
+      secondary: ['send', 'preview'],
+      overflow: ['save', 'markPaid', 'archive'],
+    }
+  }
+
+  return {
+    primary: 'save',
+    secondary: ['send', 'preview'],
+    overflow: ['recordPayment', 'markPaid', 'archive'],
+  }
 }
 
 export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoices = [], invoicesLoaded = false, archivedIds = [], deletedIds = [], onUpdateInvoice, onRecordInvoicePayment, onMarkInvoicePaid, onInvoiceSent, onArchiveInvoice, onRestoreInvoice, onDeleteInvoice, t, appLanguage = 'en' }) {
@@ -178,6 +245,17 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
   const paymentHistory = currentInvoice.paymentHistory || []
   const displayCompany = companySettings?.company || contractorCompany
   const isInvoiceActionPending = isSavingInvoice || isRunningInvoiceAction
+  const presentationStatus = isArchived
+    ? 'Archived'
+    : normalizeInvoiceStatus(currentInvoice.status, {
+        amount: invoiceTotal,
+        amountPaid: Number(currentInvoice.amountPaid || 0),
+        hasLinkedPayments: paymentHistory.length > 0,
+      })
+  const invoiceNumber = currentInvoice.number || currentInvoice.invoiceNumber || t('invoiceDetail')
+  const invoiceTitle = currentInvoice.title || currentInvoice.projectTitle || ''
+  const invoiceClient = currentInvoice.client || currentInvoice.clientName || lead?.client || ''
+  const localizedIssueDate = formatLocalizedInvoiceDate(currentInvoice.issueDate, appLanguage)
 
   async function runSingleFlightInvoiceAction(actionKey, task) {
     if (invoiceActionGuardRef.current) {
@@ -403,48 +481,176 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
     })
   }
 
-  const moreMenuItems = isArchived
-    ? [
-        {
-          id: 'restore-invoice',
-          label: t('restore'),
-          icon: <Undo2 className="mr-2 h-4 w-4" />,
-          disabled: isInvoiceActionPending,
-          onClick: restoreInvoice,
-        },
-        {
-          id: 'delete-invoice',
-          label: t('deletePermanently'),
-          icon: <Trash2 className="mr-2 h-4 w-4" />,
-          disabled: isInvoiceActionPending,
-          onClick: () => setConfirmAction({ mode: 'delete' }),
-          className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
-        },
-      ]
-    : [
-        {
-          id: 'archive-invoice',
-          label: t('archive'),
-          icon: <Archive className="mr-2 h-4 w-4" />,
-          disabled: isInvoiceActionPending,
-          onClick: () => setConfirmAction({ mode: 'archive' }),
-          className: archiveMenuItemClasses,
-        },
-      ]
+  const actionDefinitions = {
+    save: {
+      id: 'save-invoice',
+      label: isSavingInvoice ? t('saving') : t('saveInvoice'),
+      icon: Save,
+      disabled: isInvoiceActionPending,
+      onClick: saveInvoice,
+    },
+    send: {
+      id: 'send-invoice',
+      label: activeInvoiceAction === 'send' ? t('saving') : t('sendToCustomer'),
+      icon: Send,
+      disabled: isInvoiceActionPending,
+      onClick: () => setShowSendModal(true),
+    },
+    preview: {
+      id: 'preview-invoice',
+      label: t('previewPdf'),
+      icon: Eye,
+      disabled: false,
+      onClick: () => setShowPreview(true),
+    },
+    recordPayment: {
+      id: 'record-invoice-payment',
+      label: t('recordPayment'),
+      icon: CreditCard,
+      disabled: isInvoiceActionPending,
+      onClick: () => setShowPaymentModal(true),
+    },
+    markPaid: {
+      id: 'mark-invoice-paid',
+      label: activeInvoiceAction === 'markPaid' ? t('saving') : t('markAsPaid'),
+      icon: CheckCircle2,
+      disabled: isInvoiceActionPending,
+      onClick: confirmMarkPaid,
+    },
+    archive: {
+      id: 'archive-invoice',
+      label: t('archive'),
+      icon: Archive,
+      disabled: isInvoiceActionPending,
+      onClick: () => setConfirmAction({ mode: 'archive' }),
+      className: archiveMenuItemClasses,
+    },
+    restore: {
+      id: 'restore-invoice',
+      label: t('restore'),
+      icon: RotateCcw,
+      disabled: isInvoiceActionPending,
+      onClick: restoreInvoice,
+    },
+    delete: {
+      id: 'delete-invoice',
+      label: t('deletePermanently'),
+      icon: Trash2,
+      disabled: isInvoiceActionPending,
+      onClick: () => setConfirmAction({ mode: 'delete' }),
+      className: 'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50',
+    },
+  }
+  const actionHierarchy = getInvoiceActionHierarchy(presentationStatus, isArchived)
+  const primaryAction = actionDefinitions[actionHierarchy.primary]
+  const PrimaryActionIcon = primaryAction.icon
+  const secondaryActions = actionHierarchy.secondary.map((actionId) => actionDefinitions[actionId]).filter(Boolean)
+  const moreMenuItems = actionHierarchy.overflow.map((actionId) => {
+    const action = actionDefinitions[actionId]
+    const ActionIcon = action.icon
+
+    return {
+      ...action,
+      icon: <ActionIcon className="mr-2 h-4 w-4" aria-hidden="true" />,
+    }
+  })
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <button onClick={() => navigate('/invoices')} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-950"><ArrowLeft className="h-4 w-4" /> {t('backToInvoices')}</button>
+      <div className="flex min-w-0 items-center justify-between gap-4">
+        <nav aria-label={t('invoices')} className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+          <button
+            type="button"
+            onClick={() => navigate(appRoutes.invoices)}
+            className="inline-flex shrink-0 items-center gap-2 text-slate-600 transition hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            {t('invoices')}
+          </button>
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" aria-hidden="true" />
+          <span className="min-w-0 truncate text-slate-950" aria-current="page">{invoiceNumber}</span>
+        </nav>
+        <ActionMenu
+          label={t('more')}
+          ariaLabel={t('more')}
+          showChevron
+          containerClassName="shrink-0"
+          buttonClassName="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          menuClassName="max-w-[calc(100vw-2.5rem)]"
+          items={moreMenuItems}
+          buttonDisabled={isInvoiceActionPending}
+        />
+      </div>
 
       {successMessage && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">{successMessage}</div>}
 
-      <section className="flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-slate-950 to-slate-800 p-6 text-white shadow-xl md:flex-row md:items-end">
-        <div>
-          <p className="mb-2 text-sm font-semibold uppercase tracking-[0.25em] text-blue-200">{t('invoicePreview')}</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{currentInvoice.number}</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{currentInvoice.projectTitle}</p>
+      <section className="relative rounded-3xl bg-[linear-gradient(135deg,#020617_0%,#0f172a_58%,#172554_100%)] p-5 text-white shadow-xl shadow-slate-950/15 sm:p-7 lg:p-8">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
+          <div className="absolute -right-16 -top-20 h-64 w-64 rounded-full bg-blue-400/10 blur-3xl" />
+          <div className="absolute -bottom-24 left-1/3 h-56 w-56 rounded-full bg-cyan-300/5 blur-3xl" />
         </div>
-        <StatusBadge status={isArchived ? 'Archived' : currentInvoice.status} t={t} />
+
+        <div className="relative grid min-w-0 gap-7 lg:grid-cols-[minmax(0,1.2fr)_minmax(260px,0.8fr)] lg:items-end lg:gap-10">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-blue-200 sm:text-sm">{t('invoicePreview')}</p>
+            <h1 className="mt-3 break-words text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">{invoiceNumber}</h1>
+            {invoiceTitle ? <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300 sm:text-base">{invoiceTitle}</p> : null}
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <InvoiceHeroStatusBadge status={presentationStatus} t={t} />
+              {localizedIssueDate ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-bold text-slate-100 sm:text-sm">
+                  <CalendarDays className="h-4 w-4 text-blue-200" aria-hidden="true" />
+                  <span>{t('issueDate')}: {localizedIssueDate}</span>
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.07] p-4 backdrop-blur-sm sm:p-5">
+            <div className={`grid gap-4 ${invoiceClient ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+              {invoiceClient ? (
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{t('client')}</p>
+                  <p className="mt-2 break-words text-sm font-bold text-white sm:truncate sm:text-base">{invoiceClient}</p>
+                </div>
+              ) : null}
+              <div className={invoiceClient ? 'border-t border-white/10 pt-4 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0' : ''}>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">{t('totalAmount')}</p>
+                <p className="mt-2 break-words text-xl font-bold tracking-tight text-white sm:text-2xl">{currency.format(invoiceTotal)}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative mt-7 flex flex-col gap-2 border-t border-white/10 pt-5 sm:flex-row sm:flex-wrap sm:items-center">
+          <button
+            type="button"
+            disabled={primaryAction.disabled}
+            onClick={primaryAction.onClick}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-blue-500 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-950/25 transition hover:bg-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            <PrimaryActionIcon className="h-4 w-4" aria-hidden="true" />
+            {primaryAction.label}
+          </button>
+
+          {secondaryActions.map((action) => {
+            const SecondaryActionIcon = action.icon
+
+            return (
+              <button
+                key={action.id}
+                type="button"
+                disabled={action.disabled}
+                onClick={action.onClick}
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              >
+                <SecondaryActionIcon className="h-4 w-4" aria-hidden="true" />
+                {action.label}
+              </button>
+            )
+          })}
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -457,25 +663,10 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
       <section className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-6">
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:justify-between">
+            <div className="mb-6">
               <div>
                 <h2 className="text-xl font-bold text-slate-950">{t('invoiceDetail')}</h2>
                 <p className="text-sm text-slate-500">{t('invoiceDetailHelp')}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button disabled={isInvoiceActionPending} onClick={saveInvoice} className="rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400">{isSavingInvoice ? t('saving') : t('saveInvoice')}</button>
-                <button onClick={() => setShowPreview(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50">{t('previewPdf')}</button>
-                <button disabled={isInvoiceActionPending} onClick={() => setShowPaymentModal(true)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">{t('recordPayment')}</button>
-                <button disabled={isInvoiceActionPending} onClick={confirmMarkPaid} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">{activeInvoiceAction === 'markPaid' ? t('saving') : t('markAsPaid')}</button>
-                <button disabled={isInvoiceActionPending} onClick={() => setShowSendModal(true)} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">{activeInvoiceAction === 'send' ? t('saving') : t('sendToCustomer')}</button>
-                <ActionMenu
-                  label={t('more')}
-                  ariaLabel={t('more')}
-                  showChevron
-                  buttonClassName="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-                  items={moreMenuItems}
-                  buttonDisabled={isInvoiceActionPending}
-                />
               </div>
             </div>
 
@@ -590,6 +781,15 @@ export function InvoiceDetailRoute({ companySettings, leads, clients = [], invoi
         contentT={invoiceT}
       />
     </div>
+  )
+}
+
+function InvoiceHeroStatusBadge({ status, t }) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold sm:text-sm ${getInvoiceStatusClasses(status)}`}>
+      <span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />
+      {translateInvoiceStatus(status, t)}
+    </span>
   )
 }
 

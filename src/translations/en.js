@@ -366,6 +366,7 @@ export const en = {
   "total": "Total",
   "balance": "Balance",
   "dueDate": "Due Date",
+  "issueDate": "Issue Date",
   "all": "All",
   "scheduled": "Scheduled",
   "waitingOnClient": "Waiting on Client",
