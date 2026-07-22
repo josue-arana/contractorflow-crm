@@ -75,7 +75,7 @@ function buildLinkedPaymentHistory(payments = []) {
   })
 }
 
-function normalizeInvoiceStatus(status, { amount = 0, amountPaid = 0, hasLinkedPayments = false } = {}) {
+export function normalizeInvoiceStatus(status, { amount = 0, amountPaid = 0, hasLinkedPayments = false } = {}) {
   if (status === 'Archived') return status
   if (status === 'Canceled' || status === 'Cancelled') return 'Canceled'
   if (status === 'Overdue') return status
